@@ -52,7 +52,8 @@ export interface SearchHit {
 
 export interface StatusDef {
   name: string;
-  symbol: string;
+  /** A Lucide icon name; see lib/icons.ts. */
+  icon: string;
   color: string;
   active: boolean;
 }
@@ -122,6 +123,8 @@ export interface Settings {
   lineHeight: number;
   spellCheck: boolean;
   accent: string;
+  /** `system` follows the OS setting. */
+  animations: "system" | "on" | "off";
   liveFormatting: boolean;
   smartPaste: boolean;
   restorePinned: boolean;

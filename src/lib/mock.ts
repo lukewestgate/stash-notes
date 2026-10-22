@@ -10,7 +10,7 @@ import { isoDate } from "./text";
 const today = isoDate();
 
 const settings: Settings = {
-  schemaVersion: 2,
+  schemaVersion: 4,
   vaultPath: "(browser demo – nothing is saved)",
   hotkey: "Alt+N",
   switcherHotkey: "Alt+J",
@@ -30,16 +30,17 @@ const settings: Settings = {
   lineHeight: 1.6,
   spellCheck: false,
   accent: "blue",
+  animations: "system",
   liveFormatting: true,
   smartPaste: true,
   restorePinned: true,
   notesView: { showDaily: false, showClosed: false, sort: "edited", groupByStatus: false },
   statuses: [
-    { name: "todo", symbol: "○", color: "blue", active: true },
-    { name: "open", symbol: "●", color: "green", active: true },
-    { name: "blocked", symbol: "⊘", color: "red", active: true },
-    { name: "backlog", symbol: "◌", color: "gray", active: false },
-    { name: "closed", symbol: "✓", color: "purple", active: false },
+    { name: "todo", icon: "circle", color: "blue", active: true },
+    { name: "open", icon: "circle-dot", color: "green", active: true },
+    { name: "blocked", icon: "circle-slash", color: "red", active: true },
+    { name: "backlog", icon: "circle-dashed", color: "gray", active: false },
+    { name: "closed", icon: "circle-check", color: "purple", active: false },
   ],
   defaultStatus: "open",
   keys: {
@@ -288,6 +289,9 @@ export function handle(cmd: string, a: A): unknown {
       return;
     case "pin_set_on_top":
       return;
+    case "smoke_enabled":
+      return false;
+    case "smoke_step":
     case "quick_hide":
     case "quick_resize":
       return;

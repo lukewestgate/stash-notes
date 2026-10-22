@@ -2,6 +2,7 @@
   import type { Keys, SearchHit, StatusDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
   import { relTime } from "../lib/text";
+  import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
   interface Props {
@@ -130,17 +131,7 @@
 </script>
 
 {#snippet icon(kind: string)}
-  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    {#if kind === "menu"}
-      <path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" />
-    {:else if kind === "today"}
-      <rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M3 8.5h14M7 3v3M13 3v3" />
-    {:else if kind === "notes"}
-      <path d="M7 5.5h9.5M7 10h9.5M7 14.5h9.5" /><circle cx="3.8" cy="5.5" r=".6" /><circle cx="3.8" cy="10" r=".6" /><circle cx="3.8" cy="14.5" r=".6" />
-    {:else if kind === "settings"}
-      <circle cx="10" cy="10" r="2.6" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" />
-    {/if}
-  </svg>
+  <Icon name={{ today: "calendar", notes: "list" }[kind] ?? kind} size={18} />
 {/snippet}
 
 {#snippet row(it: Item, label: string, ico: string, hint: string, isCurrent: boolean)}
@@ -175,7 +166,7 @@
     }}
   >
     <span class="ico sym">
-      {#if it.hit.status}<StatusIcon status={it.hit.status} {statuses} />{:else}<span class="dot">·</span>{/if}
+      {#if it.hit.status}<StatusIcon status={it.hit.status} {statuses} />{:else}<span class="dot"><Icon name="file-text" size={14} /></span>{/if}
     </span>
     {#if expanded}
       <span class="label">

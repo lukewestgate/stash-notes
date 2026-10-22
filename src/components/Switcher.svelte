@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, type SearchHit, type StatusDef } from "../lib/api";
+  import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { onMount } from "svelte";
 
@@ -103,6 +104,7 @@
 <div class="backdrop" class:embedded role="presentation">
   <div class="switcher" bind:this={box} role="dialog" aria-label={mode === "link" ? "Link to note" : "Quick switcher"}>
     <div class="inputrow">
+      <span class="lead"><Icon name="search" size={16} /></span>
       <input
         bind:this={input}
         bind:value={query}
@@ -144,7 +146,7 @@
         >
           <span class="line">
             <span class="kind new">new</span>
-            <span class="sym"></span>
+            <span class="sym new"><Icon name="plus" size={14} /></span>
             {#if isTicket(query.trim())}
               {@const [key, ...name] = query.trim().split(/\s+/)}
               <span class="name">Create {key.toUpperCase()}</span>
@@ -213,11 +215,16 @@
     align-items: center;
     border-bottom: 1px solid var(--border);
   }
+  .lead {
+    display: flex;
+    padding-left: 14px;
+    color: var(--fg-muted);
+  }
   input {
     flex: 1;
     font: inherit;
     font-size: 15px;
-    padding: 12px 14px;
+    padding: 12px 14px 12px 10px;
     border: none;
     outline: none;
     background: transparent;
@@ -292,9 +299,13 @@
     padding: 0 5px;
   }
   .sym {
-    width: 1.1em;
+    display: inline-flex;
+    width: 16px;
     flex-shrink: 0;
     margin-left: -4px;
+  }
+  .sym.new {
+    color: var(--ok);
   }
   .snippet {
     padding-left: 70px;

@@ -11,7 +11,7 @@ pub enum OnSummon {
 }
 
 /// Bumped when a stored setting changes meaning; see `migrate`.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -46,6 +46,8 @@ pub struct Settings {
     pub spell_check: bool,
     /// Accent color: blue, green, red, orange, purple, teal, pink or gray.
     pub accent: String,
+    /// Motion: `system` (follow the OS "show animations" setting), `on` or `off`.
+    pub animations: String,
     /// Style markdown as you type (markers hide off the caret line).
     pub live_formatting: bool,
     /// Turn pasted Jira links into keys and Gerrit links into front matter.
@@ -140,6 +142,7 @@ impl Default for Settings {
             line_height: 1.6,
             spell_check: false,
             accent: "blue".into(),
+            animations: "system".into(),
             live_formatting: true,
             smart_paste: true,
             restore_pinned: true,
@@ -218,6 +221,19 @@ pub fn migrate(text: &str) -> Option<String> {
             obj.insert("switcherHotkey".into(), v);
         }
     }
+    if version < 4 {
+        // 0.4 shows statuses as icons instead of typed symbols.
+        if let Some(serde_json::Value::Array(list)) = obj.get_mut("statuses") {
+            for st in list.iter_mut().filter_map(|s| s.as_object_mut()) {
+                if let Some(sym) = st.remove("symbol") {
+                    if !st.contains_key("icon") {
+                        let icon = crate::status::icon_for_symbol(sym.as_str().unwrap_or(""));
+                        st.insert("icon".into(), icon.into());
+                    }
+                }
+            }
+        }
+    }
     obj.insert("schemaVersion".into(), SCHEMA_VERSION.into());
     let (settings, _) = Settings::from_json(&v.to_string());
     Some(merge_json(&v.to_string(), &settings))
@@ -276,6 +292,10 @@ mod tests {
         assert!(!out.contains("captureHotkey"));
         assert!(out.contains("futureKey"));
         assert_eq!(migrate(&out), None);
+        let v3 = r#"{"schemaVersion":3,"statuses":[{"name":"open","symbol":"●","color":"green","active":true},{"name":"odd","symbol":"Z","color":"red","active":false}]}"#;
+        let (s, _) = Settings::from_json(&migrate(v3).unwrap());
+        assert_eq!(s.statuses[0].icon, "circle-dot");
+        assert_eq!(s.statuses[1].icon, "circle");
         let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
         assert!(merged.contains("\"futureKey\": 1"));
         assert!(merged.contains("\"hotkey\": \"Alt+N\""));

@@ -13,6 +13,7 @@
   import { api, type Keys, type SearchHit, type SortBy, type StatusDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
   import { relTime } from "../lib/text";
+  import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
   interface Props {
@@ -210,6 +211,7 @@
 
 <section class="notes" aria-label="Notes">
   <div class="bar">
+    <span class="lead"><Icon name="search" size={16} /></span>
     <input
       bind:this={input}
       bind:value={view.query}
@@ -272,12 +274,12 @@
             </span>
             <span class="time" title={new Date(row.hit.mtime).toLocaleString()}>{relTime(row.hit.mtime)}</span>
           {:else if row.type === "header"}
-            <span class="caret">{collapsed.has(row.key) ? "▸" : "▾"}</span>
+            <span class="caret" class:closed={collapsed.has(row.key)}><Icon name="chevron-down" size={14} /></span>
             {#if row.status}<StatusIcon status={row.status} {statuses} />{/if}
             <span class="hname">{row.label}</span>
             <span class="hcount">{row.count}</span>
           {:else}
-            <span class="sym new">+</span>
+            <span class="sym new"><Icon name="plus" size={14} /></span>
             <span class="main"><span class="name">Create "{row.query}"</span></span>
             <span class="label">{isTicket(row.query) ? "ticket note" : "note"}</span>
           {/if}
@@ -311,7 +313,16 @@
     background: var(--bg);
   }
   .bar {
+    position: relative;
     padding: 12px 16px 6px;
+  }
+  .lead {
+    position: absolute;
+    left: 28px;
+    top: 21px;
+    display: flex;
+    color: var(--fg-muted);
+    pointer-events: none;
   }
   input {
     width: 100%;
@@ -321,7 +332,7 @@
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 8px 12px 8px 36px;
     outline: none;
   }
   input:focus {
@@ -443,7 +454,12 @@
     font-variant-numeric: tabular-nums;
   }
   .caret {
-    width: 1em;
+    display: inline-flex;
+    color: var(--fg-muted);
+    transition: transform var(--motion-fast) ease;
+  }
+  .caret.closed {
+    transform: rotate(-90deg);
   }
   .hname {
     font-weight: 600;

@@ -7,6 +7,7 @@ import { EditorSelection, type EditorState, type Range, StateField } from "@code
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type { MarkdownConfig } from "@lezer/markdown";
 import { checkboxToggle, WIKI_RE } from "./text";
+import { iconElement } from "./icons";
 
 /** Parse a leading `---` block as front matter, so YAML isn't read as markdown. */
 export const frontMatterSyntax: MarkdownConfig = {
@@ -127,7 +128,7 @@ export function readFrontMatter(text: string): FrontMatterInfo {
 
 /** What the front matter row needs from the app. */
 export interface PropertiesHooks {
-  statusView(status: string): { symbol: string; color: string; name: string };
+  statusView(status: string): { icon: string; color: string; name: string };
   onStatus(): void;
   onJira(): void;
   onGerrit(): void;
@@ -147,10 +148,11 @@ class PropertiesWidget extends WidgetType {
     const hooks = propertiesHooks.current;
     const row = document.createElement("div");
     row.className = "cm-properties";
-    const button = (cls: string, text: string, title: string, run?: () => void) => {
+    const button = (cls: string, text: string, title: string, run?: () => void, icon?: string) => {
       const b = document.createElement("button");
       b.className = cls;
-      b.textContent = text;
+      if (icon) b.append(iconElement(icon, 13));
+      b.append(text);
       b.title = title;
       b.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -161,14 +163,22 @@ class PropertiesWidget extends WidgetType {
       return b;
     };
     const st = this.info.status ? hooks?.statusView(this.info.status) : null;
-    const chip = button("cm-prop cm-prop-status", st ? `${st.symbol} ${st.name}` : "no status", "Set status", () =>
-      hooks?.onStatus(),
+    const chip = button(
+      "cm-prop cm-prop-status",
+      st ? st.name : "no status",
+      "Set status",
+      () => hooks?.onStatus(),
+      st?.icon ?? "circle-dashed",
     );
     if (st) chip.style.color = `var(--c-${st.color})`;
-    if (hooks?.hasJira()) button("cm-prop", "Jira", "Open in Jira", () => hooks?.onJira());
+    if (hooks?.hasJira()) button("cm-prop", "Jira", "Open in Jira", () => hooks?.onJira(), "ticket");
     if (this.info.gerrit > 0)
-      button("cm-prop", this.info.gerrit > 1 ? `Gerrit ${this.info.gerrit}` : "Gerrit", "Open Gerrit change", () =>
-        hooks?.onGerrit(),
+      button(
+        "cm-prop",
+        this.info.gerrit > 1 ? `Gerrit ${this.info.gerrit}` : "Gerrit",
+        "Open Gerrit change",
+        () => hooks?.onGerrit(),
+        "git-pull-request",
       );
     if (this.info.aliases.length) {
       const a = document.createElement("span");

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { StatusDef } from "../lib/api";
+  import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
   interface Props {
@@ -51,7 +52,7 @@
     {#each items as item, i (item.label)}
       <button class="row" class:selected={i === sel} onmousemove={() => (sel = i)} onclick={() => onChoose(item.name)}>
         <span class="n">{item.name && !filter ? statuses.findIndex((s) => s.name === item.name) + 1 : ""}</span>
-        {#if item.name}<StatusIcon status={item.name} {statuses} />{:else}<span class="none">–</span>{/if}
+        {#if item.name}<StatusIcon status={item.name} {statuses} />{:else}<span class="none"><Icon name="x" size={14} /></span>{/if}
         <span class="label">{item.label}</span>
         {#if item.name === current}<span class="cur">current</span>{/if}
       </button>
@@ -113,8 +114,7 @@
     font-size: 12px;
   }
   .none {
-    width: 1.1em;
-    text-align: center;
+    display: inline-flex;
     color: var(--fg-muted);
   }
   .label {

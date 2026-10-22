@@ -8,7 +8,8 @@
   import { COLORS } from "../lib/status";
   import { jiraUrl, gerritUrl, timestamp } from "../lib/text";
   import KeyRecorder from "./KeyRecorder.svelte";
-  import StatusIcon from "./StatusIcon.svelte";
+  import { STATUS_ICONS } from "../lib/icons";
+  import Icon from "./Icon.svelte";
 
   interface Props {
     settings: Settings;
@@ -73,6 +74,8 @@
   const FONTS = ["", "Segoe UI", "Segoe UI Variable Text", "Inter", "Calibri", "Arial", "Cascadia Code", "Consolas"];
 
   let category = $state<Category>("General");
+  /** The status row whose icon picker is open. */
+  let iconFor = $state<number | null>(null);
   // Filled from `settings` by the effect below (and kept in step with hand edits).
   // svelte-ignore state_referenced_locally
   let draft = $state<Settings>(structuredClone($state.snapshot(settings)) as Settings);
@@ -362,7 +365,7 @@
           <span class="text">Default status for new tickets</span>
           <select value={draft.defaultStatus} onchange={(e) => set("defaultStatus", e.currentTarget.value)}>
             <option value="">no status</option>
-            {#each draft.statuses as s}<option value={s.name}>{s.symbol} {s.name}</option>{/each}
+            {#each draft.statuses as s}<option value={s.name}>{s.name}</option>{/each}
           </select>
         </div>
         <div class="row">
@@ -413,12 +416,44 @@
         {@render toggle("Group by status", draft.notesView.groupByStatus, (v) => save("notesView", (s) => (s.notesView.groupByStatus = v)))}
       {:else if category === "Statuses"}
         <table class="statuses">
-          <thead><tr><th></th><th>Symbol</th><th>Name</th><th>Color</th><th>Active</th><th></th></tr></thead>
+          <thead><tr><th>Icon</th><th>Name</th><th>Color</th><th>Active</th><th></th></tr></thead>
           <tbody>
             {#each draft.statuses as st, i (i)}
               <tr>
-                <td><StatusIcon status={st.name} statuses={draft.statuses} /></td>
-                <td><input class="sym" maxlength="2" value={st.symbol} onchange={(e) => editStatuses((l) => (l[i].symbol = e.currentTarget.value || "•"))} /></td>
+                <td class="icon-cell" onfocusout={(e) => iconFor === i && !e.currentTarget.contains(e.relatedTarget as Node) && (iconFor = null)}>
+                  <button
+                    class="icon-btn"
+                    style="color: var(--c-{st.color})"
+                    title="Choose an icon"
+                    aria-label="Icon for {st.name}"
+                    aria-expanded={iconFor === i}
+                    onclick={() => (iconFor = iconFor === i ? null : i)}><Icon name={st.icon} size={16} /></button
+                  >
+                  {#if iconFor === i}
+                    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                    <div
+                      class="icon-grid"
+                      role="listbox"
+                      tabindex="-1"
+                      style="color: var(--c-{st.color})"
+                      onkeydown={(e) => e.key === "Escape" && (e.stopPropagation(), (iconFor = null))}
+                    >
+                      {#each STATUS_ICONS as name}
+                        <button
+                          role="option"
+                          aria-selected={st.icon === name}
+                          class:on={st.icon === name}
+                          title={name}
+                          {@attach (el) => { if (st.icon === name) el.focus(); }}
+                          onclick={() => {
+                            editStatuses((l) => (l[i].icon = name));
+                            iconFor = null;
+                          }}><Icon {name} size={16} /></button
+                        >
+                      {/each}
+                    </div>
+                  {/if}
+                </td>
                 <td><input value={st.name} onchange={(e) => editStatuses((l) => (l[i].name = e.currentTarget.value))} /></td>
                 <td class="swatches">
                   {#each COLORS as c}
@@ -434,15 +469,15 @@
                 </td>
                 <td><input type="checkbox" checked={st.active} onchange={(e) => editStatuses((l) => (l[i].active = e.currentTarget.checked))} /></td>
                 <td class="ops">
-                  <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} aria-label="Move up">↑</button>
-                  <button class="mini" disabled={i === draft.statuses.length - 1} onclick={() => move(i, 1)} aria-label="Move down">↓</button>
-                  <button class="mini" disabled={st.name === "closed"} title={st.name === "closed" ? "closed archives notes and can't be removed" : "Remove"} onclick={() => editStatuses((l) => l.splice(i, 1))} aria-label="Remove">×</button>
+                  <button class="mini" disabled={i === 0} onclick={() => move(i, -1)} aria-label="Move up"><Icon name="arrow-up" size={14} /></button>
+                  <button class="mini" disabled={i === draft.statuses.length - 1} onclick={() => move(i, 1)} aria-label="Move down"><Icon name="arrow-down" size={14} /></button>
+                  <button class="mini" disabled={st.name === "closed"} title={st.name === "closed" ? "closed archives notes and can't be removed" : "Remove"} onclick={() => editStatuses((l) => l.splice(i, 1))} aria-label="Remove"><Icon name="trash" size={14} /></button>
                 </td>
               </tr>
             {/each}
           </tbody>
         </table>
-        <button class="btn" onclick={() => editStatuses((l) => l.push({ name: `status${l.length + 1}`, symbol: "◆", color: "teal", active: true }))}>Add status</button>
+        <button class="btn" onclick={() => editStatuses((l) => l.push({ name: `status${l.length + 1}`, icon: "diamond", color: "teal", active: true }))}>Add status</button>
         {@render error("statuses")}
         <p class="note">Notes keep whatever status they have; renaming a status here doesn't rewrite notes. Setting <b>closed</b> moves a note into the archive.</p>
       {:else if category === "Shortcuts"}
@@ -650,7 +685,16 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 0 6px;
+    min-height: 22px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+  }
+  .ops .mini {
+    width: 24px;
+    padding: 0;
   }
   .mini:disabled {
     opacity: 0.35;
@@ -688,9 +732,48 @@
   .statuses input:not([type="checkbox"]) {
     width: 110px;
   }
-  .statuses input.sym {
-    width: 40px;
-    text-align: center;
+  .icon-cell {
+    position: relative;
+  }
+  .icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 26px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .icon-grid {
+    position: absolute;
+    z-index: 5;
+    top: calc(100% - 2px);
+    left: 4px;
+    display: grid;
+    grid-template-columns: repeat(6, 30px);
+    gap: 2px;
+    padding: 6px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+  .icon-grid button {
+    display: grid;
+    place-items: center;
+    height: 30px;
+    color: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .icon-grid button:hover {
+    background: var(--hover);
+  }
+  .icon-grid button.on {
+    border-color: currentColor;
   }
   .ops {
     white-space: nowrap;

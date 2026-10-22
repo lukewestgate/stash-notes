@@ -9,26 +9,50 @@ pub const CLOSED: &str = "closed";
 #[serde(rename_all = "camelCase")]
 pub struct StatusDef {
     pub name: String,
-    pub symbol: String,
+    /// A Lucide icon name, e.g. `circle-dot` (see src/lib/icons.ts).
+    #[serde(default = "default_icon")]
+    pub icon: String,
     /// A theme color name: blue, green, red, orange, purple, teal, pink or gray.
     pub color: String,
     /// Active statuses appear in the sidebar's Active group and `@active`.
     pub active: bool,
 }
 
+fn default_icon() -> String {
+    "circle".into()
+}
+
 impl StatusDef {
-    fn new(name: &str, symbol: &str, color: &str, active: bool) -> Self {
-        StatusDef { name: name.into(), symbol: symbol.into(), color: color.into(), active }
+    fn new(name: &str, icon: &str, color: &str, active: bool) -> Self {
+        StatusDef { name: name.into(), icon: icon.into(), color: color.into(), active }
+    }
+}
+
+/// The icon for a status symbol from settings before 0.4.
+pub fn icon_for_symbol(symbol: &str) -> &'static str {
+    match symbol.trim() {
+        "○" | "◯" | "o" => "circle",
+        "●" | "•" | "◉" | "⦿" => "circle-dot",
+        "⊘" | "⦸" | "∅" | "!" => "circle-slash",
+        "◌" | "…" => "circle-dashed",
+        "✓" | "✔" | "☑" | "x" => "circle-check",
+        "✗" | "✕" | "×" => "circle-x",
+        "◆" | "◇" | "♦" => "diamond",
+        "★" | "☆" | "*" => "star",
+        "⚑" | "⚐" => "flag",
+        "⏸" => "circle-pause",
+        "?" => "circle-question-mark",
+        _ => "circle",
     }
 }
 
 pub fn default_statuses() -> Vec<StatusDef> {
     vec![
-        StatusDef::new("todo", "○", "blue", true),
-        StatusDef::new("open", "●", "green", true),
-        StatusDef::new("blocked", "⊘", "red", true),
-        StatusDef::new("backlog", "◌", "gray", false),
-        StatusDef::new(CLOSED, "✓", "purple", false),
+        StatusDef::new("todo", "circle", "blue", true),
+        StatusDef::new("open", "circle-dot", "green", true),
+        StatusDef::new("blocked", "circle-slash", "red", true),
+        StatusDef::new("backlog", "circle-dashed", "gray", false),
+        StatusDef::new(CLOSED, "circle-check", "purple", false),
     ]
 }
 

@@ -1,4 +1,6 @@
 :root {
+  --motion-fast: 120ms;
+  --motion: 180ms;
   --font-size: 14px;
   --line-height: 1.6;
   --editor-font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -254,6 +256,9 @@ button:focus-visible {
   border-radius: 999px;
   padding: 1px 10px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .cm-prop:hover {
   background: var(--hover);

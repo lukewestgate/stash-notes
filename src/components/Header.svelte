@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Keys, NoteMeta, StatusDef } from "../lib/api";
+  import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
   import { weekday } from "../lib/text";
@@ -39,14 +40,14 @@
 <header class="header">
   <div class="nav">
     <button class="icon" disabled={!canBack} onclick={onBack} title="Back ({formatKey(keys.back)})" aria-label="Back"
-      >‹</button
+      ><Icon name="chevron-left" size={16} /></button
     >
     <button
       class="icon"
       disabled={!canForward}
       onclick={onForward}
       title="Forward ({formatKey(keys.forward)})"
-      aria-label="Forward">›</button
+      aria-label="Forward"><Icon name="chevron-right" size={16} /></button
     >
   </div>
 

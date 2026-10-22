@@ -24,7 +24,7 @@ pub fn refresh_tooltip(app: &AppHandle) {
         .iter()
         .zip(&counts)
         .filter(|(d, n)| d.active && **n > 0)
-        .map(|(d, n)| format!("{} {n} {}", d.symbol, d.name))
+        .map(|(d, n)| format!("{n} {}", d.name))
         .collect();
     let tip = if parts.is_empty() { "Stash Notes".to_string() } else { format!("Stash Notes — {}", parts.join(" · ")) };
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
