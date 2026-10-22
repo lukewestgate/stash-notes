@@ -312,12 +312,6 @@ button:disabled {
   background: var(--code-bg);
   border-radius: 3px;
 }
-.cm-wikilink {
-  color: var(--link);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent);
-  text-underline-offset: 3px;
-}
 .cm-ticket {
   color: var(--ticket);
   font-weight: 600;

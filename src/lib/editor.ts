@@ -12,7 +12,7 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { Compartment, type Extension, type Range, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type Range, StateEffect } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -23,14 +23,19 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import type { SearchHit } from "./api";
-import { frontMatterField, frontMatterSyntax, liveConfig, liveDecorations, liveWikiLinks, toggleWrap } from "./live";
-import { checkboxToggle, URL_RE, WIKI_RE, wikiTarget } from "./text";
+import { api, type SearchHit } from "./api";
+import { frontMatterField, frontMatterSyntax, liveConfig, liveDecorations, liveWikiLinks, previewText, toggleWrap } from "./live";
+import { isPageLink, pageEmbeds, pageLinkSyntax } from "./page-links";
+import { checkboxToggle, refAt, URL_RE, WIKI_RE, wikiTarget } from "./text";
+import "./page-links.css";
 
 export interface EditorHooks {
   onChange(): void;
   /** Follow the reference at `pos`; return true if there was one. */
   follow(pos: number): boolean;
+  /** The source note for vault-aware embedded links. */
+  path(): string | null;
+  openNote(path: string): void;
   linkSearch(query: string): Promise<{ hits: SearchHit[]; exact: boolean }>;
   /** The vault of the note being edited, and a vault's display name. */
   vault?(): string | null;
@@ -82,6 +87,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         const a = m.index!;
         const b = a + m[0].length;
         taken.push([a, b]);
+        if (!isPageLink(view.state, line.from + a + 2)) continue;
         const dim = decoConfig.archived.has(wikiTarget(m[1]).toLowerCase());
         out.push((dim ? wikiDim : wikiMark).range(line.from + a, line.from + b));
       }
@@ -236,6 +242,41 @@ function spellAttrs(on: boolean) {
 
 export const editorState = { dark: false, spellCheck: false };
 
+function embeddedPages(path: () => string | null, open: (path: string) => void, ancestors?: string[]): Extension[] {
+  return pageEmbeds({
+    path,
+    open,
+    render(parent, text, notePath, parents) {
+      // Properties belong to the containing note. Hide the preview's YAML
+      // rather than displaying interactive status/tag controls for the parent.
+      const body = previewText(text);
+      return new EditorView({ parent, doc: body, extensions: [
+        EditorState.readOnly.of(true),
+        EditorView.editable.of(false),
+        EditorView.lineWrapping,
+        markdown({ base: markdownLanguage, extensions: [frontMatterSyntax, pageLinkSyntax] }),
+        syntaxHighlighting(highlight),
+        decorations,
+        embeddedPages(() => notePath, open, parents),
+        EditorView.domEventHandlers({
+          mousedown(event, view) {
+            if (!event.ctrlKey && !event.metaKey) return false;
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos == null) return false;
+            const line = view.state.doc.lineAt(pos);
+            const ref = refAt(line.text, pos - line.from, decoConfig.tickets);
+            if (!ref) return false;
+            event.preventDefault();
+            if (ref.kind === "url") api.openUrl(ref.target).catch(() => {});
+            else api.resolveLink(ref.target, notePath).then(open, () => {});
+            return true;
+          },
+        }),
+      ] });
+    },
+  }, ancestors);
+}
+
 export function editorExtensions(hooks: EditorHooks): Extension[] {
   return [
     layout,
@@ -243,9 +284,10 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
     history(),
     drawSelection(),
     EditorView.lineWrapping,
-    markdown({ base: markdownLanguage, extensions: [frontMatterSyntax] }),
+    markdown({ base: markdownLanguage, extensions: [frontMatterSyntax, pageLinkSyntax] }),
     syntaxHighlighting(highlight),
     decorations,
+    embeddedPages(hooks.path, hooks.openNote),
     frontMatterField,
     autocompletion({
       override: [linkCompletions(hooks)],

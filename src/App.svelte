@@ -1076,6 +1076,8 @@
     extensions = editorExtensions({
       onChange: onDocChange,
       follow: followAt,
+      path: () => currentPath,
+      openNote: navigate,
       linkSearch: (q) => api.search(q, false, currentPath, 30),
       vault: () => meta?.vault ?? null,
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,

@@ -221,6 +221,8 @@
     extensions = editorExtensions({
       onChange: () => sync?.push(),
       follow: followAt,
+      path: () => path,
+      openNote: (target) => { api.openInMain(target).catch((e) => say(String(e))); },
       linkSearch: (q) => api.search(q, false, path, 30, meta?.vault ?? null),
       vault: () => meta?.vault ?? null,
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
@@ -281,6 +283,7 @@
       darkQuery.removeEventListener("change", applyDark);
       unlisten.forEach((p) => p.then((f) => f()));
       sync?.close();
+      view.destroy();
     };
   });
 </script>

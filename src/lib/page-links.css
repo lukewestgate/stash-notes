@@ -1,0 +1,122 @@
+/* Compact tinted links. The disclosure takes no space until hover or focus. */
+.cm-wikilink { color: inherit; }
+.cm-page-reference {
+  color: color-mix(in srgb, var(--link) 72%, var(--fg));
+  background: color-mix(in srgb, var(--link) 7%, transparent);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.cm-page-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  min-width: 0;
+  height: 1em;
+  font: inherit;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  vertical-align: 0;
+  opacity: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.cm-page-toggle svg { width: 11px; height: 11px; flex: none; display: block; }
+.cm-page-reference:hover .cm-page-toggle,
+.cm-page-reference:focus-within .cm-page-toggle,
+.cm-page-toggle[aria-expanded="true"] {
+  opacity: 1;
+  width: 11px;
+  margin-left: 2px;
+}
+.cm-page-reference:hover,
+.cm-page-reference:focus-within { color: var(--link); }
+.cm-page-toggle:hover { background: var(--hover); }
+.cm-page-toggle:focus-visible,
+.cm-page-preview button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A rounded surface separates the linked note from the containing page. */
+.cm-page-preview {
+  position: relative;
+  margin: 10px 0 12px 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--embed-surface, var(--bg-raised));
+  color: var(--fg);
+  font-size: var(--font-size);
+  font-weight: normal;
+  font-style: normal;
+  white-space: normal;
+}
+.cm-page-preview-header {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  border-radius: 4px;
+  padding: 1px 3px;
+  font: 11px var(--editor-font);
+  background: var(--embed-surface, var(--bg-raised));
+  opacity: 0;
+  pointer-events: none;
+}
+.cm-page-preview:hover > .cm-page-preview-header,
+.cm-page-preview:focus-within > .cm-page-preview-header {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cm-page-preview button:not(.cm-page-toggle) {
+  font: inherit;
+  color: var(--link);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.cm-page-preview button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+.cm-page-preview-status {
+  padding: 12px;
+  font: 13px var(--editor-font);
+  color: var(--fg-muted);
+}
+.cm-page-preview .cm-editor {
+  height: auto;
+  outline: none;
+  background: transparent;
+}
+.cm-page-preview .cm-scroller {
+  font: var(--font-size)/var(--line-height) var(--editor-font);
+  padding: 12px 0;
+  overflow: visible;
+}
+.cm-page-preview .cm-content {
+  padding: 0 14px;
+  min-height: 0;
+  max-width: none;
+}
+.cm-page-preview .cm-hl1 { font-size: 1em; padding-top: 0; }
+.cm-page-preview .cm-line { padding-top: 0; padding-bottom: 0; }
+.cm-page-preview .cm-task,
+.cm-page-preview .cm-checkbox { cursor: default; }
+
+@media (hover: none) {
+  .cm-page-toggle { opacity: .65; width: 11px; margin-left: 2px; }
+  .cm-page-preview-header { opacity: 1; pointer-events: auto; }
+}

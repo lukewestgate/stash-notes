@@ -3,11 +3,12 @@
 // them. The document itself always stays plain markdown.
 
 import { syntaxTree } from "@codemirror/language";
-import { EditorSelection, type EditorState, type Range, StateField } from "@codemirror/state";
+import { EditorSelection, EditorState, type Range, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type { MarkdownConfig } from "@lezer/markdown";
 import { checkboxToggle, normalizeTag, WIKI_RE } from "./text";
 import { iconElement } from "./icons";
+import { isPageLink } from "./page-links";
 
 /** Parse a leading `---` block as front matter, so YAML isn't read as markdown. */
 export const frontMatterSyntax: MarkdownConfig = {
@@ -45,8 +46,16 @@ export function frontMatterRange(state: EditorState): { from: number; to: number
   return null;
 }
 
+/** Preview the body without YAML, using normalized editor offsets for CRLF files. */
+export function previewText(text: string): string {
+  const state = EditorState.create({ doc: text });
+  const fm = frontMatterRange(state);
+  return fm ? state.sliceDoc(fm.to).replace(/^(?:[ \t]*\n)+/, "") : state.doc.toString();
+}
+
 /** Does the selection touch [from, to]? */
 function touches(state: EditorState, from: number, to: number): boolean {
+  if (state.readOnly) return false;
   return state.selection.ranges.some((r) => r.from <= to && r.to >= from);
 }
 
@@ -84,6 +93,7 @@ class CheckboxWidget extends WidgetType {
     box.setAttribute("aria-checked", String(this.checked));
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      if (view.state.readOnly) return;
       view.dispatch({ changes: { from: this.markPos, to: this.markPos + 1, insert: this.checked ? " " : "x" } });
     });
     return box;
@@ -388,6 +398,7 @@ export function liveWikiLinks(state: EditorState, lineFrom: number, text: string
   for (const m of text.matchAll(WIKI_RE)) {
     const a = lineFrom + m.index!;
     const b = a + m[0].length;
+    if (!isPageLink(state, a + 2)) continue;
     if (touches(state, a, b)) continue;
     const bar = m[1].indexOf("|");
     out.push(hide.range(a, bar >= 0 ? a + 2 + bar + 1 : a + 2));
