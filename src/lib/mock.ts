@@ -22,6 +22,14 @@ const settings: Settings = {
   gerrit: { urlTemplate: "https://gerrit.example.com/c/{n}" },
   theme: "system",
   fontSize: 14,
+  statuses: [
+    { name: "todo", symbol: "○", color: "blue", active: true },
+    { name: "open", symbol: "●", color: "green", active: true },
+    { name: "blocked", symbol: "⊘", color: "red", active: true },
+    { name: "backlog", symbol: "◌", color: "gray", active: false },
+    { name: "closed", symbol: "✓", color: "purple", active: false },
+  ],
+  defaultStatus: "open",
   keys: {
     hide: "Esc",
     quickSwitcher: "Ctrl+K",
@@ -39,6 +47,7 @@ const settings: Settings = {
     quit: "Ctrl+Shift+Q",
     rename: "F2",
     openSettings: "Ctrl+,",
+    setStatus: "Ctrl+Shift+S",
   },
 };
 
@@ -49,9 +58,9 @@ const notes = new Map<string, string>([
   ],
   [
     "tickets/PROJ-123.md",
-    `---\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n# PROJ-123 Rollout date question\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
+    `---\nstatus: open\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n# PROJ-123 Rollout date question\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
   ],
-  ["tickets/OPS-4123.md", "---\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
+  ["tickets/OPS-4123.md", "---\nstatus: blocked\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
   ["notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
   ["archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
 ]);
@@ -109,12 +118,24 @@ function meta(path: string, text: string): NoteMeta {
     jira: typeof fields.jira === "string" ? fields.jira : null,
     gerrit: Array.isArray(gerrit) ? gerrit : typeof gerrit === "string" ? [gerrit] : [],
     aliases: [],
+    status: kind !== "daily" && typeof fields.status === "string" ? fields.status : null,
   };
 }
 
 function hit(path: string, snippet: string | null = null, score = 0): SearchHit {
   const m = meta(path, notes.get(path)!);
-  return { path, kind: m.kind, title: m.title, label: m.label, archived: m.archived, snippet, score };
+  return {
+    path,
+    kind: m.kind,
+    title: m.title,
+    label: m.label,
+    key: m.key,
+    status: m.status,
+    archived: m.archived,
+    mtime: mtimes.get(path) ?? 0,
+    snippet,
+    score,
+  };
 }
 
 function resolve(target: string): string | null {
@@ -141,7 +162,7 @@ function ensure(target: string): string {
     body = `# ${t}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n`;
   } else if (ticketFull.test(t.toUpperCase())) {
     path = `tickets/${t.toUpperCase()}.md`;
-    body = `---\ngerrit:\n---\n\n# ${t.toUpperCase()} \n\n`;
+    body = `---\nstatus: open\ngerrit:\n---\n\n# ${t.toUpperCase()} \n\n`;
   } else {
     path = `notes/${slug(t)}.md`;
     body = `# ${t}\n\n`;
@@ -203,6 +224,27 @@ export function handle(cmd: string, a: A): unknown {
       notes.set(to, text.replace(/^# .*$/m, `# ${a.title}`));
       changed(to);
       return { newPath: to, linksUpdated: 0, filesChanged: 0, undoId: 0 };
+    }
+    case "set_status": {
+      let path: string = a.path;
+      const text = notes.get(path)!;
+      const st: string | null = a.status;
+      const m = /^status:.*$/m.exec(text);
+      let edit;
+      if (m) edit = { from: m.index, to: m.index + m[0].length + (st ? 0 : 1), insert: st ? `status: ${st}` : "" };
+      else if (text.startsWith("---\n")) edit = st ? { from: 4, to: 4, insert: `status: ${st}\n` } : null;
+      else edit = st ? { from: 0, to: 0, insert: `---\nstatus: ${st}\n---\n\n` } : null;
+      const next = edit ? text.slice(0, edit.from) + edit.insert + text.slice(edit.to) : text;
+      notes.set(path, next);
+      const archived = path.startsWith("archive/");
+      if ((st === "closed") !== archived) {
+        const to = archived ? path.slice(8) : `archive/${path}`;
+        notes.delete(path);
+        notes.set(to, next);
+        path = to;
+      }
+      changed(path);
+      return { path, edit, meta: meta(path, next) };
     }
     case "undo_rename":
       throw new Error("undo is not available in the browser demo");

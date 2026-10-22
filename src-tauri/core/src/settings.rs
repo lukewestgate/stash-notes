@@ -1,5 +1,6 @@
 //! `settings.json`: hand-edited, every key optional. Missing keys take defaults.
 
+use crate::status::{default_statuses, StatusDef};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +32,10 @@ pub struct Settings {
     /// `system`, `light` or `dark`.
     pub theme: String,
     pub font_size: u32,
+    /// Status list, in display order.
+    pub statuses: Vec<StatusDef>,
+    /// Status given to new ticket notes (empty for none).
+    pub default_status: String,
     /// In-app shortcuts.
     pub keys: Keys,
 }
@@ -66,6 +71,7 @@ pub struct Keys {
     pub quit: String,
     pub rename: String,
     pub open_settings: String,
+    pub set_status: String,
 }
 
 impl Default for Settings {
@@ -84,6 +90,8 @@ impl Default for Settings {
             gerrit: GerritSettings::default(),
             theme: "system".into(),
             font_size: 14,
+            statuses: default_statuses(),
+            default_status: "open".into(),
             keys: Keys::default(),
         }
     }
@@ -124,6 +132,7 @@ impl Default for Keys {
             quit: "Ctrl+Shift+Q".into(),
             rename: "F2".into(),
             open_settings: "Ctrl+,".into(),
+            set_status: "Ctrl+Shift+S".into(),
         }
     }
 }

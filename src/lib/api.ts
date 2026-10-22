@@ -18,6 +18,7 @@ export interface NoteMeta {
   jira: string | null;
   gerrit: string[];
   aliases: string[];
+  status: string | null;
 }
 
 export interface NoteData {
@@ -30,9 +31,25 @@ export interface SearchHit {
   kind: NoteKind;
   title: string;
   label: string | null;
+  key: string | null;
+  status: string | null;
   archived: boolean;
+  mtime: number;
   snippet: string | null;
   score: number;
+}
+
+export interface StatusDef {
+  name: string;
+  symbol: string;
+  color: string;
+  active: boolean;
+}
+
+export interface StatusResult {
+  path: string;
+  edit: TextEdit | null;
+  meta: NoteMeta;
 }
 
 export interface SearchResults {
@@ -57,6 +74,7 @@ export interface Keys {
   quit: string;
   rename: string;
   openSettings: string;
+  setStatus: string;
 }
 
 export interface Settings {
@@ -73,6 +91,8 @@ export interface Settings {
   gerrit: { urlTemplate: string };
   theme: "system" | "light" | "dark";
   fontSize: number;
+  statuses: StatusDef[];
+  defaultStatus: string;
   keys: Keys;
 }
 
@@ -123,6 +143,7 @@ export const api = {
   undoRename: (undoId: number) => call<string>("undo_rename", { undoId }),
   search: (query: string, includeArchived: boolean, current: string | null, limit = 50) =>
     call<SearchResults>("search", { query, includeArchived, current, limit }),
+  setStatus: (path: string, status: string | null) => call<StatusResult>("set_status", { path, status }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
   archivedNames: () => call<string[]>("archived_names"),
   gerritEdit: (content: string, link: string) => call<TextEdit>("gerrit_edit", { content, link }),

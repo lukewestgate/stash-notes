@@ -7,6 +7,7 @@ pub mod frontmatter;
 pub mod index;
 pub mod note;
 pub mod settings;
+pub mod status;
 pub mod vault;
 
 pub use index::{Index, NoteEntry, SearchHit, SearchResults};

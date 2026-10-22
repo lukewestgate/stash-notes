@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, type SearchHit } from "../lib/api";
+  import { api, type SearchHit, type StatusDef } from "../lib/api";
+  import StatusIcon from "./StatusIcon.svelte";
   import { onMount } from "svelte";
 
   interface Props {
@@ -7,10 +8,11 @@
     mode: "open" | "link";
     current: string | null;
     isTicket: (q: string) => boolean;
+    statuses: StatusDef[];
     onChoose: (hit: SearchHit, peek: boolean) => void;
     onCreate: (query: string) => void;
   }
-  let { mode, current, isTicket, onChoose, onCreate }: Props = $props();
+  let { mode, current, isTicket, statuses, onChoose, onCreate }: Props = $props();
 
   let query = $state("");
   let hits = $state<SearchHit[]>([]);
@@ -76,7 +78,7 @@
         bind:this={input}
         bind:value={query}
         onkeydown={keydown}
-        placeholder={mode === "link" ? "Link selection to…" : "Find or create a note — key, title, date or text"}
+        placeholder={mode === "link" ? "Link selection to…" : "Find or create a note — key, title, date, text or @status"}
         spellcheck="false"
         autocomplete="off"
       />
@@ -87,13 +89,14 @@
         <button
           class="row"
           class:selected={i === sel}
-          class:archived={hit.archived}
+          class:archived={hit.archived || hit.status === "closed"}
           data-row={i}
           onmousemove={() => (sel = i)}
           onclick={(e) => choose(i, e.altKey)}
         >
           <span class="line">
             <span class="kind {hit.kind}">{hit.kind}</span>
+            <span class="sym"><StatusIcon status={hit.status} {statuses} /></span>
             <span class="name">{hit.title}</span>
             {#if hit.label}<span class="label">{hit.label}</span>{/if}
             {#if hit.archived}<span class="tag">archived</span>{/if}
@@ -111,6 +114,7 @@
         >
           <span class="line">
             <span class="kind new">new</span>
+            <span class="sym"></span>
             <span class="name">Create "{query.trim()}"</span>
             <span class="label">{isTicket(query.trim()) ? "ticket note" : "note"}</span>
           </span>
@@ -124,7 +128,7 @@
       <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
       <span><kbd>Enter</kbd> {mode === "link" ? "link" : "open"}</span>
       {#if mode === "open"}<span><kbd>Alt+Enter</kbd> peek</span>{/if}
-      <span><kbd>Tab</kbd> {includeArchived ? "hide" : "include"} archived</span>
+      <span><kbd>Tab</kbd> {includeArchived ? "hide" : "include"} closed & archived</span>
       <span><kbd>Esc</kbd> close</span>
     </div>
   </div>
@@ -235,8 +239,13 @@
     border-radius: 4px;
     padding: 0 5px;
   }
+  .sym {
+    width: 1.1em;
+    flex-shrink: 0;
+    margin-left: -4px;
+  }
   .snippet {
-    padding-left: 52px;
+    padding-left: 70px;
     font-size: 12.5px;
     color: var(--fg-muted);
     overflow: hidden;

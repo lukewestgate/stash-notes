@@ -239,6 +239,39 @@ pub fn add_list_item(content: &str, key: &str, item: &str) -> Edit {
     }
 }
 
+/// Compute the edit that sets scalar `key` to `value` (or removes the line
+/// when `value` is None), creating the front matter block if needed.
+pub fn set_scalar(content: &str, key: &str, value: Option<&str>) -> Option<Edit> {
+    let nl = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let fm = parse(content);
+    let Some((inner_start, inner_end)) = fm.inner else {
+        return value.map(|v| Edit {
+            from: 0,
+            to: 0,
+            insert: format!("---{nl}{key}: {v}{nl}---{nl}{}", if content.is_empty() { "" } else { nl }),
+        });
+    };
+    for (start, line) in lines_with_offsets(&content[inner_start..inner_end]) {
+        let abs = inner_start + start;
+        if line.starts_with(char::is_whitespace) {
+            continue;
+        }
+        if let Some((k, _)) = line.split_once(':') {
+            if k.trim() == key {
+                let end = abs + line.len();
+                return Some(match value {
+                    Some(v) => Edit { from: abs, to: end, insert: format!("{key}: {v}") },
+                    None => {
+                        let full = abs + content[abs..].find('\n').map(|i| i + 1).unwrap_or(content.len() - abs);
+                        Edit { from: abs, to: full, insert: String::new() }
+                    }
+                });
+            }
+        }
+    }
+    value.map(|v| Edit { from: inner_start, to: inner_start, insert: format!("{key}: {v}{nl}") })
+}
+
 /// Convert a byte offset in `text` to a UTF-16 offset (what the editor uses).
 pub fn utf16_offset(text: &str, byte: usize) -> usize {
     text[..byte].encode_utf16().count()
@@ -330,6 +363,20 @@ mod tests {
         assert_eq!(fm.list("gerrit"), vec!["1"]);
         let out = add_list_item(text, "gerrit", "2").apply(text);
         assert_eq!(out, "---\r\ngerrit:\r\n  - 1\r\n  - 2\r\n---\r\nbody\r\n");
+    }
+
+    #[test]
+    fn set_scalar_cases() {
+        let t = "---\ngerrit:\n  - 1\nstatus: open\n---\nbody";
+        assert_eq!(set_scalar(t, "status", Some("blocked")).unwrap().apply(t), "---\ngerrit:\n  - 1\nstatus: blocked\n---\nbody");
+        assert_eq!(set_scalar(t, "status", None).unwrap().apply(t), "---\ngerrit:\n  - 1\n---\nbody");
+        let t = "---\ngerrit:\n---\n# X\n";
+        assert_eq!(set_scalar(t, "status", Some("todo")).unwrap().apply(t), "---\nstatus: todo\ngerrit:\n---\n# X\n");
+        assert_eq!(set_scalar(t, "status", None), None);
+        let t = "# Note\n";
+        assert_eq!(set_scalar(t, "status", Some("open")).unwrap().apply(t), "---\nstatus: open\n---\n\n# Note\n");
+        let t = "---\r\nstatus: open\r\n---\r\n";
+        assert_eq!(set_scalar(t, "status", Some("todo")).unwrap().apply(t), "---\r\nstatus: todo\r\n---\r\n");
     }
 
     #[test]

@@ -9,6 +9,7 @@
   import Help from "./components/Help.svelte";
   import Prompt from "./components/Prompt.svelte";
   import Picker from "./components/Picker.svelte";
+  import StatusPicker from "./components/StatusPicker.svelte";
   import { api, on, onWindowFocus, type Keys, type NoteData, type NoteMeta, type SearchHit, type Settings } from "./lib/api";
   import { decoConfig, editorExtensions, refreshDecorations } from "./lib/editor";
   import { History, type Entry } from "./lib/history";
@@ -30,7 +31,8 @@
     | { type: "switcher"; mode: "open" | "link"; sel?: { from: number; to: number; text: string } }
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void }
-    | { type: "picker"; title: string; items: { label: string; detail?: string }[]; choose: (i: number) => void };
+    | { type: "picker"; title: string; items: { label: string; detail?: string }[]; choose: (i: number) => void }
+    | { type: "status"; path: string; current: string | null; title: string };
 
   interface Toast {
     id: number;
@@ -418,6 +420,39 @@
     };
   }
 
+  // ---------- status ----------
+
+  /** Open the status picker for `path` (default: the current note). */
+  function pickStatus(path = currentPath, current = meta?.status ?? null, title = meta?.title ?? "") {
+    if (!path) return;
+    if (path === currentPath && meta?.kind === "daily") {
+      toast("Daily notes don't have a status");
+      return;
+    }
+    overlay = { type: "status", path, current, title: `Status for ${title}` };
+  }
+
+  async function applyStatus(path: string, status: string | null) {
+    closeOverlay();
+    try {
+      if (path === currentPath) await flush();
+      const r = await api.setStatus(path, status);
+      if (path === currentPath) {
+        if (r.edit) view.dispatch({ changes: r.edit });
+        savedContent = docText();
+        dirty = false;
+        meta = r.meta;
+      }
+      if (r.path !== path) {
+        moved(path, r.path);
+        toast(r.meta.archived ? "Closed — moved to the archive" : "Reopened — moved out of the archive");
+      }
+      refreshSide();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
   // ---------- overlays ----------
 
   function openSwitcher() {
@@ -584,6 +619,7 @@
     quit,
     rename: startRename,
     openSettings: () => api.openSettingsFile().catch(fail),
+    setStatus: () => pickStatus(),
   };
 
   function onKeydown(e: KeyboardEvent) {
@@ -717,6 +753,8 @@
       canForward={nav.canForward}
       {hasKey}
       keys={settings.keys}
+      statuses={settings.statuses}
+      onStatus={() => pickStatus()}
       onBack={back}
       onForward={forward}
       onJira={openJira}
@@ -746,6 +784,7 @@
       items={backlinkItems}
       expanded={backlinksOpen}
       keys={settings.keys}
+      statuses={settings.statuses}
       onOpen={(p) => {
         backlinksOpen = false;
         navigate(p);
@@ -759,6 +798,7 @@
       mode={overlay.mode}
       current={currentPath}
       isTicket={isTicketKey}
+      statuses={settings?.statuses ?? []}
       onChoose={switcherChoose}
       onCreate={switcherCreate}
     />
@@ -766,6 +806,9 @@
     <Help keys={settings.keys} hotkey={settings.hotkey} {settingsPath} {vaultPath} />
   {:else if overlay?.type === "prompt"}
     <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} onSubmit={overlay.submit} />
+  {:else if overlay?.type === "status" && settings}
+    {@const o = overlay}
+    <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} onChoose={(st) => applyStatus(o.path, st)} />
   {:else if overlay?.type === "picker"}
     <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} />
   {/if}

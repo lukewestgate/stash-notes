@@ -88,6 +88,7 @@ pub fn run() {
             commands::undo_rename,
             commands::search,
             commands::backlinks,
+            commands::set_status,
             commands::archived_names,
             commands::gerrit_edit,
             commands::open_url,

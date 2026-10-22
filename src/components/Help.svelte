@@ -24,6 +24,7 @@
     [keys.timestamp, "Insert timestamp"],
     [keys.backlinks, "Expand / collapse backlinks"],
     [keys.archive, "Archive / unarchive note"],
+    [keys.setStatus, "Set status", "1–5 pick directly; closed also archives"],
     [keys.help, "This help"],
   ]);
   const extra = $derived<[string, string][]>([

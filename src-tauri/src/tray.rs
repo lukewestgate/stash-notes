@@ -5,6 +5,33 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
+const TRAY_ID: &str = "main";
+
+/// Tooltip with counts of active statuses, e.g. "Stash Notes — ● 3 open · ⊘ 1 blocked".
+pub fn refresh_tooltip(app: &AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+    let defs = state.settings.read().unwrap().statuses.clone();
+    let mut counts = vec![0usize; defs.len()];
+    for e in state.index.read().unwrap().entries() {
+        if e.meta.archived {
+            continue;
+        }
+        if let Some(i) = e.meta.status.as_deref().and_then(|s| defs.iter().position(|d| d.name == s)) {
+            counts[i] += 1;
+        }
+    }
+    let parts: Vec<String> = defs
+        .iter()
+        .zip(&counts)
+        .filter(|(d, n)| d.active && **n > 0)
+        .map(|(d, n)| format!("{} {n} {}", d.symbol, d.name))
+        .collect();
+    let tip = if parts.is_empty() { "Stash Notes".to_string() } else { format!("Stash Notes — {}", parts.join(" · ")) };
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(tip));
+    }
+}
+
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
     let today = MenuItem::with_id(app, "today", "Today's note", true, None::<&str>)?;
@@ -14,7 +41,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &today, &folder, &settings, &sep, &quit])?;
 
-    let mut builder = TrayIconBuilder::with_id("main")
+    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Stash Notes")
         .menu(&menu)
         .show_menu_on_left_click(false)

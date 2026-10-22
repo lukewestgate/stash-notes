@@ -5,6 +5,7 @@
 use crate::dates;
 use crate::frontmatter;
 use crate::note::{self, NoteKind, NoteMeta, TicketMatcher};
+use crate::status::{self, StatusDef, StatusFilter};
 use chrono::{Local, NaiveDate, TimeZone};
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
@@ -74,10 +75,25 @@ impl NoteEntry {
             kind: self.meta.kind,
             title: self.meta.title.clone(),
             label: self.meta.label.clone(),
+            key: self.meta.key.clone(),
+            status: self.meta.status.clone(),
             archived: self.meta.archived,
+            mtime: self.mtime,
             snippet,
             score,
         }
+    }
+
+    /// Hidden unless archived/closed notes are asked for.
+    fn is_put_away(&self) -> bool {
+        self.meta.archived || self.meta.status.as_deref() == Some(status::CLOSED)
+    }
+
+    fn matches_filters(&self, filters: &[StatusFilter], defs: &[StatusDef]) -> bool {
+        filters.is_empty()
+            || filters
+                .iter()
+                .any(|f| f.matches(self.meta.status.as_deref(), self.meta.kind != NoteKind::Daily, defs))
     }
 
     fn body_contains_all(&self, words: &[String]) -> bool {
@@ -113,7 +129,11 @@ pub struct SearchHit {
     pub kind: NoteKind,
     pub title: String,
     pub label: Option<String>,
+    pub key: Option<String>,
+    pub status: Option<String>,
     pub archived: bool,
+    /// Last edited, ms since epoch.
+    pub mtime: i64,
     /// Why it matched, when the match was in the body.
     pub snippet: Option<String>,
     pub score: i64,
@@ -136,6 +156,7 @@ pub struct SearchOptions<'a> {
     pub now_ms: i64,
     /// Path -> last opened (ms since epoch).
     pub recents: &'a HashMap<String, i64>,
+    pub statuses: &'a [StatusDef],
 }
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -286,9 +307,20 @@ impl Index {
     }
 
     pub fn search(&self, query: &str, opts: &SearchOptions) -> SearchResults {
-        let q = query.trim();
+        let (text, filters) = status::parse_filters(query);
+        // Asking for closed notes by name shows them even when put away.
+        let wants_closed = filters.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
+        let show_put_away = opts.include_archived || wants_closed;
+        let visible = |e: &NoteEntry| (show_put_away || !e.is_put_away()) && e.matches_filters(&filters, opts.statuses);
+        let q = text.trim();
         if q.is_empty() {
-            return SearchResults { hits: self.recent(opts), exact: false };
+            if filters.is_empty() {
+                return SearchResults { hits: self.recent(opts), exact: false };
+            }
+            let mut all: Vec<&NoteEntry> = self.notes.values().filter(|e| visible(e)).collect();
+            all.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+            let hits = all.into_iter().take(opts.limit).map(|e| e.summary(None, 0)).collect();
+            return SearchResults { hits, exact: false };
         }
         let mut matcher = Matcher::new(Config::DEFAULT);
         let pattern = Pattern::new(q, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy);
@@ -308,7 +340,7 @@ impl Index {
         // after ranking, for the hits that are actually returned.
         let mut scored: Vec<(i64, &NoteEntry, bool)> = Vec::new();
         for e in self.notes.values() {
-            if e.meta.archived && !opts.include_archived {
+            if !visible(e) {
                 continue;
             }
             let mut best: i64 = 0;
@@ -371,7 +403,7 @@ impl Index {
                     best += RECENCY_MAX * (7 * DAY_MS - age) / (7 * DAY_MS);
                 }
             }
-            if e.meta.archived {
+            if e.is_put_away() {
                 best -= ARCHIVE_PENALTY;
             }
             scored.push((best, e, body_only));
@@ -385,9 +417,10 @@ impl Index {
         SearchResults { hits, exact }
     }
 
-    /// Recently opened notes, newest first, topped up with recently edited ones.
+    /// Recently opened notes, newest first, topped up with recently edited
+    /// ones. Notes with an active status come first.
     fn recent(&self, opts: &SearchOptions) -> Vec<SearchHit> {
-        let visible = |e: &&NoteEntry| (opts.include_archived || !e.meta.archived) && Some(e.path()) != opts.current;
+        let visible = |e: &&NoteEntry| (opts.include_archived || !e.is_put_away()) && Some(e.path()) != opts.current;
         let mut opened: Vec<(&NoteEntry, i64)> =
             opts.recents.iter().filter_map(|(p, t)| self.notes.get(p).map(|e| (e, *t))).filter(|(e, _)| visible(e)).collect();
         opened.sort_by(|a, b| b.1.cmp(&a.1));
@@ -405,6 +438,9 @@ impl Index {
             rest.sort_by(|a, b| b.mtime.cmp(&a.mtime));
             out.extend(rest.into_iter().take(opts.limit - out.len()).map(|e| e.summary(None, 0)));
         }
+        let defs = opts.statuses;
+        let active = |h: &SearchHit| h.status.as_deref().is_some_and(|s| defs.iter().any(|d| d.active && d.name == s));
+        out.sort_by_key(|h| !active(h)); // stable: keeps recency order within each group
         out
     }
 }
@@ -423,6 +459,8 @@ mod tests {
         i
     }
 
+    static STATUSES: std::sync::OnceLock<Vec<StatusDef>> = std::sync::OnceLock::new();
+
     fn opts<'a>(recents: &'a HashMap<String, i64>) -> SearchOptions<'a> {
         SearchOptions {
             include_archived: false,
@@ -431,6 +469,7 @@ mod tests {
             today: dates::parse_iso("2026-10-22").unwrap(),
             now_ms: 10 * DAY_MS,
             recents,
+            statuses: STATUSES.get_or_init(status::default_statuses),
         }
     }
 
@@ -509,6 +548,26 @@ mod tests {
         let res = idx().search("", &o);
         let paths: Vec<_> = res.hits.iter().map(|h| h.path.as_str()).collect();
         assert_eq!(paths, vec!["notes/rollout-plan.md", "tickets/PROJ-123.md", "tickets/OPS-4123.md"]);
+    }
+
+    #[test]
+    fn status_filters_and_closed() {
+        let mut i = idx();
+        i.upsert("tickets/A-1.md", "---\nstatus: blocked\n---\n# A-1 Cache\n", 50);
+        i.upsert("tickets/A-2.md", "---\nstatus: closed\n---\n# A-2 Done\n", 60);
+        i.upsert("notes/n.md", "---\nstatus: todo\n---\n# Cache idea\n", 40);
+        let r = HashMap::new();
+        let paths = |q: &str, o: &SearchOptions| i.search(q, o).hits.into_iter().map(|h| h.path).collect::<Vec<_>>();
+        let o = opts(&r);
+        assert_eq!(paths("@blocked", &o), vec!["tickets/A-1.md"]);
+        assert_eq!(paths("@active cache", &o), vec!["tickets/A-1.md", "notes/n.md"]);
+        assert!(!paths("", &o).contains(&"tickets/A-2.md".to_string()));
+        assert!(paths("done", &o).is_empty());
+        assert_eq!(paths("@closed", &o), vec!["tickets/A-2.md"]);
+        assert!(paths("@none", &o).contains(&"notes/rollout-plan.md".to_string()));
+        assert!(!paths("@none", &o).iter().any(|p| p.starts_with("daily/")));
+        // Active notes are listed first in the empty query
+        assert_eq!(paths("", &o)[..2], ["tickets/A-1.md".to_string(), "notes/n.md".to_string()]);
     }
 
     #[test]

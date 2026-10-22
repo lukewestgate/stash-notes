@@ -1,15 +1,17 @@
 <script lang="ts">
-  import type { Keys, SearchHit } from "../lib/api";
+  import type { Keys, SearchHit, StatusDef } from "../lib/api";
+  import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
 
   interface Props {
     items: SearchHit[];
     expanded: boolean;
     keys: Keys;
+    statuses: StatusDef[];
     onOpen: (path: string) => void;
     onToggle: () => void;
   }
-  let { items, expanded, keys, onOpen, onToggle }: Props = $props();
+  let { items, expanded, keys, statuses, onOpen, onToggle }: Props = $props();
 
   let sel = $state(0);
   let list = $state<HTMLDivElement>();
@@ -54,7 +56,7 @@
           aria-selected={i === sel}
           onclick={() => onOpen(h.path)}
         >
-          <span class="name">{name(h)}</span>
+          <span class="name"><StatusIcon status={h.status} {statuses} /> {name(h)}</span>
           {#if h.snippet}<span class="snippet">{h.snippet}</span>{/if}
         </button>
       {:else}

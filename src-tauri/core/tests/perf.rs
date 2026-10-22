@@ -51,6 +51,7 @@ fn five_thousand_notes() {
         today: dates::parse_iso("2026-10-22").unwrap(),
         now_ms: 0,
         recents: &recents,
+        statuses: &stash_core::status::default_statuses(),
     };
     let mut worst = std::time::Duration::ZERO;
     for q in ["1", "12", "123", "r", "ro", "rol", "roll", "rollout", "rlt", "proj-12", "yesterday", "oct 3", "flaky test"] {

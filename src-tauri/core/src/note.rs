@@ -181,6 +181,8 @@ pub struct NoteMeta {
     /// Front matter `gerrit` entries, as written (URLs or change numbers).
     pub gerrit: Vec<String>,
     pub aliases: Vec<String>,
+    /// Front matter `status` (never set on daily notes).
+    pub status: Option<String>,
 }
 
 /// Parse a note's metadata from its path and content.
@@ -209,6 +211,7 @@ pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMet
         jira: fm.scalar("jira").map(str::to_string),
         gerrit: fm.list("gerrit"),
         aliases: fm.list("aliases"),
+        status: if kind == NoteKind::Daily { None } else { fm.scalar("status").map(|s| s.to_lowercase()) },
     }
 }
 

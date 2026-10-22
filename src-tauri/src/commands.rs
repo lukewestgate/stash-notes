@@ -93,10 +93,14 @@ pub fn read_note(state: State<AppState>, path: String) -> Res<Option<String>> {
 }
 
 #[tauri::command]
-pub fn save_note(state: State<AppState>, path: String, content: String) -> Res<NoteMeta> {
+pub fn save_note(app: AppHandle, state: State<AppState>, path: String, content: String) -> Res<NoteMeta> {
     let path = Vault::clean(&path).map_err(err)?;
     let mtime = state.vault.read().unwrap().write(&path, &content).map_err(err)?;
-    state.index.write().unwrap().upsert(&path, &content, mtime);
+    let old_status = state.index.read().unwrap().get(&path).and_then(|e| e.meta.status.clone());
+    let entry_status = state.index.write().unwrap().upsert(&path, &content, mtime).meta.status.clone();
+    if old_status != entry_status {
+        crate::tray::refresh_tooltip(&app);
+    }
     Ok(meta_for(&state, &path, &content))
 }
 
@@ -114,7 +118,7 @@ fn ensure_note(state: &AppState, target: &str) -> Res<String> {
     let (path, content) = if let Some(date) = dates::parse_iso(target) {
         (Vault::daily_path(date), vault.daily_content(date))
     } else if let Some(key) = tickets.as_key(target) {
-        (Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key))
+        (Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status))
     } else {
         (vault.new_note_path(target), Vault::note_stub(target))
     };
@@ -156,7 +160,7 @@ pub fn daily_note(state: State<AppState>, date: String) -> Res<String> {
 
 /// Archive a note, or unarchive it if it is already archived. Returns the new path.
 #[tauri::command]
-pub fn archive_note(state: State<AppState>, path: String) -> Res<String> {
+pub fn archive_note(app: AppHandle, state: State<AppState>, path: String) -> Res<String> {
     let path = Vault::clean(&path).map_err(err)?;
     let to = Vault::archive_target(&path);
     {
@@ -170,6 +174,7 @@ pub fn archive_note(state: State<AppState>, path: String) -> Res<String> {
     }
     state.session.lock().unwrap().moved(&path, &to);
     state.save_session();
+    crate::tray::refresh_tooltip(&app);
     Ok(to)
 }
 
@@ -227,6 +232,7 @@ pub fn search(
     limit: Option<usize>,
 ) -> SearchResults {
     let recents = state.session.lock().unwrap().recents.clone();
+    let statuses = state.settings.read().unwrap().statuses.clone();
     let opts = SearchOptions {
         include_archived,
         limit: limit.unwrap_or(50),
@@ -234,8 +240,63 @@ pub fn search(
         today: chrono::Local::now().date_naive(),
         now_ms: now_ms(),
         recents: &recents,
+        statuses: &statuses,
     };
     state.index.read().unwrap().search(&query, &opts)
+}
+
+#[derive(Serialize)]
+pub struct StatusResult {
+    /// Where the note is now (closing archives it; reopening unarchives it).
+    path: String,
+    /// The front matter edit, so an open editor can apply it in place.
+    edit: Option<TextEdit>,
+    meta: NoteMeta,
+}
+
+/// Set (or clear) a note's status on disk. Setting `closed` also moves the
+/// note into the archive, and any other status moves a closed, archived note back.
+#[tauri::command]
+pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: Option<String>) -> Res<StatusResult> {
+    use stash_core::status::CLOSED;
+    let path = Vault::clean(&path).map_err(err)?;
+    let status = status.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+    let vault = state.vault.read().unwrap();
+    let content = vault.read(&path).map_err(err)?;
+    let before = meta_for(&state, &path, &content);
+    if before.kind == stash_core::NoteKind::Daily {
+        return Err("daily notes don't have a status".into());
+    }
+    let edit = frontmatter::set_scalar(&content, "status", status.as_deref());
+    let new_content = edit.as_ref().map(|e| e.apply(&content)).unwrap_or_else(|| content.clone());
+    if edit.is_some() {
+        let mtime = vault.write(&path, &new_content).map_err(err)?;
+        state.index.write().unwrap().upsert(&path, &new_content, mtime);
+    }
+    let closing = status.as_deref() == Some(CLOSED) && !before.archived;
+    let reopening = status.as_deref() != Some(CLOSED) && before.archived && before.status.as_deref() == Some(CLOSED);
+    let mut new_path = path.clone();
+    if closing || reopening {
+        new_path = Vault::archive_target(&path);
+        vault.move_note(&path, &new_path).map_err(err)?;
+        let mut index = state.index.write().unwrap();
+        index.remove(&path);
+        index.upsert(&new_path, &new_content, vault.mtime(&new_path));
+        drop(index);
+        state.session.lock().unwrap().moved(&path, &new_path);
+        state.save_session();
+    }
+    drop(vault);
+    crate::tray::refresh_tooltip(&app);
+    Ok(StatusResult {
+        edit: edit.map(|e| TextEdit {
+            from: frontmatter::utf16_offset(&content, e.from),
+            to: frontmatter::utf16_offset(&content, e.to),
+            insert: e.insert,
+        }),
+        meta: meta_for(&state, &new_path, &new_content),
+        path: new_path,
+    })
 }
 
 #[tauri::command]

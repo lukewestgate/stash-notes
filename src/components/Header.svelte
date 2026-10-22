@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Keys, NoteMeta } from "../lib/api";
+  import type { Keys, NoteMeta, StatusDef } from "../lib/api";
+  import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
   import { weekday } from "../lib/text";
 
@@ -10,14 +11,29 @@
     canForward: boolean;
     hasKey: boolean;
     keys: Keys;
+    statuses: StatusDef[];
+    onStatus: () => void;
     onBack: () => void;
     onForward: () => void;
     onJira: () => void;
     onGerrit: () => void;
     onSwitcher: () => void;
   }
-  let { meta, dirty, canBack, canForward, hasKey, keys, onBack, onForward, onJira, onGerrit, onSwitcher }: Props =
-    $props();
+  let {
+    meta,
+    dirty,
+    canBack,
+    canForward,
+    hasKey,
+    keys,
+    statuses,
+    onStatus,
+    onBack,
+    onForward,
+    onJira,
+    onGerrit,
+    onSwitcher,
+  }: Props = $props();
 </script>
 
 <header class="header">
@@ -48,6 +64,11 @@
   </button>
 
   <div class="links">
+    {#if meta && meta.kind !== "daily"}
+      <button class="chip" onclick={onStatus} title="Set status ({formatKey(keys.setStatus)})">
+        {#if meta.status}<StatusIcon status={meta.status} {statuses} label />{:else}<span class="nostatus">status</span>{/if}
+      </button>
+    {/if}
     {#if hasKey}
       <button onclick={onJira} title="Open in Jira ({formatKey(keys.openJira)})">Jira</button>
     {/if}
@@ -145,6 +166,16 @@
   .links button {
     border-color: var(--border);
     color: var(--fg);
+  }
+  .links .chip {
+    border-color: transparent;
+  }
+  .links .chip:hover {
+    border-color: var(--border);
+  }
+  .nostatus {
+    font-size: 12px;
+    color: var(--fg-muted);
   }
   .count {
     color: var(--fg-muted);

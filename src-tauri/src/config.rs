@@ -75,6 +75,7 @@ pub fn start_indexing(app: &AppHandle) {
         state.index_ready.store(true, Ordering::Release);
         eprintln!("indexed {} notes in {:?}", notes.len(), started.elapsed());
         let _ = app.emit("index-ready", notes.len());
+        crate::tray::refresh_tooltip(&app);
         watch_vault(&app);
     });
 }
@@ -147,6 +148,7 @@ pub fn watch_vault(app: &AppHandle) {
                 state.reindex(rel);
             }
             let _ = app.emit("vault-changed", rels.into_iter().collect::<Vec<_>>());
+            crate::tray::refresh_tooltip(&app);
         }
     });
 }
@@ -221,6 +223,7 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
         start_indexing(app);
     }
     if old.is_some() {
+        crate::tray::refresh_tooltip(app);
         let _ = app.emit("settings-changed", new.clone());
     }
 }
