@@ -738,16 +738,20 @@ pub struct TextEdit {
     insert: String,
 }
 
-/// The edit that appends `link` to the note's front matter `gerrit` list.
-/// Offsets are UTF-16, as the editor counts them.
+/// The edit that appends `item` to the note's front matter list `field`
+/// (a link type's key, e.g. `gerrit`). Offsets are UTF-16, as the editor counts them.
 #[tauri::command]
-pub fn gerrit_edit(content: String, link: String) -> TextEdit {
-    let e = frontmatter::add_list_item(&content, "gerrit", link.trim());
-    TextEdit {
+pub fn link_edit(content: String, field: String, item: String) -> Res<TextEdit> {
+    let field = field.trim();
+    if field.is_empty() || !field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(format!("`{field}` can't be a front matter key"));
+    }
+    let e = frontmatter::add_list_item(&content, field, item.trim());
+    Ok(TextEdit {
         from: frontmatter::utf16_offset(&content, e.from),
         to: frontmatter::utf16_offset(&content, e.to),
         insert: e.insert,
-    }
+    })
 }
 
 /// Open an http(s) URL in the default browser, then hide if configured.

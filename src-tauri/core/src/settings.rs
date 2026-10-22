@@ -33,10 +33,6 @@ pub struct Settings {
     pub show_in_taskbar: bool,
     pub always_on_top: bool,
     pub hide_after_external_link: bool,
-    /// Regex for ticket keys, e.g. `PROJ-123`.
-    pub ticket_pattern: String,
-    pub jira: JiraSettings,
-    pub gerrit: GerritSettings,
     /// `system`, `light` or `dark`.
     pub theme: String,
     pub font_size: u32,
@@ -79,13 +75,73 @@ pub struct VaultDef {
     pub path: String,
     /// A theme color name.
     pub color: String,
+    /// Systems whose items get a note each (Jira tickets, GitHub issues, ...).
+    /// None: this vault's notes are plain notes.
+    pub tickets: Vec<TicketSystem>,
+    /// Kinds of link a note can collect in its front matter (Gerrit changes,
+    /// pull requests, wiki pages, ...).
+    pub links: Vec<LinkType>,
 }
 
 impl Default for VaultDef {
     fn default() -> Self {
-        VaultDef { id: "personal".into(), name: "Personal".into(), path: String::new(), color: "blue".into() }
+        VaultDef {
+            id: "personal".into(),
+            name: "Personal".into(),
+            path: String::new(),
+            color: "blue".into(),
+            tickets: Vec::new(),
+            links: Vec::new(),
+        }
     }
 }
+
+/// A ticket system: notes named by its keys (`tickets/PROJ-123.md`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TicketSystem {
+    pub name: String,
+    /// A Lucide icon name.
+    pub icon: String,
+    /// Regex for its keys, e.g. `[A-Z][A-Z0-9]+-\d+`.
+    pub pattern: String,
+    /// Where a key opens: `{key}` is the whole key, `{n}` its trailing number.
+    /// Pasted URLs on the same site turn into keys.
+    pub url: String,
+}
+
+impl Default for TicketSystem {
+    fn default() -> Self {
+        TicketSystem {
+            name: "Jira".into(),
+            icon: "ticket".into(),
+            pattern: DEFAULT_TICKET_PATTERN.into(),
+            url: "https://yourco.atlassian.net/browse/{key}".into(),
+        }
+    }
+}
+
+/// A kind of link a note collects in a front matter list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LinkType {
+    pub name: String,
+    /// A Lucide icon name.
+    pub icon: String,
+    /// The front matter key holding them, e.g. `gerrit`.
+    pub field: String,
+    /// Where a bare entry (`12345`) opens: `{n}` is the entry. Pasted URLs on
+    /// the same site are added to the list.
+    pub url: String,
+}
+
+impl Default for LinkType {
+    fn default() -> Self {
+        LinkType { name: "Gerrit".into(), icon: "git-pull-request".into(), field: "gerrit".into(), url: "https://gerrit.example.com/c/{n}".into() }
+    }
+}
+
+pub const DEFAULT_TICKET_PATTERN: &str = r"[A-Z][A-Z0-9]+-\d+";
 
 /// A vault id from a name: `My Work!` -> `my-work`, unique among `taken`.
 pub fn vault_id(name: &str, taken: &[String]) -> String {
@@ -120,18 +176,6 @@ impl Default for NotesViewSettings {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct JiraSettings {
-    pub url_template: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct GerritSettings {
-    pub url_template: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
 pub struct Keys {
     pub hide: String,
     pub quick_switcher: String,
@@ -139,9 +183,11 @@ pub struct Keys {
     pub follow_link: String,
     pub back: String,
     pub forward: String,
-    pub open_jira: String,
-    pub open_gerrit: String,
-    pub add_gerrit: String,
+    /// Open the note's ticket (Jira, GitHub issue, ...).
+    pub open_ticket: String,
+    /// Open one of the note's attached links (Gerrit change, PR, page, ...).
+    pub open_link: String,
+    pub add_link: String,
     pub timestamp: String,
     pub backlinks: String,
     pub archive: String,
@@ -173,9 +219,6 @@ impl Default for Settings {
             show_in_taskbar: false,
             always_on_top: false,
             hide_after_external_link: false,
-            ticket_pattern: r"[A-Z][A-Z0-9]+-\d+".into(),
-            jira: JiraSettings::default(),
-            gerrit: GerritSettings::default(),
             theme: "system".into(),
             font_size: 14,
             font_family: String::new(),
@@ -196,22 +239,6 @@ impl Default for Settings {
     }
 }
 
-impl Default for JiraSettings {
-    fn default() -> Self {
-        JiraSettings {
-            url_template: "https://yourco.atlassian.net/browse/{key}".into(),
-        }
-    }
-}
-
-impl Default for GerritSettings {
-    fn default() -> Self {
-        GerritSettings {
-            url_template: "https://gerrit.example.com/c/{n}".into(),
-        }
-    }
-}
-
 impl Default for Keys {
     fn default() -> Self {
         Keys {
@@ -221,9 +248,9 @@ impl Default for Keys {
             follow_link: "Ctrl+Enter".into(),
             back: "Alt+Left".into(),
             forward: "Alt+Right".into(),
-            open_jira: "Ctrl+J".into(),
-            open_gerrit: "Ctrl+G".into(),
-            add_gerrit: "Ctrl+Shift+G".into(),
+            open_ticket: "Ctrl+J".into(),
+            open_link: "Ctrl+G".into(),
+            add_link: "Ctrl+Shift+G".into(),
             timestamp: "Ctrl+;".into(),
             backlinks: "Ctrl+Shift+B".into(),
             archive: "Ctrl+Shift+A".into(),
@@ -285,8 +312,24 @@ pub fn migrate(text: &str) -> Option<String> {
         // 0.5 has several vaults; the one notes folder becomes the first.
         if !obj.contains_key("vaults") {
             let path = obj.remove("vaultPath").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
-            let first = VaultDef { path, ..VaultDef::default() };
+            // 0.4's Jira and Gerrit settings become the first vault's links.
+            let pattern = obj.remove("ticketPattern").and_then(|v| v.as_str().map(str::to_string)).unwrap_or(DEFAULT_TICKET_PATTERN.into());
+            let template = |key: &str, default: &str| {
+                obj.get(key).and_then(|j| j.get("urlTemplate")).and_then(|u| u.as_str()).unwrap_or(default).to_string()
+            };
+            let jira = TicketSystem { pattern, url: template("jira", &TicketSystem::default().url), ..TicketSystem::default() };
+            let gerrit = LinkType { url: template("gerrit", &LinkType::default().url), ..LinkType::default() };
+            obj.remove("jira");
+            obj.remove("gerrit");
+            let first = VaultDef { path, tickets: vec![jira], links: vec![gerrit], ..VaultDef::default() };
             obj.insert("vaults".into(), serde_json::to_value(vec![first]).unwrap_or_default());
+        }
+        if let Some(serde_json::Value::Object(keys)) = obj.get_mut("keys") {
+            for (old, new) in [("openJira", "openTicket"), ("openGerrit", "openLink"), ("addGerrit", "addLink")] {
+                if let Some(v) = keys.remove(old) {
+                    keys.insert(new.into(), v);
+                }
+            }
         }
         // 0.5 groups the Notes view by status or by tag.
         if let Some(serde_json::Value::Object(nv)) = obj.get_mut("notesView") {
@@ -345,6 +388,20 @@ impl Settings {
             if v.name.trim().is_empty() {
                 return Some("every vault needs a name".into());
             }
+            for t in &v.tickets {
+                if let Err(e) = regex::Regex::new(&t.pattern) {
+                    return Some(format!("{}: the key pattern of {} isn't a valid regex ({e})", v.name, t.name));
+                }
+            }
+            for l in &v.links {
+                let f = l.field.trim();
+                if f.is_empty() || !f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+                    return Some(format!("{}: {}'s front matter key must be letters, digits, - or _", v.name, l.name));
+                }
+                if ["status", "tags", "aliases", "title", "jira"].contains(&f) {
+                    return Some(format!("{}: `{f}` is already used in front matter", v.name));
+                }
+            }
         }
         None
     }
@@ -358,10 +415,20 @@ impl Settings {
         self.vaults.first().map(|v| v.id.as_str()).unwrap_or("personal")
     }
 
-    /// The ticket regex, falling back to the default if the configured one is invalid.
-    pub fn ticket_regex(&self) -> regex::Regex {
-        regex::Regex::new(&self.ticket_pattern)
-            .unwrap_or_else(|_| regex::Regex::new(&Settings::default().ticket_pattern).unwrap())
+    /// The ticket keys of vault `id`: every one of its ticket systems'
+    /// patterns (invalid ones skipped), or None if it has none.
+    pub fn ticket_regex(&self, id: &str) -> Option<regex::Regex> {
+        let pats: Vec<String> = self
+            .vault(id)?
+            .tickets
+            .iter()
+            .filter(|t| regex::Regex::new(&t.pattern).is_ok())
+            .map(|t| format!("(?:{})", t.pattern))
+            .collect();
+        if pats.is_empty() {
+            return None;
+        }
+        regex::Regex::new(&pats.join("|")).ok()
     }
 }
 
@@ -386,13 +453,19 @@ mod tests {
         let (s, _) = Settings::from_json(&migrate(v3).unwrap());
         assert_eq!(s.statuses[0].icon, "circle-dot");
         assert_eq!(s.statuses[1].icon, "circle");
-        let v4 = r#"{"schemaVersion":4,"vaultPath":"D:\\Notes","notesView":{"groupByStatus":true}}"#;
+        let v4 = r#"{"schemaVersion":4,"vaultPath":"D:\\Notes","ticketPattern":"OPS-\\d+","jira":{"urlTemplate":"https://j/{key}"},"keys":{"openJira":"Alt+J"},"notesView":{"groupByStatus":true}}"#;
         let out = migrate(v4).unwrap();
         let (s, _) = Settings::from_json(&out);
         assert_eq!(s.notes_view.group_by, "status");
         assert_eq!(s.vaults.len(), 1);
         assert_eq!((s.vaults[0].id.as_str(), s.vaults[0].path.as_str()), ("personal", "D:\\Notes"));
         assert!(!out.contains("vaultPath"));
+        let v = &s.vaults[0];
+        assert_eq!((v.tickets[0].pattern.as_str(), v.tickets[0].url.as_str()), ("OPS-\\d+", "https://j/{key}"));
+        assert_eq!(v.links[0].field, "gerrit");
+        assert_eq!(s.keys.open_ticket, "Alt+J");
+        assert!(s.ticket_regex("personal").unwrap().is_match("OPS-12"));
+        assert!(Settings::default().ticket_regex("personal").is_none());
         assert!(s.vault_error().is_none());
         let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
         assert!(merged.contains("\"futureKey\": 1"));
@@ -412,10 +485,9 @@ mod tests {
 
     #[test]
     fn partial_json_fills_defaults() {
-        let (s, err) = Settings::from_json(r#"{"hotkey":"Ctrl+Alt+N","jira":{"urlTemplate":"https://x/{key}"},"keys":{"back":"Alt+B"}}"#);
+        let (s, err) = Settings::from_json(r#"{"hotkey":"Ctrl+Alt+N","keys":{"back":"Alt+B"}}"#);
         assert!(err.is_none());
         assert_eq!(s.hotkey, "Ctrl+Alt+N");
-        assert_eq!(s.jira.url_template, "https://x/{key}");
         assert_eq!(s.keys.back, "Alt+B");
         assert_eq!(s.keys.forward, "Alt+Right");
         assert_eq!(s.on_summon, OnSummon::Last);

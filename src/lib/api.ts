@@ -17,8 +17,10 @@ export interface NoteMeta {
   label: string | null;
   key: string | null;
   date: string | null;
-  jira: string | null;
-  gerrit: string[];
+  /** Front matter `jira`: overrides where the ticket opens. */
+  ticketUrl: string | null;
+  /** Other front matter keys as lists; link types pick theirs by key. */
+  fields: Record<string, string[]>;
   aliases: string[];
   status: string | null;
   tags: string[];
@@ -86,9 +88,9 @@ export interface Keys {
   followLink: string;
   back: string;
   forward: string;
-  openJira: string;
-  openGerrit: string;
-  addGerrit: string;
+  openTicket: string;
+  openLink: string;
+  addLink: string;
   timestamp: string;
   backlinks: string;
   archive: string;
@@ -112,6 +114,28 @@ export interface VaultDef {
   /** Empty for the default folder (Documents\StashNotes). */
   path: string;
   color: string;
+  tickets: TicketSystem[];
+  links: LinkType[];
+}
+
+/** A system whose items get a note each (Jira, GitHub issues). */
+export interface TicketSystem {
+  name: string;
+  icon: string;
+  /** Regex for keys. */
+  pattern: string;
+  /** `{key}` = the key, `{n}` = its trailing number. */
+  url: string;
+}
+
+/** A kind of link notes collect in a front matter list (Gerrit, PRs, pages). */
+export interface LinkType {
+  name: string;
+  icon: string;
+  /** The front matter key. */
+  field: string;
+  /** Where a bare entry opens: `{n}` = the entry. */
+  url: string;
 }
 
 export type SortBy = "edited" | "opened" | "status" | "title";
@@ -135,9 +159,6 @@ export interface Settings {
   showInTaskbar: boolean;
   alwaysOnTop: boolean;
   hideAfterExternalLink: boolean;
-  ticketPattern: string;
-  jira: { urlTemplate: string };
-  gerrit: { urlTemplate: string };
   theme: "system" | "light" | "dark";
   fontSize: number;
   fontFamily: string;
@@ -249,7 +270,7 @@ export const api = {
   setUi: (key: string, value: unknown) => call<void>("set_ui", { key, value }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
   archivedNames: (vault: string) => call<string[]>("archived_names", { vault }),
-  gerritEdit: (content: string, link: string) => call<TextEdit>("gerrit_edit", { content, link }),
+  linkEdit: (content: string, field: string, item: string) => call<TextEdit>("link_edit", { content, field, item }),
   openUrl: (url: string) => call<void>("open_url", { url }),
   hideWindow: () => call<void>("hide_window"),
   quit: () => call<void>("quit_app"),

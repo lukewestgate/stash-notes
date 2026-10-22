@@ -5,23 +5,22 @@
   import Switcher from "./components/Switcher.svelte";
   import { api, on, type SearchHit, type Settings } from "./lib/api";
   import { applyAppearance } from "./lib/appearance";
-  import { jiraKeyFromUrl, ticketRegex } from "./lib/text";
+  import { anyTickets, ticketFromUrl } from "./lib/links";
 
   let settings = $state<Settings | null>(null);
   /** Bumped each time the pop-up is shown, to start from an empty query. */
   let shown = $state(0);
   let error = $state("");
 
-  const tickets = $derived(ticketRegex(settings?.ticketPattern ?? "[A-Z][A-Z0-9]+-\\d+"));
-
   function isTicket(q: string) {
     const first = q.trim().split(/\s+/)[0] ?? "";
-    return new RegExp(`^(?:${settings?.ticketPattern ?? "[A-Z][A-Z0-9]+-\\d+"})$`).test(first.toUpperCase());
+    const re = anyTickets(settings?.vaults ?? []);
+    return !!re && new RegExp(`^(?:${re.source})$`).test(first.toUpperCase());
   }
 
   function pasteKey(text: string): string | null {
     if (!settings?.smartPaste) return null;
-    return jiraKeyFromUrl(text, tickets, settings.jira.urlTemplate);
+    return ticketFromUrl(text, settings.vaults)?.key ?? null;
   }
 
   async function choose(hit: SearchHit) {

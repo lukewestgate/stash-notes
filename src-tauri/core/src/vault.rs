@@ -40,7 +40,11 @@ pub const DEFAULT_DAILY_TEMPLATE: &str = "# {{date}}\n\n## Todo\n\n- [ ] \n\n## 
 pub fn ticket_stub(key: &str, status: &str, name: &str) -> String {
     let status = if status.trim().is_empty() { String::new() } else { format!("status: {}\n", status.trim()) };
     let heading = if name.trim().is_empty() { format!("# {key} ") } else { format!("# {key} {}", name.trim()) };
-    format!("---\n{status}gerrit:\n---\n\n{heading}\n\n")
+    if status.is_empty() {
+        format!("{heading}\n\n")
+    } else {
+        format!("---\n{status}---\n\n{heading}\n\n")
+    }
 }
 
 /// Everything needed to undo a rename.

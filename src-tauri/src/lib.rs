@@ -49,9 +49,6 @@ pub fn run() {
             if let Some(w) = warning {
                 state.warn(w);
             }
-            if regex::Regex::new(&settings.ticket_pattern).is_err() {
-                state.warn(format!("ticketPattern `{}` is not a valid regex; using the default", settings.ticket_pattern));
-            }
             app.manage(state);
             app.manage(buffers::Buffers::default());
 
@@ -160,7 +157,7 @@ pub fn run() {
             commands::backlinks,
             commands::set_status,
             commands::archived_names,
-            commands::gerrit_edit,
+            commands::link_edit,
             commands::open_url,
             commands::hide_window,
             commands::quit_app,

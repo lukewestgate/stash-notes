@@ -106,7 +106,8 @@ class RuleWidget extends WidgetType {
 
 export interface FrontMatterInfo {
   status: string | null;
-  gerrit: number;
+  /** How many entries each list-like key has (`gerrit: [1, 2]` -> 2). */
+  counts: Record<string, number>;
   aliases: string[];
   tags: string[];
 }
@@ -114,13 +115,22 @@ export interface FrontMatterInfo {
 /** The pieces of front matter the properties row shows. */
 export function readFrontMatter(text: string): FrontMatterInfo {
   const status = /^status:[ \t]*([^\s#]+)/m.exec(text)?.[1] ?? null;
-  const gerritBlock = /^gerrit:[ \t]*(\[.*\]|[^\n]*)\n((?:[ \t]+-[^\n]*\n?)*)/m.exec(text);
-  let gerrit = 0;
-  if (gerritBlock) {
-    const inline = gerritBlock[1].trim();
-    if (inline.startsWith("[")) gerrit = inline.slice(1, -1).split(",").filter((x) => x.trim()).length;
-    else if (inline) gerrit = 1;
-    gerrit += (gerritBlock[2].match(/-\s*\S/g) ?? []).length;
+  const counts: Record<string, number> = {};
+  let key: string | null = null;
+  for (const line of text.split("\n")) {
+    const item = /^[ \t]+-[ \t]*(\S.*)?$/.exec(line);
+    if (item && key) {
+      if (item[1]) counts[key] = (counts[key] ?? 0) + 1;
+      continue;
+    }
+    const kv = /^([A-Za-z0-9_-]+):[ \t]*(.*?)[ \t]*(?:#.*)?$/.exec(line);
+    if (!kv) {
+      key = null;
+      continue;
+    }
+    key = kv[1];
+    const v = kv[2];
+    counts[key] = v.startsWith("[") ? v.slice(1, -1).split(",").filter((x) => x.trim()).length : v ? 1 : 0;
   }
   const aliasLine = /^aliases:[ \t]*\[(.*)\]/m.exec(text)?.[1];
   const aliases = aliasLine ? aliasLine.split(",").map((x) => x.trim().replace(/^["']|["']$/g, "")).filter(Boolean) : [];
@@ -129,7 +139,7 @@ export function readFrontMatter(text: string): FrontMatterInfo {
     ? [...tagBlock[1].replace(/^\[|\]$/g, "").split(","), ...tagBlock[2].split("\n").map((l) => l.replace(/^\s*-\s*/, ""))]
     : [];
   const tags = [...new Set(rawTags.map((t) => normalizeTag(t.replace(/^["']|["']$/g, ""))).filter((t): t is string => !!t))];
-  return { status: status?.toLowerCase() ?? null, gerrit, aliases, tags };
+  return { status: status?.toLowerCase() ?? null, counts, aliases, tags };
 }
 
 /** What the front matter row needs from the app. */
@@ -141,19 +151,27 @@ export interface PropertiesHooks {
   /** Show the notes with this tag. */
   onTag(tag: string): void;
   tagColor(tag: string): string | null;
-  onJira(): void;
-  onGerrit(): void;
-  hasJira(): boolean;
+  /** Open the note's ticket / its attached links. */
+  onTicket(): void;
+  onLink(): void;
+  /** The ticket system of the note's ticket, if any. */
+  ticket(): { name: string; icon: string } | null;
+  /** The link types of the note's vault. */
+  linkTypes(): { name: string; icon: string; field: string }[];
 }
 
 export const propertiesHooks: { current: PropertiesHooks | null } = { current: null };
 
 class PropertiesWidget extends WidgetType {
+  /** What the row shows: the front matter, plus the vault's ticket system and link types. */
+  readonly sig: string;
   constructor(readonly info: FrontMatterInfo) {
     super();
+    const hooks = propertiesHooks.current;
+    this.sig = JSON.stringify([info, hooks?.ticket(), hooks?.linkTypes()]);
   }
   eq(o: PropertiesWidget) {
-    return JSON.stringify(o.info) === JSON.stringify(this.info);
+    return o.sig === this.sig;
   }
   toDOM() {
     const hooks = propertiesHooks.current;
@@ -182,15 +200,12 @@ class PropertiesWidget extends WidgetType {
       st?.icon ?? "circle-dashed",
     );
     if (st) chip.style.color = `var(--c-${st.color})`;
-    if (hooks?.hasJira()) button("cm-prop", "Jira", "Open in Jira", () => hooks?.onJira(), "ticket");
-    if (this.info.gerrit > 0)
-      button(
-        "cm-prop",
-        this.info.gerrit > 1 ? `Gerrit ${this.info.gerrit}` : "Gerrit",
-        "Open Gerrit change",
-        () => hooks?.onGerrit(),
-        "git-pull-request",
-      );
+    const ticket = hooks?.ticket();
+    if (ticket) button("cm-prop", ticket.name, `Open in ${ticket.name}`, () => hooks?.onTicket(), ticket.icon);
+    for (const t of hooks?.linkTypes() ?? []) {
+      const n = this.info.counts[t.field] ?? 0;
+      if (n > 0) button("cm-prop", n > 1 ? `${t.name} ${n}` : t.name, `Open ${t.name} link`, () => hooks?.onLink(), t.icon);
+    }
     for (const t of this.info.tags) {
       const b = button("cm-prop cm-prop-tag", `#${t}`, `Notes tagged #${t}`, () => hooks?.onTag(t));
       const c = hooks?.tagColor(t);

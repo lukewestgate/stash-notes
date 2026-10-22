@@ -27,9 +27,9 @@
     [keys.followLink, "Follow link / ticket / URL under cursor", "on a checkbox line: toggle it"],
     [keys.back, "Back"],
     [keys.forward, "Forward"],
-    [keys.openJira, "Open Jira for this ticket"],
-    [keys.openGerrit, "Open Gerrit change"],
-    [keys.addGerrit, "Add Gerrit link"],
+    [keys.openTicket, "Open this note's ticket", "Jira, GitHub issue, … (set per vault)"],
+    [keys.openLink, "Open an attached link", "Gerrit change, PR, page, …"],
+    [keys.addLink, "Attach a link", "pasting one into a note does it too"],
     [keys.timestamp, "Insert timestamp"],
     [keys.backlinks, "Expand / collapse backlinks"],
     [keys.archive, "Archive / unarchive note"],
@@ -43,7 +43,7 @@
     ["Ctrl+Click", "Follow link"],
     [keys.rename, "Rename note (updates links)"],
     [keys.openSettings, "Settings"],
-    ["Ctrl+Shift+V", "Paste without converting Jira/Gerrit links"],
+    ["Ctrl+Shift+V", "Paste without converting ticket or link URLs"],
     [keys.quit, "Quit"],
   ]);
   const inSwitcher: [string, string][] = [

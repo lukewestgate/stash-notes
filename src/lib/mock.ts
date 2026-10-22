@@ -12,8 +12,15 @@ const today = isoDate();
 const settings: Settings = {
   schemaVersion: 5,
   vaults: [
-    { id: "personal", name: "Personal", path: "", color: "blue" },
-    { id: "work", name: "Work", path: "", color: "orange" },
+    { id: "personal", name: "Personal", path: "", color: "blue", tickets: [], links: [] },
+    {
+      id: "work",
+      name: "Work",
+      path: "",
+      color: "orange",
+      tickets: [{ name: "Jira", icon: "ticket", pattern: "[A-Z][A-Z0-9]+-\\d+", url: "https://yourco.atlassian.net/browse/{key}" }],
+      links: [{ name: "Gerrit", icon: "git-pull-request", field: "gerrit", url: "https://gerrit.example.com/c/{n}" }],
+    },
   ],
   hotkey: "Alt+N",
   switcherHotkey: "Alt+J",
@@ -24,9 +31,6 @@ const settings: Settings = {
   showInTaskbar: false,
   alwaysOnTop: false,
   hideAfterExternalLink: false,
-  ticketPattern: "[A-Z][A-Z0-9]+-\\d+",
-  jira: { urlTemplate: "https://yourco.atlassian.net/browse/{key}" },
-  gerrit: { urlTemplate: "https://gerrit.example.com/c/{n}" },
   theme: "system",
   fontSize: 14,
   fontFamily: "",
@@ -55,9 +59,9 @@ const settings: Settings = {
     followLink: "Ctrl+Enter",
     back: "Alt+Left",
     forward: "Alt+Right",
-    openJira: "Ctrl+J",
-    openGerrit: "Ctrl+G",
-    addGerrit: "Ctrl+Shift+G",
+    openTicket: "Ctrl+J",
+    openLink: "Ctrl+G",
+    addLink: "Ctrl+Shift+G",
     timestamp: "Ctrl+;",
     backlinks: "Ctrl+Shift+B",
     archive: "Ctrl+Shift+A",
@@ -156,7 +160,6 @@ function meta(path: string, text: string): NoteMeta {
   const heading = /^# (.+)$/m.exec(body)?.[1]?.trim();
   const named = heading?.startsWith(s) ? heading.slice(s.length).replace(/^[\s:–—-]+/, "") : heading;
   const label = named || (typeof fields.title === "string" ? fields.title : null);
-  const gerrit = fields.gerrit;
   const rawTags = fields.tags;
   const tagList = Array.isArray(rawTags) ? rawTags : typeof rawTags === "string" ? rawTags.replace(/^\[|\]$/g, "").split(",") : [];
   return {
@@ -168,8 +171,13 @@ function meta(path: string, text: string): NoteMeta {
     label: kind === "ticket" ? label : null,
     key: kind === "ticket" ? s : null,
     date: kind === "daily" ? s : null,
-    jira: typeof fields.jira === "string" ? fields.jira : null,
-    gerrit: Array.isArray(gerrit) ? gerrit : typeof gerrit === "string" ? [gerrit] : [],
+    ticketUrl: typeof fields.jira === "string" ? fields.jira : null,
+    fields: Object.fromEntries(
+      Object.entries(fields)
+        .filter(([k]) => !["status", "tags", "aliases", "title", "jira"].includes(k))
+        .map(([k, v]) => [k, Array.isArray(v) ? v : v ? [v] : []] as [string, string[]])
+        .filter(([, v]) => v.length),
+    ),
     aliases: [],
     status: kind !== "daily" && typeof fields.status === "string" ? fields.status : null,
     tags: kind === "daily" ? [] : [...new Set(tagList.map((t) => normalizeTag(t)).filter((t): t is string => !!t))],
@@ -236,7 +244,7 @@ function ensure(target: string, vault: string): string {
     const [key, ...name] = t.split(/\s+/);
     // Ticket keys live in the work vault in the demo.
     path = `work:tickets/${key.toUpperCase()}.md`;
-    body = `---\nstatus: open\ngerrit:\n---\n\n# ${key.toUpperCase()} ${name.join(" ")}\n\n`;
+    body = `---\nstatus: open\n---\n\n# ${key.toUpperCase()} ${name.join(" ")}\n\n`;
   } else {
     path = `${vault}:notes/${slug(t)}.md`;
     body = `# ${t}\n\n`;
@@ -534,14 +542,15 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "archived_names":
       return [...notes.keys()].filter((p) => vaultOf(p) === a.vault && rel(p).startsWith("archive/")).map((p) => meta(p, notes.get(p)!).title.toLowerCase());
-    case "gerrit_edit": {
+    case "link_edit": {
       const content: string = a.content;
-      const m = /^---\n[\s\S]*?\ngerrit:[^\n]*\n((?:\s+-[^\n]*\n)*)/.exec(content);
+      const m = new RegExp(`^---\\n[\\s\\S]*?\\n${a.field}:[^\\n]*\\n((?:\\s+-[^\\n]*\\n)*)`).exec(content);
       if (m) {
         const at = m.index + m[0].length;
-        return { from: at, to: at, insert: `  - ${a.link}\n` };
+        return { from: at, to: at, insert: `  - ${a.item}\n` };
       }
-      return { from: 0, to: 0, insert: `---\ngerrit:\n  - ${a.link}\n---\n\n` };
+      if (content.startsWith("---\n")) return { from: 4, to: 4, insert: `${a.field}:\n  - ${a.item}\n` };
+      return { from: 0, to: 0, insert: `---\n${a.field}:\n  - ${a.item}\n---\n\n` };
     }
     case "open_url":
       window.open(a.url, "_blank", "noopener");

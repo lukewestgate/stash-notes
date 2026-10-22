@@ -37,7 +37,12 @@ impl TicketMatcher {
     }
 
     pub fn default_pattern() -> Self {
-        Self::new(&Regex::new(r"[A-Z][A-Z0-9]+-\d+").unwrap())
+        Self::new(&Regex::new(crate::settings::DEFAULT_TICKET_PATTERN).unwrap())
+    }
+
+    /// For a vault without ticket systems: nothing is a ticket key.
+    pub fn none() -> Self {
+        Self::new(&Regex::new(r"[^\s\S]").unwrap())
     }
 
     /// If `text` (trimmed, case-insensitively) is a ticket key, return it in canonical upper case.
@@ -220,10 +225,11 @@ pub struct NoteMeta {
     pub label: Option<String>,
     pub key: Option<String>,
     pub date: Option<NaiveDate>,
-    /// Front matter `jira` override.
-    pub jira: Option<String>,
-    /// Front matter `gerrit` entries, as written (URLs or change numbers).
-    pub gerrit: Vec<String>,
+    /// Front matter `jira`: a URL that overrides where the ticket opens.
+    pub ticket_url: Option<String>,
+    /// Every other front matter key as a list (`gerrit: [123]`): the
+    /// vault's link types pick theirs out by key.
+    pub fields: std::collections::BTreeMap<String, Vec<String>>,
     pub aliases: Vec<String>,
     /// Front matter `status` (never set on daily notes).
     pub status: Option<String>,
@@ -255,8 +261,14 @@ pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMet
         label,
         key,
         date,
-        jira: fm.scalar("jira").map(str::to_string),
-        gerrit: fm.list("gerrit"),
+        ticket_url: fm.scalar("jira").map(str::to_string),
+        fields: fm
+            .fields
+            .keys()
+            .filter(|k| !["status", "tags", "aliases", "title", "jira"].contains(&k.as_str()))
+            .map(|k| (k.clone(), fm.list(k)))
+            .filter(|(_, v)| !v.is_empty())
+            .collect(),
         aliases: fm.list("aliases"),
         status: if kind == NoteKind::Daily { None } else { fm.scalar("status").map(|s| s.to_lowercase()) },
         tags: if kind == NoteKind::Daily { Vec::new() } else { tags_of(&fm) },
@@ -346,7 +358,7 @@ mod tests {
         assert_eq!(m.kind, NoteKind::Ticket);
         assert_eq!(m.title, "PROJ-1");
         assert_eq!(m.label.as_deref(), Some("Rollout date"));
-        assert_eq!(m.gerrit, vec!["5"]);
+        assert_eq!(m.fields["gerrit"], vec!["5"]);
         // Legacy front matter title, and a heading still being typed
         let m = parse_meta("tickets/PROJ-1.md", "---\ntitle: Hello\n---\n# PROJ-1 \n", &t);
         assert_eq!(m.label.as_deref(), Some("Hello"));

@@ -17,7 +17,8 @@
   import { liveConfig, propertiesHooks } from "./lib/live";
   import { matches, matchesChordTail, parseChord, parseKey } from "./lib/keys";
   import { statusInfo } from "./lib/status";
-  import { firstTicket, gerritUrl, jiraUrl, refAt, ticketRegex, timestamp, checkboxToggle } from "./lib/text";
+  import { firstTicket, refAt, ticketRegex, timestamp, checkboxToggle } from "./lib/text";
+  import { linkItems, systemForKey, ticketUrl, vaultTickets } from "./lib/links";
 
   let settings = $state<Settings | null>(null);
   let path = $state<string | null>(null);
@@ -28,7 +29,7 @@
   let overlay = $state<
     | { type: "status" }
     | { type: "tags"; all: TagCount[] }
-    | { type: "gerrit"; items: { label: string; detail?: string }[]; urls: string[] }
+    | { type: "links"; items: { label: string; detail?: string }[]; urls: string[] }
     | null
   >(null);
   let chordPending = false;
@@ -37,7 +38,7 @@
   let view: EditorView;
   let extensions: Extension[];
   let sync: NoteSync | null = null;
-  let tickets = ticketRegex("[A-Z][A-Z0-9]+-\\d+");
+  let tickets = /(?!)/g;
 
   const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
@@ -48,8 +49,7 @@
 
   function applySettings(s: Settings) {
     settings = s;
-    tickets = ticketRegex(s.ticketPattern);
-    decoConfig.tickets = tickets;
+    applyTickets();
     liveConfig.enabled = s.liveFormatting;
     applyAppearance(s);
     editorState.spellCheck = s.spellCheck;
@@ -68,6 +68,7 @@
     const data = await api.bufferOpen(path);
     sync?.close();
     meta = data.meta;
+    applyTickets();
     conflict = data.deleted ? { deleted: true } : null;
     view.setState(EditorState.create({ doc: data.text, extensions: [extensions, NoteSync.extension(data)] }));
     sync = new NoteSync(path, view, load);
@@ -84,22 +85,38 @@
     return true;
   }
 
-  function openJira() {
+  function vault() {
+    return settings?.vaults.find((v) => v.id === meta?.vault);
+  }
+
+  /** Key highlighting and following for this note's vault. */
+  function applyTickets() {
+    const re = vaultTickets(vault());
+    tickets = re ? ticketRegex(re.source) : /(?!)/g;
+    decoConfig.tickets = tickets;
+  }
+
+  function ticketKey(): string | null {
+    if (!meta || meta.kind === "daily") return null;
+    return meta.kind === "ticket" ? meta.key : firstTicket(view.state.doc.toString(), tickets);
+  }
+
+  function openTicket() {
     if (!meta || !settings) return;
-    const key = meta.kind === "ticket" ? meta.key : firstTicket(view.state.doc.toString(), tickets);
-    if (meta.kind === "ticket" && meta.jira) api.openUrl(meta.jira);
-    else if (key) api.openUrl(jiraUrl(settings.jira.urlTemplate, key));
+    const key = ticketKey();
+    const sys = key ? systemForKey(vault(), key) : null;
+    if (meta.kind === "ticket" && meta.ticketUrl) api.openUrl(meta.ticketUrl);
+    else if (key && sys) api.openUrl(ticketUrl(sys, key));
     else say("No ticket key in this note");
   }
 
-  async function openGerrit() {
+  async function openLink() {
     if (!meta || !settings) return;
     await sync?.drain();
-    const t = settings.gerrit.urlTemplate;
-    const urls = meta.gerrit.map((g) => gerritUrl(t, g));
-    if (!urls.length) say("No Gerrit links in this note");
-    else if (urls.length === 1) api.openUrl(urls[0]);
-    else overlay = { type: "gerrit", items: meta.gerrit.map((g, i) => ({ label: g, detail: urls[i] })), urls };
+    const items = linkItems(meta, vault());
+    if (!items.length) say("No links in this note");
+    else if (items.length === 1) api.openUrl(items[0].url);
+    else overlay = { type: "links", items: items.map((l) => ({ label: `${l.type.name} · ${l.item}`, detail: l.url })), urls: items.map((l) => l.url) };
   }
 
   async function setStatus(status: string | null) {
@@ -169,12 +186,12 @@
     if (is(k.timestamp)) {
       stop();
       view.dispatch(view.state.replaceSelection(timestamp(new Date(), settings.timestampFormat)));
-    } else if (is(k.openJira)) {
+    } else if (is(k.openTicket)) {
       stop();
-      openJira();
-    } else if (is(k.openGerrit)) {
+      openTicket();
+    } else if (is(k.openLink)) {
       stop();
-      openGerrit();
+      openLink();
     } else if (is(k.setStatus)) {
       stop();
       if (meta?.kind !== "daily") overlay = { type: "status" };
@@ -217,9 +234,13 @@
       // Tag searches happen in the main window.
       onTag: (t) => api.openInMain(`::notes#${t}`),
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
-      onJira: openJira,
-      onGerrit: openGerrit,
-      hasJira: () => meta?.kind === "ticket" || firstTicket(view.state.doc.toString(), tickets) !== null,
+      onTicket: openTicket,
+      onLink: openLink,
+      ticket: () => {
+        const key = ticketKey();
+        return key ? systemForKey(vault(), key) : null;
+      },
+      linkTypes: () => vault()?.links ?? [],
     };
     window.addEventListener("keydown", onKeydown, true);
     darkQuery.addEventListener("change", applyDark);
@@ -313,9 +334,9 @@
         view.focus();
       }}
     />
-  {:else if overlay?.type === "gerrit"}
+  {:else if overlay?.type === "links"}
     {@const o = overlay}
-    <Picker title="Open Gerrit change" items={o.items} onChoose={(i) => { overlay = null; api.openUrl(o.urls[i]); }} />
+    <Picker title="Open link" items={o.items} onChoose={(i) => { overlay = null; api.openUrl(o.urls[i]); }} />
   {/if}
 </main>
 

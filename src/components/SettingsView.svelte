@@ -8,7 +8,9 @@
   import TagChip from "./TagChip.svelte";
   import { sameKeys } from "../lib/keys";
   import { COLORS } from "../lib/status";
-  import { jiraUrl, gerritUrl, timestamp } from "../lib/text";
+  import { timestamp } from "../lib/text";
+  import { LINK_PRESETS, TICKET_PRESETS, linkUrl, ticketUrl } from "../lib/links";
+  import { LINK_ICONS } from "../lib/icons";
   import KeyRecorder from "./KeyRecorder.svelte";
   import { STATUS_ICONS } from "../lib/icons";
   import Icon from "./Icon.svelte";
@@ -32,7 +34,6 @@
     "Window",
     "Editor",
     "Notes",
-    "Links",
     "Notes view",
     "Statuses",
     "Tags",
@@ -47,8 +48,7 @@
     Window: ["showInTaskbar", "alwaysOnTop"],
     Editor: ["liveFormatting", "readableWidth", "fontFamily", "fontSize", "lineHeight", "spellCheck", "smartPaste", "timestampFormat"],
     Vaults: [],
-    Notes: ["defaultStatus", "ticketPattern"],
-    Links: ["jira", "gerrit"],
+    Notes: ["defaultStatus"],
     "Notes view": ["notesView"],
     Statuses: ["statuses"],
     Tags: ["tagColors"],
@@ -63,9 +63,9 @@
     ["followLink", "Follow link / toggle checkbox"],
     ["back", "Back"],
     ["forward", "Forward"],
-    ["openJira", "Open Jira"],
-    ["openGerrit", "Open Gerrit change"],
-    ["addGerrit", "Add Gerrit link"],
+    ["openTicket", "Open the note's ticket"],
+    ["openLink", "Open an attached link"],
+    ["addLink", "Attach a link"],
     ["timestamp", "Insert timestamp"],
     ["setStatus", "Set status"],
     ["setTags", "Add or remove tags"],
@@ -94,8 +94,8 @@
   let defaults = $state<Settings | null>(null);
   let template = $state("");
   let templateSaved = $state("");
-  let patternSample = $state("PROJ-123 and OPS-7 were mentioned");
-  let patternHits = $state<string[]>([]);
+  /** The ticket system / link type whose icon picker is open: `vault:kind:index`. */
+  let linkIconFor = $state<string | null>(null);
   let saving = 0;
   let tags = $state<TagCount[]>([]);
   /** The tag whose rename field is open. */
@@ -158,7 +158,8 @@
   // svelte-ignore state_referenced_locally
   let templateVault = $state(currentVault);
   let defaultFolder = $state("");
-  let newVault = $state({ name: "", path: "" });
+  /** `copyFrom`: a vault whose ticket systems and link types the new one starts with ("" for none). */
+  let newVault = $state({ name: "", path: "", copyFrom: "" });
 
   $effect(() => {
     const v = templateVault;
@@ -168,7 +169,6 @@
   onMount(async () => {
     defaults = await api.defaultSettings().catch(() => null);
     defaultFolder = await api.defaultVaultFolder().catch(() => "");
-    testPattern();
   });
 
   /** A vault id from a name, unique among the vaults (same rule as Rust's `vault_id`). */
@@ -195,8 +195,11 @@
     }
     const used = new Set(draft.vaults.map((v) => v.color));
     const color = COLORS.find((c) => !used.has(c)) ?? "teal";
-    await editVaults((l) => l.push({ id: vaultId(name), name, path: newVault.path.trim(), color }));
-    if (!errors.vaults) newVault = { name: "", path: "" };
+    const from = draft.vaults.find((v) => v.id === newVault.copyFrom);
+    const tickets = from ? structuredClone($state.snapshot(from.tickets)) : [];
+    const links = from ? structuredClone($state.snapshot(from.links)) : [];
+    await editVaults((l) => l.push({ id: vaultId(name), name, path: newVault.path.trim(), color, tickets, links }));
+    if (!errors.vaults) newVault = { name: "", path: "", copyFrom: "" };
   }
 
   async function removeVault(i: number) {
@@ -254,42 +257,10 @@
     }
   }
 
-  async function testPattern() {
-    try {
-      patternHits = await api.testTicketPattern(draft.ticketPattern, patternSample);
-      delete errors.ticketPattern;
-      errors = { ...errors };
-    } catch (e) {
-      patternHits = [];
-      errors = { ...errors, ticketPattern: `Not a valid pattern: ${e}` };
-    }
-  }
-
-  async function setPattern(p: string) {
-    try {
-      await api.testTicketPattern(p, "");
-    } catch (e) {
-      errors = { ...errors, ticketPattern: `Not a valid pattern: ${e}` };
-      return;
-    }
-    await set("ticketPattern", p);
-    testPattern();
-  }
-
-  function templateError(t: string, token: string) {
-    return t.includes(token) ? null : `Must contain ${token}`;
-  }
-
-  async function setTemplate(kind: "jira" | "gerrit", value: string) {
-    const token = kind === "jira" ? "{key}" : "{n}";
-    const bad = templateError(value, token);
-    if (bad) {
-      errors = { ...errors, [kind]: bad };
-      return;
-    }
-    await save(kind, (s) => {
-      s[kind] = { urlTemplate: value.trim() };
-    });
+  /** A key the ticket system makes, for its URL preview. */
+  function sampleKey(pattern: string): string {
+    const prefix = /^([A-Za-z][A-Za-z0-9_]*)-\\d\+$/.exec(pattern)?.[1];
+    return prefix ? `${prefix}-42` : "PROJ-123";
   }
 
   async function setHotkey(which: "hotkey" | "switcherHotkey", spec: string): Promise<string | null> {
@@ -375,6 +346,19 @@
 
   const sample = new Date(2026, 9, 22, 14, 5);
 </script>
+
+{#snippet linkIcon(key: string, icon: string, pick: (icon: string) => void)}
+  <span class="licon">
+    <button class="icon-btn" title="Choose an icon" aria-label="Icon" onclick={() => (linkIconFor = linkIconFor === key ? null : key)}><Icon name={icon} size={15} /></button>
+    {#if linkIconFor === key}
+      <div class="icon-grid" role="listbox" tabindex="-1">
+        {#each LINK_ICONS as name}
+          <button role="option" aria-selected={icon === name} class:on={icon === name} title={name} onclick={() => { pick(name); linkIconFor = null; }}><Icon {name} size={16} /></button>
+        {/each}
+      </div>
+    {/if}
+  </span>
+{/snippet}
 
 {#snippet toggle(label: string, value: boolean, onchange: (v: boolean) => void, hint?: string)}
   <label class="row">
@@ -507,6 +491,62 @@
                 {/each}
               </span>
             </div>
+            <div class="links">
+              <div class="lhead">
+                <span class="text">Tickets<span class="hint">a note per item, named by its key; pasting its URL gives the key</span></span>
+                <select
+                  value=""
+                  onchange={(e) => {
+                    const p = TICKET_PRESETS[Number(e.currentTarget.value)];
+                    e.currentTarget.value = "";
+                    if (p) editVaults((l) => l[i].tickets.push(structuredClone(p.system)));
+                  }}
+                  aria-label="Add a ticket system"
+                >
+                  <option value="" disabled>Add…</option>
+                  {#each TICKET_PRESETS as p, k}<option value={k}>{p.label}</option>{/each}
+                </select>
+              </div>
+              {#each v.tickets as t, j}
+                {@render linkIcon(`${v.id}:t:${j}`, t.icon, (icon) => editVaults((l) => (l[i].tickets[j].icon = icon)))}
+                <div class="lrow">
+                  <input class="lname" value={t.name} onchange={(e) => editVaults((l) => (l[i].tickets[j].name = e.currentTarget.value.trim() || t.name))} aria-label="Name" />
+                  <input class="mono lpat" value={t.pattern} title="Key pattern (a regular expression)" onchange={(e) => editVaults((l) => (l[i].tickets[j].pattern = e.currentTarget.value.trim()))} aria-label="Key pattern" />
+                  <input class="mono wide" value={t.url} title={"URL: {key} is the key, {n} its number"} onchange={(e) => editVaults((l) => (l[i].tickets[j].url = e.currentTarget.value.trim()))} aria-label="URL" />
+                  <button class="mini" onclick={() => editVaults((l) => l[i].tickets.splice(j, 1))} title="Remove" aria-label="Remove"><Icon name="trash" size={14} /></button>
+                </div>
+                <div class="lpreview">{sampleKey(t.pattern)} → {ticketUrl(t, sampleKey(t.pattern))}</div>
+              {:else}
+                <div class="lnone">None — this vault's notes are plain notes.</div>
+              {/each}
+              <div class="lhead">
+                <span class="text">Attached links<span class="hint">a note collects them in front matter; pasting one adds it</span></span>
+                <select
+                  value=""
+                  onchange={(e) => {
+                    const p = LINK_PRESETS[Number(e.currentTarget.value)];
+                    e.currentTarget.value = "";
+                    if (p) editVaults((l) => l[i].links.push(structuredClone(p.type)));
+                  }}
+                  aria-label="Add a link type"
+                >
+                  <option value="" disabled>Add…</option>
+                  {#each LINK_PRESETS as p, k}<option value={k}>{p.label}</option>{/each}
+                </select>
+              </div>
+              {#each v.links as t, j}
+                {@render linkIcon(`${v.id}:l:${j}`, t.icon, (icon) => editVaults((l) => (l[i].links[j].icon = icon)))}
+                <div class="lrow">
+                  <input class="lname" value={t.name} onchange={(e) => editVaults((l) => (l[i].links[j].name = e.currentTarget.value.trim() || t.name))} aria-label="Name" />
+                  <input class="mono lpat" value={t.field} title="Front matter key" onchange={(e) => editVaults((l) => (l[i].links[j].field = e.currentTarget.value.trim().toLowerCase()))} aria-label="Front matter key" />
+                  <input class="mono wide" value={t.url} title={"URL for a bare entry: {n} is the entry; pasted URLs on this site are recognised"} onchange={(e) => editVaults((l) => (l[i].links[j].url = e.currentTarget.value.trim()))} aria-label="URL" />
+                  <button class="mini" onclick={() => editVaults((l) => l[i].links.splice(j, 1))} title="Remove" aria-label="Remove"><Icon name="trash" size={14} /></button>
+                </div>
+                <div class="lpreview">{t.field}: 12345 → {linkUrl(t, "12345")}</div>
+              {:else}
+                <div class="lnone">None.</div>
+              {/each}
+            </div>
           </div>
         {/each}
         {#if indexing}<div class="progress">Indexing notes in the background…</div>{/if}
@@ -516,6 +556,10 @@
             <input placeholder="Name, e.g. Work" bind:value={newVault.name} aria-label="New vault name" />
             <input class="wide" placeholder="Folder" bind:value={newVault.path} aria-label="New vault folder" />
             <button class="btn" onclick={() => chooseVaultFolder(null)}>Choose…</button>
+            <select bind:value={newVault.copyFrom} aria-label="Links for the new vault">
+              <option value="">Plain notes</option>
+              {#each draft.vaults.filter((x) => x.tickets.length || x.links.length) as x}<option value={x.id}>Links like {x.name}</option>{/each}
+            </select>
             <button class="btn primary" onclick={addVault}>Add vault</button>
           </span>
         </div>
@@ -528,18 +572,6 @@
             {#each draft.statuses as s}<option value={s.name}>{s.name}</option>{/each}
           </select>
         </div>
-        <div class="row">
-          <span class="text">Ticket key pattern<span class="hint">a regular expression</span></span>
-          <input class="wide mono" value={draft.ticketPattern} onchange={(e) => setPattern(e.currentTarget.value)} />
-        </div>
-        <div class="row sub">
-          <span class="text">Try it</span>
-          <span class="inline">
-            <input class="wide" bind:value={patternSample} oninput={testPattern} />
-            <span class="preview">{patternHits.length ? patternHits.join(", ") : "no keys"}</span>
-          </span>
-        </div>
-        {@render error("ticketPattern")}
         <div class="block">
           <span class="text">Daily note template<span class="hint">{"{{date}}"} and {"{{weekday}}"} are filled in; saved to templates/daily.md in the vault</span></span>
           {#if draft.vaults.length > 1}
@@ -549,19 +581,6 @@
           {/if}
           <textarea rows="8" bind:value={template} onblur={saveTemplate} spellcheck="false"></textarea>
           {@render error("template")}
-        </div>
-      {:else if category === "Links"}
-        <div class="block">
-          <span class="text">Jira URL template</span>
-          <input class="wide mono" value={draft.jira.urlTemplate} onchange={(e) => setTemplate("jira", e.currentTarget.value)} />
-          <span class="preview">PROJ-123 → {jiraUrl(draft.jira.urlTemplate, "PROJ-123")}</span>
-          {@render error("jira")}
-        </div>
-        <div class="block">
-          <span class="text">Gerrit URL template<span class="hint">for bare change numbers</span></span>
-          <input class="wide mono" value={draft.gerrit.urlTemplate} onchange={(e) => setTemplate("gerrit", e.currentTarget.value)} />
-          <span class="preview">12345 → {gerritUrl(draft.gerrit.urlTemplate, "12345")}</span>
-          {@render error("gerrit")}
         </div>
       {:else if category === "Notes view"}
         {@render toggle("Show daily notes", draft.notesView.showDaily, (v) => save("notesView", (s) => (s.notesView.showDaily = v)))}
@@ -821,9 +840,6 @@
     padding: 4px 0;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   }
-  .row.sub {
-    border-bottom: none;
-  }
   .block {
     display: flex;
     flex-direction: column;
@@ -864,9 +880,6 @@
   }
   .wide {
     width: min(380px, 50vw);
-  }
-  .block .wide {
-    width: 100%;
   }
   .num {
     width: 70px;
@@ -974,6 +987,54 @@
   }
   .tags input {
     width: 160px;
+  }
+  .links {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: 8px;
+    padding: 4px 0 8px;
+  }
+  .lhead {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 0 4px;
+  }
+  .lrow {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+  }
+  .lrow .lname {
+    width: 110px;
+  }
+  .lrow .lpat {
+    width: 150px;
+  }
+  .lrow .wide {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+  .lpreview,
+  .lnone {
+    grid-column: 2;
+    font-size: 11.5px;
+    color: var(--fg-muted);
+    padding: 2px 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lnone {
+    grid-column: 1 / -1;
+  }
+  .licon {
+    position: relative;
   }
   .vcard {
     border: 1px solid var(--border);

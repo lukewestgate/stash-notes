@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Keys, NoteMeta, StatusDef } from "../lib/api";
+  import type { Keys, LinkType, NoteMeta, StatusDef, TicketSystem } from "../lib/api";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
@@ -10,16 +10,19 @@
     dirty: boolean;
     canBack: boolean;
     canForward: boolean;
-    hasKey: boolean;
+    /** The ticket system of the note's ticket, if it has one. */
+    ticket: TicketSystem | null;
+    /** The link types of the note's vault. */
+    linkTypes: LinkType[];
     keys: Keys;
     statuses: StatusDef[];
     onStatus: () => void;
     onTags: () => void;
     onBack: () => void;
     onForward: () => void;
-    onJira: () => void;
-    onGerrit: () => void;
-    onAddGerrit: () => void;
+    onTicket: () => void;
+    onLink: () => void;
+    onAddLink: () => void;
     onSwitcher: () => void;
     /** The current note is open in a pinned window. */
     pinned: boolean;
@@ -31,16 +34,17 @@
     dirty,
     canBack,
     canForward,
-    hasKey,
+    ticket,
+    linkTypes,
     keys,
     statuses,
     onStatus,
     onTags,
     onBack,
     onForward,
-    onJira,
-    onGerrit,
-    onAddGerrit,
+    onTicket,
+    onLink,
+    onAddLink,
     onSwitcher,
     pinned,
     onPin,
@@ -48,6 +52,8 @@
   }: Props = $props();
 
   const pinKeys = $derived(keys.pinNote.split(/\s+/).map(formatKey).join(" then "));
+  /** The vault's link types this note has entries for, with how many. */
+  const used = $derived(meta ? linkTypes.map((t) => ({ type: t, n: meta.fields[t.field]?.length ?? 0 })).filter((u) => u.n > 0) : []);
 </script>
 
 <header class="header">
@@ -95,20 +101,24 @@
         <Icon name={meta.tags.length > 1 ? "tags" : "tag"} size={15} />{#if meta.tags.length}<span class="count">{meta.tags.length}</span>{/if}
       </button>
     {/if}
-    {#if hasKey}
-      <button class="action" onclick={onJira} title="Open in Jira ({formatKey(keys.openJira)})">
-        <Icon name="ticket" size={15} /><span>Jira</span>
+    {#if ticket}
+      <button class="action" onclick={onTicket} title="Open in {ticket.name} ({formatKey(keys.openTicket)})">
+        <Icon name={ticket.icon} size={15} /><span>{ticket.name}</span>
       </button>
     {/if}
-    {#if meta && meta.gerrit.length > 0}
-      <button class="action" onclick={onGerrit} title="Open Gerrit change ({formatKey(keys.openGerrit)})">
-        <Icon name="git-pull-request" size={15} /><span>Gerrit</span>{#if meta.gerrit.length > 1}<span class="count"
-            >{meta.gerrit.length}</span
-          >{/if}
+    {#each used as u (u.type.field)}
+      <button class="action" onclick={onLink} title="Open {u.type.name} link ({formatKey(keys.openLink)})">
+        <Icon name={u.type.icon} size={15} /><span>{u.type.name}</span>{#if u.n > 1}<span class="count">{u.n}</span>{/if}
       </button>
-    {:else if meta && meta.kind !== "daily"}
-      <button class="action icon" onclick={onAddGerrit} title="Add a Gerrit change ({formatKey(keys.addGerrit)})" aria-label="Add Gerrit change">
-        <Icon name="git-pull-request" size={15} />
+    {/each}
+    {#if meta && meta.kind !== "daily" && linkTypes.length}
+      <button
+        class="action icon"
+        onclick={onAddLink}
+        title="Add a link: {linkTypes.map((t) => t.name).join(', ')} ({formatKey(keys.addLink)})"
+        aria-label="Add a link"
+      >
+        <Icon name="link" size={15} />
       </button>
     {/if}
     {#if meta}

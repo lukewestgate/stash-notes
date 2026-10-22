@@ -120,31 +120,6 @@ export function todoCursor(doc: string): number | null {
   return offsets[last] + lines[last].replace(/\r$/, "").length;
 }
 
-export function jiraUrl(template: string, key: string): string {
-  return template.replaceAll("{key}", key);
-}
-
-/** A front matter `gerrit` entry as a URL: bare change numbers go through the template. */
-export function gerritUrl(template: string, entry: string): string {
-  const e = entry.trim();
-  return /^\d+$/.test(e) ? template.replaceAll("{n}", e) : e;
-}
-
-/** Does clipboard text look like something to add as a Gerrit link? */
-export function looksLikeGerrit(text: string, template: string): boolean {
-  const t = text.trim();
-  if (!t || t.includes("\n")) return false;
-  if (/^\d+$/.test(t)) return true;
-  if (!/^https?:\/\//i.test(t)) return false;
-  try {
-    const host = new URL(template.replace("{n}", "1")).host;
-    if (new URL(t).host === host) return true;
-  } catch {
-    // fall through
-  }
-  return /gerrit/i.test(t) || /\/c\/.+\/\+\/\d+/.test(t);
-}
-
 /** Text to put inside `[[...]]` for a note: key, date or title. */
 export function linkText(hit: { kind: string; title: string }): string {
   return hit.title;
@@ -167,46 +142,6 @@ export function relTime(ms: number, now = Date.now()): string {
   if (diff < 6 * 86_400_000) return d.toLocaleDateString("en-US", { weekday: "short" });
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
   return d.toLocaleDateString("en-US", sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
-}
-
-/**
- * The ticket key a pasted Jira URL points at: `.../browse/PROJ-123`, a board
- * link with `selectedIssue=PROJ-123`, or any URL on the Jira host containing a
- * key. Returns null for anything else (including plain text).
- */
-export function jiraKeyFromUrl(text: string, tickets: RegExp, jiraTemplate: string): string | null {
-  const t = text.trim();
-  if (!/^https?:\/\/\S+$/i.test(t)) return null;
-  let url: URL;
-  try {
-    url = new URL(t);
-  } catch {
-    return null;
-  }
-  const full = new RegExp(`^(?:${tickets.source})$`);
-  const selected = url.searchParams.get("selectedIssue");
-  if (selected && full.test(selected)) return selected;
-  const browse = /\/browse\/([^/?#]+)/.exec(url.pathname)?.[1];
-  if (browse && full.test(browse)) return browse;
-  let jiraHost = "";
-  try {
-    jiraHost = new URL(jiraTemplate.replace("{key}", "X-1")).host;
-  } catch {
-    // no usable template
-  }
-  if (url.host === jiraHost) return firstTicket(url.pathname, tickets);
-  return null;
-}
-
-/** Is `text` a single Gerrit URL on the host from `gerrit.urlTemplate`? */
-export function isGerritUrl(text: string, gerritTemplate: string): boolean {
-  const t = text.trim();
-  if (!/^https?:\/\/\S+$/i.test(t)) return false;
-  try {
-    return new URL(t).host === new URL(gerritTemplate.replace("{n}", "1")).host;
-  } catch {
-    return false;
-  }
 }
 
 /** A tag in canonical form (same rules as Rust's `normalize_tag`): lower case,

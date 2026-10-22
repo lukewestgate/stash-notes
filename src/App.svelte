@@ -29,18 +29,14 @@
     setSpellCheck,
   } from "./lib/editor";
   import { liveConfig, propertiesHooks } from "./lib/live";
+  import { anyTickets, linkItems, linkTypeForUrl, systemForKey, ticketFromUrl, ticketUrl, vaultTickets } from "./lib/links";
   import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
   import { formatKey, keyCapture, matches, matchesChordTail, parseChord, parseKey, type KeySpec } from "./lib/keys";
   import {
     checkboxToggle,
     firstTicket,
-    gerritUrl,
-    isGerritUrl,
     isoDate,
-    jiraKeyFromUrl,
-    jiraUrl,
-    looksLikeGerrit,
     refAt,
     ticketRegex,
     timestamp,
@@ -64,7 +60,8 @@
   let settingsPath = $state("");
   let meta = $state<NoteMeta | null>(null);
   let dirty = $state(false);
-  let hasKey = $state(false);
+  /** The open note's ticket key (its own, or the first one it mentions). */
+  let ticketKey = $state<string | null>(null);
   /** Paths of notes open in pinned windows. */
   let pinnedPaths = $state<string[]>([]);
   let backlinkItems = $state<SearchHit[]>([]);
@@ -104,7 +101,8 @@
   let sync: NoteSync | null = null;
   /** The buffer has edits not yet written to disk. */
   let serverDirty = false;
-  let tickets = ticketRegex("[A-Z][A-Z0-9]+-\\d+");
+  /** Ticket keys in the open note's vault (never matches in a plain vault). */
+  let tickets = /(?!)/g;
   let keySpecs: Partial<Record<keyof Keys, KeySpec | null>> = {};
   let pinChord: KeySpec[] = [];
   /** The first key of a chord was pressed; shows the hint until the second (or 1.5 s). */
@@ -142,8 +140,23 @@
     if (!overlay) view?.focus();
   }
 
+  /** A ticket key in any vault (new ticket notes go to the vault whose key it is). */
   function isTicketKey(q: string) {
-    return new RegExp(`^(?:${settings?.ticketPattern ?? "[A-Z][A-Z0-9]+-\\d+"})$`).test(q.trim().toUpperCase());
+    const re = anyTickets(settings?.vaults ?? []);
+    return !!re && new RegExp(`^(?:${re.source})$`).test(q.trim().toUpperCase());
+  }
+
+  /** The settings of the vault the open note is in (else the current one). */
+  function noteVault() {
+    return settings?.vaults.find((v) => v.id === (meta?.vault ?? currentVault));
+  }
+
+  /** Point key highlighting and following at the open note's vault. */
+  function applyTickets() {
+    const re = vaultTickets(noteVault());
+    tickets = re ? ticketRegex(re.source) : /(?!)/g;
+    decoConfig.tickets = tickets;
+    if (view) refreshDecorations(view);
   }
 
   /** `PROJ-1234` or `PROJ-1234 Do this thing`: creates a ticket note. */
@@ -156,8 +169,7 @@
     keySpecs = Object.fromEntries(Object.entries(s.keys).map(([k, v]) => [k, parseKey(v)]));
     pinChord = parseChord(s.keys.pinNote);
     keySpecs.pinNote = null; // a chord, handled separately
-    tickets = ticketRegex(s.ticketPattern);
-    decoConfig.tickets = tickets;
+    applyTickets();
     applyAppearance(s);
     liveConfig.enabled = s.liveFormatting;
     editorState.spellCheck = s.spellCheck;
@@ -165,7 +177,7 @@
     if (view) {
       setLiveFormatting(view, s.liveFormatting);
       setSpellCheck(view, s.spellCheck);
-      hasKey = computeHasKey();
+      ticketKey = computeTicketKey();
     }
   }
 
@@ -179,8 +191,9 @@
     if (view) setEditorDark(view, dark);
   }
 
-  function computeHasKey() {
-    return meta?.kind === "ticket" || firstTicket(docText(), tickets) !== null;
+  function computeTicketKey(): string | null {
+    if (meta?.kind === "ticket" && meta.key) return meta.key;
+    return meta?.kind === "daily" ? null : firstTicket(docText(), tickets);
   }
 
   // ---------- saving ----------
@@ -243,6 +256,7 @@
     meta = data.meta;
     // The window follows the note into its vault (Rust records it too).
     if (data.meta.vault && data.meta.vault !== currentVault) enterVault(data.meta.vault);
+    applyTickets();
     serverDirty = data.dirty;
     conflict = data.deleted ? { deleted: true } : null;
     view.setState(EditorState.create({ doc: data.text, extensions: [extensions, NoteSync.extension(data)] }));
@@ -255,7 +269,9 @@
       const top = entry.scroll;
       requestAnimationFrame(() => (view.scrollDOM.scrollTop = top));
     }
-    hasKey = computeHasKey();
+    ticketKey = computeTicketKey();
+    // The properties row shows the ticket system, which needed the key first.
+    refreshDecorations(view);
     updateNav();
     refreshBacklinks();
     refreshSidebar();
@@ -443,11 +459,14 @@
     api.openUrl(url).catch(fail);
   }
 
-  function openJira() {
+  /** Open the ticket this note is about (or the key under the cursor, or the first it mentions). */
+  function openTicket() {
     if (!meta || !settings) return;
-    const template = settings.jira.urlTemplate;
+    const v = noteVault();
     if (meta.kind === "ticket" && meta.key) {
-      openExternal(meta.jira ?? jiraUrl(template, meta.key));
+      const sys = systemForKey(v, meta.key);
+      if (meta.ticketUrl) openExternal(meta.ticketUrl);
+      else if (sys) openExternal(ticketUrl(sys, meta.key));
       return;
     }
     const pos = head();
@@ -457,55 +476,78 @@
     if (ref?.kind === "ticket") key = ref.target;
     else if (ref?.kind === "wiki" && isTicketKey(ref.target)) key = ref.target.toUpperCase();
     key ??= firstTicket(docText(), tickets);
-    if (key) openExternal(jiraUrl(template, key));
-    else toast("No ticket key in this note");
+    const sys = key ? systemForKey(v, key) : null;
+    if (key && sys) openExternal(ticketUrl(sys, key));
+    else toast(v?.tickets.length ? "No ticket key in this note" : "This vault has no ticket system — add one in Settings → Vaults");
   }
 
-  async function openGerrit() {
-    if (!settings) return;
+  /** Open one of the note's attached links (a picker when there are several). */
+  async function openLink() {
+    if (!settings || !meta) return;
     await flush();
-    const template = settings.gerrit.urlTemplate;
-    const list = meta?.gerrit ?? [];
-    if (list.length === 0) {
-      toast(`No Gerrit links yet — add one with ${formatKey(settings.keys.addGerrit)}`);
-    } else if (list.length === 1) {
-      openExternal(gerritUrl(template, list[0]));
+    const v = noteVault();
+    const items = linkItems(meta, v);
+    if (items.length === 0) {
+      toast(v?.links.length ? `No links yet — add one with ${formatKey(settings.keys.addLink)}` : "This vault has no link types — add one in Settings → Vaults");
+    } else if (items.length === 1) {
+      openExternal(items[0].url);
     } else {
       overlay = {
         type: "picker",
-        title: "Open Gerrit change",
-        items: list.map((g) => ({ label: g, detail: gerritUrl(template, g) })),
+        title: "Open link",
+        items: items.map((l) => ({ label: `${l.type.name} · ${l.item}`, detail: l.url })),
         choose: (i) => {
           closeOverlay();
-          openExternal(gerritUrl(template, list[i]));
+          openExternal(items[i].url);
         },
       };
     }
   }
 
-  async function addGerrit() {
-    if (!settings || !currentPath) return;
-    const clip = await api.readClipboard().catch(() => "");
+  /** Ask for a link to attach: its URL picks the link type (or a picker, for a bare id). */
+  async function addLink() {
+    if (!settings || !currentPath || !meta) return;
+    const v = noteVault();
+    const types = v?.links ?? [];
+    if (!types.length) {
+      toast("This vault has no link types — add one in Settings → Vaults");
+      return;
+    }
+    const clip = (await api.readClipboard().catch(() => "")).trim();
+    const names = types.map((t) => t.name).join(", ");
     overlay = {
       type: "prompt",
-      title: "Add Gerrit change — paste a URL or type a change number",
-      placeholder: "https://gerrit…/c/project/+/12345 or 12345",
-      value: looksLikeGerrit(clip, settings.gerrit.urlTemplate) ? clip.trim() : "",
-      submit: (v) => {
+      title: `Add a link (${names}) — paste a URL${types.length === 1 ? " or type an id" : ""}`,
+      placeholder: types.length === 1 ? `https://… or 12345` : "https://…",
+      value: linkTypeForUrl(clip, v) ? clip : "",
+      submit: (value) => {
         closeOverlay();
-        addGerritLink(v, false);
+        const text = value.trim();
+        if (!text) return;
+        const type = linkTypeForUrl(text, v) ?? (types.length === 1 ? types[0] : null);
+        if (type) attachLink(type.field, type.name, text, false);
+        else
+          overlay = {
+            type: "picker",
+            title: `Which kind of link is ${text}?`,
+            items: types.map((t) => ({ label: t.name, detail: t.url.replaceAll("{n}", text) })),
+            choose: (i) => {
+              closeOverlay();
+              attachLink(types[i].field, types[i].name, text, false);
+            },
+          };
       },
     };
   }
 
-  /** Append a Gerrit link to the current note's front matter, optionally with an Undo toast. */
-  async function addGerritLink(link: string, undoable: boolean) {
+  /** Append `item` to the note's front matter list `field`, optionally with an Undo toast. */
+  async function attachLink(field: string, name: string, item: string, undoable: boolean) {
     try {
       const path = currentPath;
-      const edit = await api.gerritEdit(docText(), link);
+      const edit = await api.linkEdit(docText(), field, item);
       view.dispatch({ changes: edit });
       await flush();
-      const msg = `Added Gerrit link (${meta?.gerrit.length ?? 1} total)`;
+      const msg = `Added ${name} link (${(meta?.fields[field]?.length ?? 0) || 1} total)`;
       if (!undoable) return done(msg);
       done(msg, {
         label: "Undo",
@@ -529,9 +571,10 @@
   /** Set by Ctrl+Shift+V: the next paste goes in as typed. */
   let rawPaste = false;
 
+  /** A pasted ticket URL (in any vault) becomes its key. */
   function pasteKey(text: string): string | null {
     if (!settings?.smartPaste) return null;
-    return jiraKeyFromUrl(text, tickets, settings.jira.urlTemplate);
+    return ticketFromUrl(text, settings.vaults)?.key ?? null;
   }
 
   function smartPaste(text: string): boolean {
@@ -544,8 +587,10 @@
       view.dispatch(view.state.replaceSelection(key));
       return true;
     }
-    if (meta?.kind === "ticket" && isGerritUrl(text, settings.gerrit.urlTemplate)) {
-      addGerritLink(text.trim(), true);
+    // A link the vault collects (a Gerrit change, a PR, ...) goes in the front matter.
+    const type = meta && meta.kind !== "daily" ? linkTypeForUrl(text, noteVault()) : null;
+    if (type) {
+      attachLink(type.field, type.name, text.trim(), true);
       return true;
     }
     return false;
@@ -747,7 +792,8 @@
 
   function closeOverlay() {
     overlay = null;
-    requestAnimationFrame(() => (screen === "notes" ? notesView?.focus() : view.focus()));
+    // Unless another overlay opened in the meantime (Esc then Ctrl+K, quickly).
+    requestAnimationFrame(() => !overlay && (screen === "notes" ? notesView?.focus() : view.focus()));
   }
 
   function insertLink(target: string, sel: { from: number; to: number; text: string }) {
@@ -817,7 +863,11 @@
     serverDirty = ev.dirty;
     if (ev.meta) {
       meta = ev.meta;
-      hasKey = computeHasKey();
+      const key = computeTicketKey();
+      if (key !== ticketKey) {
+        ticketKey = key;
+        refreshDecorations(view);
+      }
     }
     if (!ev.dirty && conflict && !conflict.deleted) conflict = null;
     updateDirty();
@@ -876,9 +926,9 @@
     followLink: followOrToggle,
     back,
     forward,
-    openJira,
-    openGerrit,
-    addGerrit,
+    openTicket,
+    openLink,
+    addLink,
     timestamp: insertTimestamp,
     backlinks: () => {
       backlinksOpen = !backlinksOpen;
@@ -909,9 +959,9 @@
   /** Actions that only make sense with a note in the editor. */
   const EDITOR_ONLY = new Set<keyof Keys>([
     "followLink",
-    "openJira",
-    "openGerrit",
-    "addGerrit",
+    "openTicket",
+    "openLink",
+    "addLink",
     "timestamp",
     "backlinks",
     "archive",
@@ -1041,9 +1091,10 @@
       onTags: () => pickTags(),
       onTag: showTag,
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
-      onJira: openJira,
-      onGerrit: openGerrit,
-      hasJira: () => hasKey,
+      onTicket: openTicket,
+      onLink: openLink,
+      ticket: () => (ticketKey ? systemForKey(noteVault(), ticketKey) : null),
+      linkTypes: () => noteVault()?.links ?? [],
     };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
@@ -1173,16 +1224,17 @@
       {dirty}
       canBack={nav.canBack}
       canForward={nav.canForward}
-      {hasKey}
+      ticket={ticketKey ? systemForKey(noteVault(), ticketKey) : null}
+      linkTypes={noteVault()?.links ?? []}
       keys={settings.keys}
       statuses={settings.statuses}
       onStatus={() => pickStatus()}
       onTags={() => pickTags()}
       onBack={back}
       onForward={forward}
-      onJira={openJira}
-      onGerrit={openGerrit}
-      onAddGerrit={addGerrit}
+      onTicket={openTicket}
+      onLink={openLink}
+      onAddLink={addLink}
       onSwitcher={openSwitcher}
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}

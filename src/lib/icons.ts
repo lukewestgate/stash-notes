@@ -2,6 +2,7 @@
 // imported one by one so only these end up in the bundle.
 
 import {
+  BookOpen, FileCode, GitBranch, GitMerge, Globe, Link, MessageSquare,
   Archive, ArrowDown, ArrowUp, Bookmark, Bug, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleHelp, CirclePause, CirclePlay, CircleSlash,
   CircleX, Clock, Diamond, ExternalLink, Eye, FilePlus, FileText, Flag, Flame, GitPullRequest, Hourglass,
@@ -14,6 +15,13 @@ const ICONS = {
   "arrow-down": ArrowDown,
   "arrow-up": ArrowUp,
   bookmark: Bookmark,
+  "book-open": BookOpen,
+  "file-code": FileCode,
+  "git-branch": GitBranch,
+  "git-merge": GitMerge,
+  globe: Globe,
+  link: Link,
+  "message-square": MessageSquare,
   bug: Bug,
   calendar: Calendar,
   check: Check,
@@ -73,6 +81,12 @@ export const STATUS_ICONS: IconName[] = [
 ];
 
 /** The icon's shapes; unknown names (e.g. a typo in settings.json) get a plain circle. */
+/** Icons offered for ticket systems and link types. */
+export const LINK_ICONS: IconName[] = [
+  "ticket", "bug", "circle-dot", "flag", "git-pull-request", "git-merge", "git-branch",
+  "book-open", "file-text", "file-code", "link", "globe", "message-square", "star",
+];
+
 export function iconNode(name: string): IconNode {
   return (ICONS as Record<string, IconNode>)[name] ?? Circle;
 }

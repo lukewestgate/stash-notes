@@ -67,8 +67,12 @@ pub fn open_vaults(app: &AppHandle, settings: &Settings) -> Vec<(String, Vault)>
 
 /// An empty index that knows the vaults and their ticket keys.
 pub fn new_index(settings: &Settings) -> Index {
-    let mut index = Index::new(TicketMatcher::new(&settings.ticket_regex()));
+    let mut index = Index::new(TicketMatcher::default_pattern());
     index.set_vaults(settings.vaults.iter().map(|v| VaultInfo { id: v.id.clone(), name: v.name.clone() }).collect());
+    for v in &settings.vaults {
+        let tickets = settings.ticket_regex(&v.id).map(|re| TicketMatcher::new(&re)).unwrap_or_else(TicketMatcher::none);
+        index.set_tickets_for(&v.id, tickets);
+    }
     index
 }
 
@@ -245,17 +249,15 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
     // Folders or ticket keys changed: re-index everything. A renamed vault
     // only needs the index to know its new name (for `in:` searches).
     let folders = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.path)).collect::<Vec<_>>().join("\n");
-    if old.is_some() && !changed(&|s| format!("{}\n{}", folders(s), s.ticket_pattern)) {
+    let tickets = |s: &Settings| s.vaults.iter().map(|v| v.tickets.iter().map(|t| t.pattern.as_str()).collect::<Vec<_>>().join("|")).collect::<Vec<_>>().join("\n");
+    if old.is_some() && !changed(&|s| format!("{}\n{}", folders(s), tickets(s))) {
         let names = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.name)).collect::<Vec<_>>().join("\n");
         if changed(&names) {
             state.index.write().unwrap().set_vaults(new.vaults.iter().map(|v| VaultInfo { id: v.id.clone(), name: v.name.clone() }).collect());
             crate::tray::rebuild_menu(app);
         }
     }
-    if old.is_some() && changed(&|s| format!("{}\n{}", folders(s), s.ticket_pattern)) {
-        if regex_check(&new.ticket_pattern).is_err() {
-            let _ = app.emit("toast", format!("ticketPattern `{}` is not a valid regex; using the default", new.ticket_pattern));
-        }
+    if old.is_some() && changed(&|s| format!("{}\n{}", folders(s), tickets(s))) {
         state.vault_generation.fetch_add(1, Ordering::AcqRel);
         state.watchers.lock().unwrap().clear();
         crate::buffers::flush_all(app);
@@ -268,16 +270,6 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
     if old.is_some() {
         crate::tray::refresh_tooltip(app);
         let _ = app.emit("settings-changed", new.clone());
-    }
-}
-
-/// Ok if `p` compiles; `Settings::ticket_regex` silently falls back otherwise.
-fn regex_check(p: &str) -> Result<(), String> {
-    let s = Settings { ticket_pattern: p.to_string(), ..Default::default() };
-    if s.ticket_regex().as_str() == p {
-        Ok(())
-    } else {
-        Err(p.to_string())
     }
 }
 
@@ -313,11 +305,5 @@ mod tests {
         assert_eq!(vault_root(&v, &def, Some(&home)), home.join("notes"));
         v.path = "/abs/v".into();
         assert_eq!(vault_root(&v, &def, Some(&home)), PathBuf::from("/abs/v"));
-    }
-
-    #[test]
-    fn regex_validation() {
-        assert!(regex_check(r"[A-Z]+-\d+").is_ok());
-        assert!(regex_check(r"[A-Z+-\d+").is_err());
     }
 }

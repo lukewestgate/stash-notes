@@ -2,15 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   checkboxToggle,
   firstTicket,
-  gerritUrl,
-  isGerritUrl,
   normalizeTag,
   typingTag,
   tagSuggestions,
   completeTag,
-  jiraKeyFromUrl,
-  jiraUrl,
-  looksLikeGerrit,
   refAt,
   ticketRegex,
   timestamp,
@@ -60,22 +55,6 @@ describe("todoCursor", () => {
   });
 });
 
-describe("urls", () => {
-  it("builds Jira and Gerrit links", () => {
-    expect(jiraUrl("https://j/browse/{key}", "A-1")).toBe("https://j/browse/A-1");
-    expect(gerritUrl("https://g/c/{n}", "123")).toBe("https://g/c/123");
-    expect(gerritUrl("https://g/c/{n}", "https://g/c/p/+/9")).toBe("https://g/c/p/+/9");
-  });
-  it("recognizes Gerrit clipboard text", () => {
-    const tpl = "https://gerrit.example.com/c/{n}";
-    expect(looksLikeGerrit("12345", tpl)).toBe(true);
-    expect(looksLikeGerrit("https://gerrit.example.com/c/proj/+/1", tpl)).toBe(true);
-    expect(looksLikeGerrit("https://review.corp/c/proj/+/1", tpl)).toBe(true);
-    expect(looksLikeGerrit("https://news.example.com/", tpl)).toBe(false);
-    expect(looksLikeGerrit("hello", tpl)).toBe(false);
-  });
-});
-
 it("formats timestamps", () => {
   expect(timestamp(new Date(2026, 9, 2, 9, 5))).toBe("2026-10-02 09:05 ");
   expect(timestamp(new Date(2026, 9, 2, 14, 5), "dd/MM/yy hh:mm a")).toBe("02/10/26 02:05 pm ");
@@ -84,23 +63,6 @@ it("formats timestamps", () => {
 it("finds the first ticket", () => {
   expect(firstTicket("x OPS-9 then PROJ-1", T)).toBe("OPS-9");
   expect(firstTicket("none here", T)).toBeNull();
-});
-
-describe("smart paste", () => {
-  const jira = "https://yourco.atlassian.net/browse/{key}";
-  it("turns Jira URLs into keys", () => {
-    expect(jiraKeyFromUrl("https://yourco.atlassian.net/browse/PROJ-123?focusedId=1#x", T, jira)).toBe("PROJ-123");
-    expect(jiraKeyFromUrl("https://other.net/jira/browse/OPS-9", T, jira)).toBe("OPS-9");
-    expect(jiraKeyFromUrl("https://yourco.atlassian.net/jira/software/c/projects/P/boards/1?selectedIssue=PR-77", T, jira)).toBe("PR-77");
-    expect(jiraKeyFromUrl("https://yourco.atlassian.net/issues/PROJ-5/details", T, jira)).toBe("PROJ-5");
-    expect(jiraKeyFromUrl("https://example.com/PROJ-5", T, jira)).toBeNull();
-    expect(jiraKeyFromUrl("see https://yourco.atlassian.net/browse/PROJ-1", T, jira)).toBeNull();
-  });
-  it("recognizes Gerrit URLs by host", () => {
-    const g = "https://gerrit.example.com/c/{n}";
-    expect(isGerritUrl("https://gerrit.example.com/c/proj/+/12399", g)).toBe(true);
-    expect(isGerritUrl("https://example.com/c/proj/+/12399", g)).toBe(false);
-  });
 });
 
 describe("normalizeTag", () => {
