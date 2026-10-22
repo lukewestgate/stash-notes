@@ -133,7 +133,7 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 
 ```
 +------+--------------------------------------------------------+
-|  ≡   |  < >  PROJ-123  Rollout question  ◉ open  Jira  pin  arch|  header
+|  ≡   | < >  PROJ-123  Rollout question  ◉ open  Jira  pin     |  header
 |  📅  +--------------------------------------------------------+
 |  ☰   |  ● open  Jira  Gerrit 2                     properties |
 |  ──  |                                                        |
