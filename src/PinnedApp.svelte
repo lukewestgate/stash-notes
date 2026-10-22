@@ -12,6 +12,7 @@
   import { NoteSync } from "./lib/buffer";
   import { decoConfig, editorExtensions, editorState, setEditorDark, setSpellCheck } from "./lib/editor";
   import { applyAppearance } from "./lib/appearance";
+  import Icon from "./components/Icon.svelte";
   import { liveConfig, propertiesHooks } from "./lib/live";
   import { matches, matchesChordTail, parseChord, parseKey } from "./lib/keys";
   import { statusInfo } from "./lib/status";
@@ -246,10 +247,10 @@
       {/if}
     </span>
     <button class="icon" class:off={!onTop} onclick={toggleOnTop} title={onTop ? "Always on top (click to release)" : "Keep on top"} aria-label="Pin on top">
-      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h6l-1 5 3 3H5l3-3zM10 11v6" /></svg>
+      <Icon name="pin" size={14} />
     </button>
     <button class="icon" onclick={() => api.pinClose()} title="Close pinned note" aria-label="Close">
-      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" /></svg>
+      <Icon name="x" size={14} />
     </button>
   </header>
 
