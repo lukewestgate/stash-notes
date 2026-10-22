@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window may use core events and the app's own commands only. File system, opener and clipboard access stay in Rust.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

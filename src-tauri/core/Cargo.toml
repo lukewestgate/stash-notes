@@ -1,0 +1,15 @@
+[package]
+name = "stash-core"
+version = "0.1.0"
+edition = "2021"
+description = "Vault, index and search logic for Stash Notes (no UI or Tauri dependencies)"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+nucleo-matcher = "0.3"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

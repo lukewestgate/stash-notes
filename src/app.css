@@ -1,0 +1,213 @@
+:root {
+  --font-size: 14px;
+  --bg: #ffffff;
+  --bg-raised: #f6f7f9;
+  --fg: #1f2328;
+  --fg-muted: #6b7280;
+  --border: #d9dde3;
+  --hover: #e8ebef;
+  --selected: #dce7fb;
+  --accent: #2563eb;
+  --ticket: #b45309;
+  --link: #2563eb;
+  --ok: #15803d;
+  --warn-bg: #fff4d6;
+  --scrim: rgba(15, 23, 42, 0.18);
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  --toast-bg: #1f2328;
+  --toast-fg: #f5f6f8;
+  --code-bg: #eef0f3;
+  --cursor: #1f2328;
+  --selection: #c9dafc;
+  color-scheme: light;
+}
+
+
+:root[data-theme="dark"] {
+  --bg: #1b1d21;
+  --bg-raised: #23262b;
+  --fg: #e3e5e8;
+  --fg-muted: #9198a1;
+  --border: #363a41;
+  --hover: #2d3137;
+  --selected: #2c3b57;
+  --accent: #6ea0ff;
+  --ticket: #f0a54a;
+  --link: #7aa9ff;
+  --ok: #4ade80;
+  --warn-bg: #4a3b12;
+  --scrim: rgba(0, 0, 0, 0.35);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --toast-bg: #e3e5e8;
+  --toast-fg: #1b1d21;
+  --code-bg: #2a2d33;
+  --cursor: #e3e5e8;
+  --selection: #34476b;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1d21;
+    --bg-raised: #23262b;
+    --fg: #e3e5e8;
+    --fg-muted: #9198a1;
+    --border: #363a41;
+    --hover: #2d3137;
+    --selected: #2c3b57;
+    --accent: #6ea0ff;
+    --ticket: #f0a54a;
+    --link: #7aa9ff;
+    --ok: #4ade80;
+    --warn-bg: #4a3b12;
+    --scrim: rgba(0, 0, 0, 0.35);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    --toast-bg: #e3e5e8;
+    --toast-fg: #1b1d21;
+    --code-bg: #2a2d33;
+    --cursor: #e3e5e8;
+    --selection: #34476b;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: var(--font-size);
+  /* No animations on show/hide; keep everything instant. */
+}
+
+*,
+*::before,
+*::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- editor ---- */
+
+.cm-editor {
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--font-size);
+}
+.cm-editor.cm-focused {
+  outline: none;
+}
+.cm-content {
+  caret-color: var(--cursor);
+  /* Digits line up, so timestamps form a neat column. */
+  font-variant-numeric: tabular-nums;
+}
+.cm-cursor {
+  border-left: 2px solid var(--cursor);
+}
+.cm-focused .cm-selectionBackground,
+.cm-selectionBackground,
+.cm-content ::selection {
+  background: var(--selection) !important;
+}
+
+.cm-h {
+  font-weight: 700;
+}
+.cm-h1 {
+  font-size: 1.3em;
+}
+.cm-h2 {
+  font-size: 1.12em;
+}
+.cm-meta {
+  color: var(--fg-muted);
+}
+.cm-quote {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+.cm-code {
+  font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+.cm-wikilink {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent);
+  text-underline-offset: 3px;
+}
+.cm-ticket {
+  color: var(--ticket);
+  font-weight: 600;
+}
+.cm-url {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cm-archived {
+  opacity: 0.55;
+}
+.cm-checkbox {
+  color: var(--accent);
+  cursor: pointer;
+}
+.cm-checkbox-done {
+  color: var(--ok);
+}
+.cm-frontmatter {
+  color: var(--fg-muted);
+  font-size: 0.9em;
+}
+.cm-done-line {
+  color: var(--fg-muted);
+}
+
+/* link picker */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: var(--shadow);
+  padding: 3px;
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: inherit;
+  max-height: 16em;
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--fg);
+}
+.cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--selected) !important;
+  color: var(--fg) !important;
+}
+.cm-tooltip-autocomplete .cm-completionDetail {
+  color: var(--fg-muted);
+  font-style: normal;
+  margin-left: 0.8em;
+}
+.cm-tooltip.cm-completionInfo {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  border-radius: 6px;
+}
