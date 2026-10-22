@@ -37,9 +37,10 @@ pub type Result<T> = std::result::Result<T, VaultError>;
 
 pub const DEFAULT_DAILY_TEMPLATE: &str = "# {{date}}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n";
 /// A new ticket note: front matter, then a heading for the ticket name.
-pub fn ticket_stub(key: &str, status: &str) -> String {
+pub fn ticket_stub(key: &str, status: &str, name: &str) -> String {
     let status = if status.trim().is_empty() { String::new() } else { format!("status: {}\n", status.trim()) };
-    format!("---\n{status}gerrit:\n---\n\n# {key} \n\n")
+    let heading = if name.trim().is_empty() { format!("# {key} ") } else { format!("# {key} {}", name.trim()) };
+    format!("---\n{status}gerrit:\n---\n\n{heading}\n\n")
 }
 
 /// Everything needed to undo a rename.

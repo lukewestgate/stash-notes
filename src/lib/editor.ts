@@ -157,8 +157,9 @@ function linkCompletions(hooks: EditorHooks) {
     const seen = new Map<string, number>();
     for (const h of hits) seen.set(h.title.toLowerCase(), (seen.get(h.title.toLowerCase()) ?? 0) + 1);
     const options: Completion[] = hits.map((h, i) => ({
-      label: h.title,
-      detail: [h.label, (seen.get(h.title.toLowerCase()) ?? 0) > 1 ? h.path : null, h.archived ? "archived" : null]
+      // Tickets show their name too ("PROJ-1234 Do this thing"); the link stays [[PROJ-1234]].
+      label: h.label ? `${h.title} ${h.label}` : h.title,
+      detail: [(seen.get(h.title.toLowerCase()) ?? 0) > 1 ? h.path : null, h.archived ? "archived" : null]
         .filter(Boolean)
         .join(" · "),
       info: h.snippet ?? undefined,

@@ -248,7 +248,7 @@ pub fn ensure_note(state: &AppState, target: &str) -> Res<String> {
     let (path, content) = if let Some(date) = dates::parse_iso(target) {
         (Vault::daily_path(date), vault.daily_content(date))
     } else if let Some(key) = tickets.as_key(target) {
-        (Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status))
+        (Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, ""))
     } else {
         (vault.new_note_path(target), Vault::note_stub(target))
     };
@@ -270,6 +270,20 @@ pub fn resolve_link(state: State<AppState>, target: String) -> Res<String> {
 /// Create a note from the switcher: a ticket if `title` is a key, else a regular note.
 #[tauri::command]
 pub fn create_note(state: State<AppState>, title: String) -> Res<String> {
+    // `PROJ-1234 Do this thing`: a ticket note named in its heading
+    // (the file stays PROJ-1234.md so links never break).
+    if let Some((key, name)) = state.tickets().split_named(&title) {
+        if !name.is_empty() && state.index.read().unwrap().resolve(&key).is_none() {
+            let path = Vault::ticket_path(&key);
+            let content = stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, &name);
+            let vault = state.vault.read().unwrap();
+            vault.create_if_missing(&path, &content).map_err(err)?;
+            let text = vault.read(&path).map_err(err)?;
+            state.index.write().unwrap().upsert(&path, &text, vault.mtime(&path));
+            return Ok(path);
+        }
+        return ensure_note(&state, &key);
+    }
     ensure_note(&state, &title)
 }
 

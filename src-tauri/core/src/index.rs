@@ -449,6 +449,8 @@ impl Index {
 
         let q_lower = q.to_lowercase();
         let q_norm = normalize_key(q);
+        // `PROJ-1234 Do this thing`: the ticket is an exact match by its key.
+        let lead_key = self.tickets.split_named(q).filter(|(_, name)| !name.is_empty()).map(|(k, _)| k);
         let digits_only = !q.is_empty() && q.chars().all(|c| c.is_ascii_digit());
         let date = dates::parse_query(q, opts.today);
         let words: Vec<String> = q_lower.split_whitespace().map(str::to_string).collect();
@@ -466,7 +468,7 @@ impl Index {
 
             if let Some(key) = &e.meta.key {
                 let k_norm = normalize_key(key);
-                if !q_norm.is_empty() && k_norm == q_norm {
+                if lead_key.as_deref() == Some(key.as_str()) || (!q_norm.is_empty() && k_norm == q_norm) {
                     best = best.max(KEY_EXACT);
                     is_exact = true;
                 } else if digits_only {
@@ -621,6 +623,21 @@ mod tests {
         assert!(res.exact);
         let res = idx().search("oct 22", &opts(&r));
         assert_eq!(res.hits[0].path, "daily/2026-10-22.md");
+    }
+
+    #[test]
+    fn tickets_found_by_name_or_key_and_name() {
+        let r = HashMap::new();
+        let i = idx();
+        // Fuzzy on the ticket's name, as the [[ link picker and switcher do.
+        assert_eq!(i.search("rollout date", &opts(&r)).hits[0].path, "tickets/PROJ-123.md");
+        assert_eq!(i.search("rlt dt qstn", &opts(&r)).hits[0].path, "tickets/PROJ-123.md");
+        // Key plus a (different) name: still the ticket, and exact (no Create row).
+        let res = i.search("PROJ-123 Something else", &opts(&r));
+        assert_eq!(res.hits[0].path, "tickets/PROJ-123.md");
+        assert!(res.exact);
+        let res = i.search("PROJ-999 New thing", &opts(&r));
+        assert!(!res.exact);
     }
 
     #[test]

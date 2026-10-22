@@ -33,7 +33,8 @@
     const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
     if (key) {
       e.preventDefault();
-      view.query = key;
+      // Leave room to type the ticket's name: `PROJ-1234 Do this thing`.
+      view.query = `${key} `;
     }
   }
 

@@ -141,6 +141,11 @@
     return new RegExp(`^(?:${settings?.ticketPattern ?? "[A-Z][A-Z0-9]+-\\d+"})$`).test(q.trim().toUpperCase());
   }
 
+  /** `PROJ-1234` or `PROJ-1234 Do this thing`: creates a ticket note. */
+  function startsWithTicket(q: string) {
+    return isTicketKey(q.trim().split(/\s+/)[0] ?? "");
+  }
+
   function applySettings(s: Settings) {
     settings = s;
     keySpecs = Object.fromEntries(Object.entries(s.keys).map(([k, v]) => [k, parseKey(v)]));
@@ -667,7 +672,7 @@
     try {
       const path = await api.createNote(query);
       if (o?.type === "switcher" && o.mode === "link" && o.sel) {
-        insertLink(isTicketKey(query) ? query.toUpperCase() : query, o.sel);
+        insertLink(startsWithTicket(query) ? query.trim().split(/\s+/)[0].toUpperCase() : query, o.sel);
       } else {
         navigate(path);
       }
@@ -1109,7 +1114,7 @@
       statuses={settings.statuses}
       keys={settings.keys}
       version={listVersion}
-      isTicket={isTicketKey}
+      isTicket={startsWithTicket}
       {pasteKey}
       onOpen={(p) => navigate(p)}
       onCreate={async (q) => {
@@ -1127,7 +1132,7 @@
     <Switcher
       mode={overlay.mode}
       current={currentPath}
-      isTicket={isTicketKey}
+      isTicket={startsWithTicket}
       {pasteKey}
       statuses={settings?.statuses ?? []}
       onChoose={switcherChoose}

@@ -50,6 +50,15 @@ impl TicketMatcher {
         self.full.is_match(&up).then_some(up)
     }
 
+    /// `PROJ-1234 Do this thing` -> (`PROJ-1234`, `Do this thing`): a ticket
+    /// key followed by a name. The name may be empty (`PROJ-1234`).
+    pub fn split_named(&self, text: &str) -> Option<(String, String)> {
+        let t = text.trim();
+        let (first, rest) = t.split_once(char::is_whitespace).unwrap_or((t, ""));
+        let key = self.as_key(first.trim_end_matches([':', ',']))?;
+        Some((key, rest.trim().trim_start_matches(['-', '–', '—', ':']).trim().to_string()))
+    }
+
     /// All ticket keys in `text`, in order of appearance, deduplicated.
     pub fn keys_in(&self, text: &str) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
@@ -237,6 +246,16 @@ mod tests {
         assert_eq!(t.keys_in("see PROJ-123 and AB2-9, PROJ-123 again; not proj-1 or XPROJ"), vec!["PROJ-123", "AB2-9"]);
         assert_eq!(t.as_key(" proj-42 "), Some("PROJ-42".into()));
         assert_eq!(t.as_key("Rollout plan"), None);
+    }
+
+    #[test]
+    fn named_tickets() {
+        let t = TicketMatcher::default_pattern();
+        assert_eq!(t.split_named("PROJ-1234 Do this thing"), Some(("PROJ-1234".into(), "Do this thing".into())));
+        assert_eq!(t.split_named("proj-1: fix it"), Some(("PROJ-1".into(), "fix it".into())));
+        assert_eq!(t.split_named("PROJ-1 — fix"), Some(("PROJ-1".into(), "fix".into())));
+        assert_eq!(t.split_named("PROJ-1"), Some(("PROJ-1".into(), String::new())));
+        assert_eq!(t.split_named("Rollout plan"), None);
     }
 
     #[test]

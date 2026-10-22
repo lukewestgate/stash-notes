@@ -190,9 +190,10 @@ function ensure(target: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
     path = `daily/${t}.md`;
     body = `# ${t}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n`;
-  } else if (ticketFull.test(t.toUpperCase())) {
-    path = `tickets/${t.toUpperCase()}.md`;
-    body = `---\nstatus: open\ngerrit:\n---\n\n# ${t.toUpperCase()} \n\n`;
+  } else if (ticketFull.test(t.split(/\s+/)[0].toUpperCase())) {
+    const [key, ...name] = t.split(/\s+/);
+    path = `tickets/${key.toUpperCase()}.md`;
+    body = `---\nstatus: open\ngerrit:\n---\n\n# ${key.toUpperCase()} ${name.join(" ")}\n\n`;
   } else {
     path = `notes/${slug(t)}.md`;
     body = `# ${t}\n\n`;

@@ -35,7 +35,8 @@
     const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
     if (key) {
       e.preventDefault();
-      query = key;
+      // Leave room to type the ticket's name: `PROJ-1234 Do this thing`.
+      query = `${key} `;
     }
   }
 
@@ -144,8 +145,14 @@
           <span class="line">
             <span class="kind new">new</span>
             <span class="sym"></span>
-            <span class="name">Create "{query.trim()}"</span>
-            <span class="label">{isTicket(query.trim()) ? "ticket note" : "note"}</span>
+            {#if isTicket(query.trim())}
+              {@const [key, ...name] = query.trim().split(/\s+/)}
+              <span class="name">Create {key.toUpperCase()}</span>
+              <span class="label">{name.length ? `"${name.join(" ")}"` : "ticket note"}</span>
+            {:else}
+              <span class="name">Create "{query.trim()}"</span>
+              <span class="label">note</span>
+            {/if}
           </span>
         </button>
       {/if}
