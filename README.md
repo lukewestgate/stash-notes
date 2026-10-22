@@ -398,6 +398,10 @@ Defaults for these are in Settings → Notes view.
 
 `[[Target|shown text]]` and `[[Target#section]]` also work. **Resolution order:** the linking note's vault first (exact file name, then title, then alias), then the other vaults in order. If two notes share a title, the most recently edited one wins. Links to archived notes still work and are shown dimmed.
 
+**Embedded pages.** Note links have a subtle rounded tint, fitted to the text. Hover a link or Tab to it to reveal a centered arrow; the link widens to make room for it. Click the arrow to expand the linked note beneath that line in a rounded panel with a soft background and full border; click again to collapse it. The arrow stays visible while expanded. This works for links in lists, several links on the same line, and links to other vaults. You can also press Enter or Space on an arrow. The preview shows formatted, read-only content without YAML properties; hover or focus it to reveal **Open note** for editing (in the main window when viewing a pinned note). Nested panels alternate backgrounds to stay visibly separate.
+
+Previews refresh when the linked files change. You can expand further links inside a preview; circular links and deeply nested chains show an **Open note** action instead of expanding indefinitely. A missing note shows an error with **Retry**; expanding it never creates a file. Code examples and front matter do not get disclosure arrows. Expansion lasts until you leave the containing note and does not change its markdown. A `#section` link previews the whole note, matching the existing link navigation behavior.
+
 **Backlinks.** The strip at the bottom lists every note that links to the current one or mentions its ticket key. Links from other vaults count when they name the vault (`[[work:Plan]]`). `Ctrl+Shift+B` expands it into a list.
 
 **History** works like a browser. `Alt+Left` and `Alt+Right` restore each note's cursor and scroll position. It keeps the last 100 entries and is cleared when you quit.
@@ -600,6 +604,7 @@ stash-notes/
 │       ├── buffer.ts           Syncs an editor with its note's Rust buffer (CodeMirror collab)
 │       ├── editor.ts           CodeMirror setup: decorations, theme, [[ link picker
 │       ├── live.ts             Live markdown formatting and the front matter row
+│       ├── page-links.ts/.css  Collapsible linked-page previews and their presentation
 │       ├── text.ts             Link/key detection, checkboxes, timestamps, smart paste
 │       ├── keys.ts             Shortcut parsing, matching, chords and recording
 │       ├── history.ts          Back/forward history
@@ -640,12 +645,15 @@ npm run dev            # UI only, in a browser, backed by an in-memory mock (htt
 npm run tauri dev      # the real app with hot reload
 npm run check          # Svelte/TypeScript type check
 npm test               # UI unit tests (Vitest)
+npm run test:e2e        # Editor interaction tests (Playwright; run npx playwright install chromium first)
 cd src-tauri && cargo test --workspace                     # Rust unit tests
 cd src-tauri && cargo test --release -p stash-core --test perf -- --ignored --nocapture
                                                            # performance check on 5,000 synthetic notes
 ```
 
 In `npm run dev`, add `?pin=notes/rollout-plan.md` to the URL to see the pinned window, or `?quick` for the `Alt+J` pop-up.
+
+On Windows, use an installed Edge browser for the interaction tests with `$env:PLAYWRIGHT_CHANNEL='msedge'; npm run test:e2e` in PowerShell.
 
 ### Continuous integration
 
