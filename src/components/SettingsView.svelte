@@ -402,7 +402,7 @@
           <span class="text">Quick switcher hotkey<span class="hint">global — search and open notes from any app</span></span>
           <KeyRecorder value={draft.switcherHotkey} onChange={(k) => setHotkey("switcherHotkey", k)} />
         </div>
-        {@render toggle("Hide the window after opening a Jira or Gerrit link", draft.hideAfterExternalLink, (v) => set("hideAfterExternalLink", v))}
+        {@render toggle("Hide the window after opening a link", draft.hideAfterExternalLink, (v) => set("hideAfterExternalLink", v), "a ticket, attached link or URL")}
         <p class="note">New versions install by running the newer installer; your notes and settings are kept.</p>
       {:else if category === "Window"}
         {@render toggle("Show in taskbar", draft.showInTaskbar, (v) => set("showInTaskbar", v))}
@@ -441,7 +441,7 @@
           />
         </div>
         {@render toggle("Spell check", draft.spellCheck, (v) => set("spellCheck", v))}
-        {@render toggle("Smart paste of Jira and Gerrit links", draft.smartPaste, (v) => set("smartPaste", v), "Ctrl+Shift+V always pastes as typed")}
+        {@render toggle("Smart paste of ticket and link URLs", draft.smartPaste, (v) => set("smartPaste", v), "uses each vault's links; Ctrl+Shift+V always pastes as typed")}
         <div class="row">
           <span class="text">Timestamp format<span class="hint">yyyy MM dd HH hh mm ss a</span></span>
           <span class="inline">

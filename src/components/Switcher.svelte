@@ -20,7 +20,7 @@
     vaults: VaultDef[];
     /** The app's vault: ranked first, and where new notes go. Null in the pop-up (Rust knows). */
     currentVault: string | null;
-    /** A pasted Jira URL becomes its key. */
+    /** A pasted ticket URL becomes its key. */
     pasteKey: (text: string) => string | null;
     onChoose: (hit: SearchHit, peek: boolean) => void;
     /** Create from the query, in `vault` (the narrowed scope; null for the default). */

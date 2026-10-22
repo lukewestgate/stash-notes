@@ -31,7 +31,7 @@
     /** Bumped by the app when notes change, to reload the list. */
     version: number;
     isTicket: (q: string) => boolean;
-    /** A pasted Jira URL becomes its key. */
+    /** A pasted ticket URL becomes its key. */
     pasteKey: (text: string) => string | null;
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;

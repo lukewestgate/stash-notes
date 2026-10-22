@@ -1,36 +1,40 @@
 # Stash Notes
 
-A keyboard-first, always-resident notepad for work on Windows. One global hotkey (`Alt+N`) brings it up instantly. You read or add notes for the ticket you're on, and one keypress (`Esc`) sends you back to your code.
+A keyboard-first, always-resident notepad for Windows. One global hotkey (`Alt+N`) brings it up instantly. You read or add a note, and one keypress (`Esc`) sends you back to what you were doing.
 
-Notes are plain markdown files in a folder you own. There's no account, no sync and no database. Stash Notes is built with [Tauri v2](https://v2.tauri.app/) (Rust) and a Svelte + CodeMirror UI.
+Notes are plain markdown files in folders you own. There's no account, no sync and no database. Stash Notes is built with [Tauri v2](https://v2.tauri.app/) (Rust) and a Svelte + CodeMirror UI.
 
 - **Instant summon.** The window is created once at login and only ever shown or hidden.
-- **Ticket notes with a status.** One note per Jira key (`PROJ-123`), marked todo, open, blocked, backlog or closed, with Jira and Gerrit links a keystroke away.
+- **Vaults.** Keep personal notes and each project's notes in their own folders, switch between them in a keystroke, and search them all at once.
+- **Ticket notes when you want them.** A vault can follow Jira, GitHub or GitLab issues: one note per key (`PROJ-123`), and Gerrit changes, pull requests or wiki pages attached to notes. A personal vault can stay plain notes.
+- **Statuses and tags.** Mark notes todo, open, blocked, backlog or closed, and tag them `#bug`, `#research` or anything else.
 - **Live markdown.** Headings, bold, lists and checkboxes are styled as you type, and the file stays plain markdown.
 - **Sidebar and Notes view.** See what you're working on at a glance, and scan, sort and filter every note.
 - **Quick switcher pop-up** (`Alt+J`). Search, open or create a note from any app without bringing up the full window first.
 - **Pinned notes.** Pop any note out into a small always-on-top window beside your code.
-- **One fuzzy switcher** (`Ctrl+K`). Find notes by ticket key, title, date, text or `@status`, and create new ones.
+- **One fuzzy switcher** (`Ctrl+K`). Find notes by ticket key, title, date or text, filter with `@status`, `#tag` and `in:vault`, and create new ones.
 - **Fully usable without the mouse.** Press `Ctrl+/` to see every shortcut.
 
 ---
 
 ## Contents
 
-- [What's new in 0.4](#whats-new-in-04)
+- [What's new in 0.5](#whats-new-in-05)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Using Stash Notes](#using-stash-notes)
   - [The window](#the-window)
   - [Note kinds and the notes folder](#note-kinds-and-the-notes-folder)
+  - [Vaults](#vaults)
   - [Statuses](#statuses)
+  - [Tags](#tags)
   - [The editor](#the-editor)
   - [Keyboard shortcuts](#keyboard-shortcuts)
   - [Quick switcher and search](#quick-switcher-and-search)
   - [Sidebar](#sidebar)
   - [Notes view](#notes-view)
   - [Links, backlinks and history](#links-backlinks-and-history)
-  - [Jira, Gerrit and smart paste](#jira-gerrit-and-smart-paste)
+  - [Tickets, attached links and smart paste](#tickets-attached-links-and-smart-paste)
   - [Quick switcher pop-up](#quick-switcher-pop-up)
   - [Pinned notes](#pinned-notes)
   - [Daily notes and todos](#daily-notes-and-todos)
@@ -44,6 +48,26 @@ Notes are plain markdown files in a folder you own. There's no account, no sync 
 - [Design notes and decisions](#design-notes-and-decisions)
 
 ---
+
+## What's new in 0.5
+
+- **Vaults.** Keep several folders of notes, for example *Personal* and one per project, each with its own name and color.
+  - **Switching:** use the vault row at the top of the sidebar, `Ctrl+Shift+O`, or the tray menu. Opening a note from another vault switches with it.
+  - **Per vault:** the sidebar, Notes view and Today (each vault keeps its own daily notes) show one vault at a time.
+  - **Search** (`Ctrl+K`, `Alt+J`, the `[[` picker) covers every vault, with the current one first and a vault tag on each result. Narrow it with `in:work`, or press `Tab` to cycle *All vaults / this vault / each vault*. Closed and archived notes moved to `Alt+A`.
+  - **Links** look in their own vault first, and `[[work:Some note]]` names a vault.
+  - **Upgrading:** your notes folder becomes the first vault, *Personal*. Rename it in Settings → Vaults if it's really your work vault.
+- **Tags.**
+  - **Adding them:** tag ticket and general notes (`tags: [bug, research]` in front matter) with `Ctrl+Shift+T`, the header's tag button or the `+` in the properties row.
+  - **Searching:** `#bug` filters anywhere, nested tags like `#bug/ui` match their parent, and tags are suggested as you type (`Tab` completes).
+  - **Notes view:** `Alt+G` now cycles grouping: none, status, tag.
+  - **Settings → Tags** gives tags colors, and renames or removes a tag across all notes, with Undo.
+- **Links to other systems, per vault.** Jira and Gerrit are now just two presets.
+  - A vault can have **ticket systems**, which give a note per key: Jira, GitHub issues, GitLab issues or custom.
+  - It can also have **attached link types**, which a note collects in its front matter: Gerrit, GitHub PRs, GitLab MRs, Confluence/wiki pages or custom.
+  - A vault with none is a plain notes app: no ticket highlighting, no extra buttons, and URLs paste as they are.
+  - `Ctrl+J` / `Ctrl+G` / `Ctrl+Shift+G` now open the note's ticket, open an attached link, or attach one.
+  - **Upgrading:** your Jira and Gerrit settings move to your first vault, and the shortcuts keep their keys.
 
 ## What's new in 0.4
 
@@ -112,18 +136,23 @@ Use **Settings → Apps → Installed apps → Stash Notes → Uninstall**. Your
 2. **Type something.** There's no save button. Notes autosave 300 ms after you stop typing, and again whenever the window hides.
 3. **Press `Esc`.** The window hides and focus goes back to the app you were using.
 4. **Press `Alt+N`** from anywhere. Stash Notes is back with the cursor where you left it. `Alt+N` again hides it.
-5. **Press `Ctrl+,`** to open **Settings**. Under **Links**, set your Jira and Gerrit URL templates. Under **Notes**, check the ticket key pattern.
-6. **Press `Ctrl+K`** and type a ticket key like `PROJ-123`, then `Enter`. That creates the ticket's note, with status *open* and the caret ready for you to type the ticket's name after `# PROJ-123`.
-7. **Press `Ctrl+;`** to insert a timestamp such as `2026-10-22 14:05 `, then type your note.
-8. **Press `Ctrl+J`** to open the ticket in Jira.
-9. **Press `Alt+J`** from any app. Type a few letters of a note or ticket and press `Enter` to open it, or type `PROJ-456 Fix the login page` and press `Enter` to create that ticket.
+5. **Press `Ctrl+K`**, type a title like `Shopping list` and press `Enter` to create a note. Press `Ctrl+;` to insert a timestamp such as `2026-10-22 14:05 `.
+6. **Set up a work vault (optional).** Press `Ctrl+,` → **Vaults**:
+   - **Add a vault** named *Work* with its own folder.
+   - **Under Tickets**, choose **Add → Jira** (or GitHub / GitLab issues) and put in your site's URL.
+   - **Under Attached links**, add **Gerrit** or pull requests if you use them.
+
+   Your first vault, *Personal*, stays plain notes. (Upgrading from 0.4? Your Jira and Gerrit setup is already on your first vault.)
+7. **Press `Ctrl+K`** and type a ticket key like `PROJ-123`, then `Enter`. That creates the ticket's note in the vault whose tickets it is, with status *open* and the caret ready for you to type the ticket's name after `# PROJ-123`. **`Ctrl+J`** opens it in Jira.
+8. **Press `Ctrl+Shift+O`** to switch vault, and **`Ctrl+Shift+T`** to tag the note.
+9. **Press `Alt+J`** from any app. Type a few letters of any note in any vault and press `Enter` to open it, or type `PROJ-456 Fix the login page` and press `Enter` to create that ticket.
 10. **Press `Ctrl+/`** for the full list of shortcuts. That screen is the whole manual in brief.
 
 Stash Notes starts automatically at login, hidden in the tray, unless you turn that off in Settings → General.
 
 ### A typical flow
 
-`Alt+N` → `Ctrl+K` → type `123` → `Enter` → `Ctrl+;` → type a note → `Ctrl+J` to look at the ticket in the browser → back in the app, `Esc` to return to code.
+`Alt+N` → `Ctrl+K` → type `123` → `Enter` → `Ctrl+;` → type a note → `Ctrl+J` to look at the ticket in the browser → back in the app, `Esc` to return to code. Or from anywhere: `Alt+J` → `rollout` → `Enter`.
 
 ---
 
@@ -148,14 +177,14 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 ```
 
 - **Sidebar** (left): a thin rail by default. The hamburger (or `Ctrl+\`) expands it. See [Sidebar](#sidebar).
-- **Header:** back and forward, the note's title, its status chip, **Jira** and **Gerrit** buttons when they apply (or a button to add a Gerrit change), then **pin** and **archive**. Hover over any button to see its shortcut. A dot shows unsaved changes.
+- **Header:** back and forward, the note's title, its status chip, its tags, a button for its ticket (**Jira**, …) and for each kind of attached link it has (**Gerrit**, **PR**, …), a button to attach a link, then **pin** and **archive**. Ticket and link buttons only appear in vaults that use them. Hover over any button to see its shortcut. A dot shows unsaved changes.
 - **Editor:** markdown that's styled as you type. See [The editor](#the-editor).
 - **Backlinks strip:** notes that link to or mention this one.
 - **Notes view** (`Ctrl+L`) and **Settings** (`Ctrl+,`) take over the main area. `Esc` goes back.
 
 ### Note kinds and the notes folder
 
-Every note is one markdown file in a single **notes folder** (the "vault"). The default is `Documents\StashNotes`. The folder a file is in tells Stash Notes what kind of note it is:
+Every note is one markdown file in a **vault**: a notes folder (see [Vaults](#vaults)). The first vault's default folder is `Documents\StashNotes`. The folder a file is in tells Stash Notes what kind of note it is:
 
 | Kind | Path | Title | Created |
 |---|---|---|---|
@@ -166,16 +195,17 @@ Every note is one markdown file in a single **notes folder** (the "vault"). The 
 
 Markdown files anywhere else in the folder are treated as regular notes. Folders starting with `.` (such as `.git`) and the `templates` folder are ignored.
 
-**Ticket keys** match the regex `[A-Z][A-Z0-9]+-\d+` by default (`PROJ-123`, `OPS-7`). You can change this in Settings → Notes. A bare key anywhere in any note is highlighted and works as a link.
+**Ticket keys** come from the vault's ticket systems (see [Tickets, attached links and smart paste](#tickets-attached-links-and-smart-paste)). Jira's pattern `[A-Z][A-Z0-9]+-\d+` matches `PROJ-123` and `OPS-7`. In such a vault a bare key anywhere in a note is highlighted and works as a link. A vault without ticket systems has no ticket notes.
 
 **Ticket note format.** All front matter fields are optional:
 
 ```markdown
 ---
 status: open
-jira: https://other.atlassian.net/browse/PROJ-123   # only to override the Jira URL template
-gerrit:
-  - 12345                             # bare change numbers expand via the Gerrit URL template
+tags: [bug, rollout]
+jira: https://other.atlassian.net/browse/PROJ-123   # only to override where the ticket opens
+gerrit:                               # a link type's key (here Gerrit's)
+  - 12345                             # bare entries expand through the link type's URL
   - https://gerrit.example.com/c/proj/+/12399
 ---
 
@@ -188,6 +218,30 @@ gerrit:
 The ticket's **name** is whatever follows the key in the first heading. It's shown beside the key in the header, sidebar, switcher and Notes view. The file name stays `PROJ-123.md`, so editing the name never breaks links. Notes from 0.1 that still carry `title:` in front matter keep showing that name until you add one to the heading.
 
 Any note can also list `aliases: [Plan B, launch]`. Links and search then match those names too.
+
+### Vaults
+
+A **vault** is a folder of notes with a name and a color, for example *Personal* and one vault per project. Set them up in Settings → Vaults. Each vault has:
+- **its own folder** (any folder, including one in OneDrive or a Git repository);
+- **its own daily notes and template**;
+- **its own [links to other systems](#tickets-attached-links-and-smart-paste)**: a work vault can have Jira and Gerrit while a personal vault stays plain.
+
+- **One vault is current.** The sidebar, the Notes view, Today (`Ctrl+D`) and new notes belong to it.
+  - It shows at the top of the sidebar as a colored badge with the vault's initial.
+  - Switch with that row, **`Ctrl+Shift+O`**, or the tray menu's **Vault** submenu.
+  - Each vault remembers the note you last had open in it.
+- **Opening a note from another vault switches to that vault.** You're always in the vault of the note on screen. Back and forward move across vaults too.
+- **Search covers every vault.**
+  - **`Ctrl+K`, the `Alt+J` pop-up and the `[[` link picker** all search everywhere, list the current vault's notes first, and tag each result with its vault.
+  - **To narrow it**, type `in:work` (a vault's id or the start of its name), or press **`Tab`** in the switcher to cycle *All vaults → this vault → each other vault*.
+  - **The Notes view** lists the current vault unless you type `in:`.
+- **Links between vaults:**
+  - **Same vault first:** `[[Plan]]` looks in the linking note's own vault, then in the others.
+  - **Naming a vault:** `[[work:Plan]]` looks only in *work*, and picking a note from another vault in the `[[` picker writes it that way.
+  - **Ticket keys** resolve in whichever vault has the ticket.
+  - **New notes from a link** go in the current vault.
+- **New ticket notes** go in the vault whose ticket systems claim the key, wherever you type it (for example `PROJ-123` in the pop-up while in *Personal*).
+- **Removing a vault** in Settings only forgets it; its folder and notes are untouched. Each vault's id (`in:work`) is fixed when it's created; renaming changes only the name.
 
 ### Statuses
 
@@ -209,6 +263,18 @@ Ticket and general notes can carry one status. Daily notes never do.
 - The list, icons, colors and which statuses count as *active* are editable in Settings → Statuses (click a status's icon to pick another). An unknown value in a file is kept and shown as a grey question mark.
 - This is your personal status. It isn't read from or written to Jira.
 
+### Tags
+
+Ticket and general notes can carry any number of tags; daily notes can't. Tags live in front matter as `tags: [bug, research]`, the same format other markdown apps use.
+
+- **Add or remove** with **`Ctrl+Shift+T`** (or the header's tag button, or the `+` in the properties row). Type to filter your tags, `Enter` adds or removes the highlighted one (or creates the tag you typed), `Backspace` removes the last, and `Esc` closes. Changes save as you go.
+- **Names** are lower case letters, digits, `-`, `_` and `/` for nesting: `bug/ui` is a `bug` too. A tag can't be only digits.
+- **Search:** `#bug` filters in `Ctrl+K`, `Alt+J` and the Notes view. Several tags must all match, and they combine with everything else: `#bug @open in:work login`. While you type `#`, matching tags are suggested; `Tab` completes the first.
+- **Creating with tags:** `Create "Login timeout #bug"` makes the note *Login timeout* tagged `bug`.
+- **Where they show:** chips in the properties row and on switcher and Notes view rows, and in sidebar tooltips. Click a chip to see all notes with that tag.
+- **Settings → Tags** lists every tag with how many notes use it. Give a tag a color (nested tags use their parent's unless they have their own), or rename or remove it on every note at once, with **Undo**.
+- Tags are shared across vaults: `#bug` finds bugs everywhere, `#bug in:work` only in *work*.
+
 ### The editor
 
 The editor styles markdown as you type, like Obsidian's live preview. Syntax markers hide when the caret is elsewhere and reappear on the line (or inline span) you're editing. The file on disk always stays plain markdown.
@@ -223,7 +289,7 @@ The editor styles markdown as you type, like Obsidian's live preview. Syntax mar
 | Fenced code | A monospace block with a background |
 | `---` | A horizontal rule |
 | `[[link]]`, `[text](url)`, ticket keys | Link-colored text with brackets and URL hidden. `Ctrl+Enter` follows |
-| Front matter | A compact properties row (status, Jira, Gerrit). Move the caret into it to edit the YAML |
+| Front matter | A compact properties row (status, ticket, attached links, tags). Move the caret into it to edit the YAML |
 
 Tables, images, math and footnotes stay as plain text. To see raw markdown everywhere, turn off **Live formatting** in Settings → Editor.
 
@@ -238,14 +304,16 @@ Every in-app shortcut can be changed in Settings → Shortcuts. In-app shortcuts
 | `Esc` | Close overlay / view, else hide window | Closes the switcher, pickers, backlinks list, Notes view and Settings first |
 | `Ctrl+K` | Quick switcher and search | Also creates notes. With text selected, links the selection |
 | `Ctrl+D` | Today's daily note | Creates it if missing |
-| `Ctrl+L` | Notes view | |
+| `Ctrl+L` | Notes view | The current vault's notes |
+| `Ctrl+Shift+O` | Switch vault | Also from the sidebar and the tray |
 | `Ctrl+Enter` | Follow link under cursor | Note link, ticket key or URL. On a checkbox line with no link, toggles it |
 | `Alt+Left` / `Alt+Right` | Back / forward | |
-| `Ctrl+J` | Open Jira page | The current ticket, or the key under the cursor, or the first key in the note |
-| `Ctrl+G` | Open Gerrit change | Picker when there are several (`1`–`9` pick directly) |
-| `Ctrl+Shift+G` | Add Gerrit link | Prefilled from the clipboard if it looks like one |
+| `Ctrl+J` | Open the note's ticket | In its ticket system (Jira, GitHub, …): the note's own key, the key under the cursor, or the first key in the note |
+| `Ctrl+G` | Open an attached link | Gerrit change, PR, page, …; a picker when there are several (`1`–`9` pick directly) |
+| `Ctrl+Shift+G` | Attach a link | Paste a URL (prefilled from the clipboard); its site decides the link type |
 | `Ctrl+;` | Insert timestamp | Format set in Settings → Editor |
 | `Ctrl+Shift+S` | Set status | On the note, focused sidebar row or selected Notes view row |
+| `Ctrl+Shift+T` | Add or remove tags | Same targets as status |
 | `Ctrl+Shift+B` | Expand or collapse backlinks | Arrows and `Enter` open one |
 | `Ctrl+Shift+A` | Archive or unarchive note | 5 s **Undo** toast |
 | `Ctrl+\` | Expand or collapse the sidebar | |
@@ -260,7 +328,7 @@ Also:
 |---|---|
 | `[[` | Link picker: type to filter, `Enter` inserts `[[Title]]` |
 | `Ctrl+B` / `Ctrl+I` | Bold / italic |
-| `Ctrl+Shift+V` | Paste without converting Jira or Gerrit links |
+| `Ctrl+Shift+V` | Paste without converting ticket or link URLs |
 | `Ctrl+Click` | Follow a link, key or URL with the mouse |
 | `F2` | Rename the current note (links to it are updated) |
 | `Ctrl+S` | Save now (not needed, since autosave runs anyway) |
@@ -272,10 +340,14 @@ Also:
 
 - **Empty query** lists recently opened notes, with active notes first. Closed and archived notes are hidden, so this is also your "open tickets" list.
 - **Typing** updates the results on every keystroke. `↑`/`↓` move, `Enter` opens, `Esc` closes.
-- **Create.** When nothing matches exactly, the last row reads `Create "<query>"`. A query that starts with a ticket key creates a ticket note, and any text after the key becomes its name: `PROJ-1234 Do this thing` creates `tickets/PROJ-1234.md` titled *PROJ-1234 Do this thing*. If that ticket already exists, it's the top result instead. Anything else creates a regular note.
-- **`Tab`** includes closed and archived notes, shown dimmed.
+- **Create.** When nothing matches exactly, the last row reads `Create "<query>"`.
+  - **Ticket keys:** a query that starts with a ticket key creates a ticket note, and any text after the key becomes its name. `PROJ-1234 Do this thing` creates `tickets/PROJ-1234.md` titled *PROJ-1234 Do this thing*, in the vault whose tickets `PROJ-` are. If that ticket already exists, it's the top result instead.
+  - **Anything else** creates a regular note in the current vault, or in the vault you narrowed to.
+  - **Filter words** (`#tag`, `@status`, `in:`) are left out of the title, and `#tags` are given to the new note.
+- **Every vault** is searched, the current one first; each result shows its vault. **`Tab`** cycles *All vaults → this vault → each other vault*, or completes a `#tag` while you're typing one.
+- **`Alt+A`** includes closed and archived notes, shown dimmed.
 - **`Alt+Enter`** *peeks* at a result without adding it to history.
-- **Pasting a Jira URL** turns it into the ticket key.
+- **Pasting a ticket URL** (Jira, a GitHub issue, …) turns it into the ticket key.
 
 What matches, from strongest to weakest:
 
@@ -283,6 +355,7 @@ What matches, from strongest to weakest:
 |---|---|---|
 | Ticket key | `123`, `proj123`, `PROJ-123` | Highest |
 | Title and aliases | `rollout`, `rlt pln` (fuzzy) | High |
+| Filters | `@open`, `@active`, `#bug`, `in:work` | Narrow the results; combine freely |
 | Date | `2026-10-22`, `oct 22`, `today`, `yesterday`, `monday` | High (matches the daily note) |
 | Body text | Any word or words from a note, or a timestamp | Normal, with the matching line shown |
 
@@ -290,7 +363,7 @@ Typing **only digits** (for example `123`) matches every ticket key ending in th
 
 ### Sidebar
 
-The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status icons of your active notes and **Settings**. Hover over an icon to see the note's title. Click the hamburger (or press `Ctrl+\`) to expand it:
+The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status icons of your active notes and **Settings** — all for the current vault. With more than one vault, a colored badge under the hamburger shows which vault you're in; click it to switch. Hover over an icon to see the note's title. Click the hamburger (or press `Ctrl+\`) to expand it:
 
 - **Today** and **Notes** rows, each with its shortcut as a hint.
 - **Active:** notes with an active status, ordered open, blocked, then todo, and by last edit within each. Up to 8 rows, then a **+N more** row that opens the Notes view filtered to `@active`.
@@ -302,12 +375,12 @@ The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status ico
 
 ### Notes view
 
-`Ctrl+L` (or the sidebar's **Notes** row) shows every note in the main area. It's a history entry, so `Alt+Left` comes back to it, and `Esc` leaves it.
+`Ctrl+L` (or the sidebar's **Notes** row) shows every note in the current vault in the main area. It's a history entry, so `Alt+Left` comes back to it, and `Esc` leaves it.
 
-- **Search** with the switcher's syntax, including `@status` filters.
-- **Rows** show the status, key or title, a one-line snippet (the matching line while searching) and when it was last edited.
+- **Search** with the switcher's syntax, including `@status`, `#tag` and `in:vault` filters (`in:` lists another vault, or several).
+- **Rows** show the status, key or title, tags, a one-line snippet (the matching line while searching) and when it was last edited.
 - **`Alt+S`** cycles the sort: last edited, last opened, status, title.
-- **`Alt+G`** groups by status. `←`/`→` collapse or expand a group header.
+- **`Alt+G`** cycles grouping: none, by status, by tag (a note with several tags appears under each). `←`/`→` collapse or expand a group header.
 - **`Alt+D`** shows or hides daily notes, and **`Tab`** shows or hides closed and archived notes (both hidden by default).
 - **`Enter`** opens the selected note. **`Ctrl+Shift+S`** sets its status, and **`Ctrl+E`, `P`** pins it. A **Create** row appears when nothing matches.
 
@@ -317,38 +390,56 @@ Defaults for these are in Settings → Notes view.
 
 | Written as | Opens | If the target is missing |
 |---|---|---|
-| `[[Rollout plan]]` | The note titled "Rollout plan" (case-insensitive) | Creates `notes/rollout-plan.md` |
-| `[[PROJ-123]]` or bare `PROJ-123` | `tickets/PROJ-123.md` | Creates it |
+| `[[Rollout plan]]` | The note titled "Rollout plan" (case-insensitive), in this note's vault first | Creates `notes/rollout-plan.md` in the current vault |
+| `[[work:Rollout plan]]` | That note in the *work* vault | Creates it there |
+| `[[PROJ-123]]` or bare `PROJ-123` | `tickets/PROJ-123.md`, in whichever vault has it | Creates it in the vault whose tickets `PROJ-` are |
 | `[[2026-10-22]]` | `daily/2026-10-22.md` | Creates it from the daily template |
 | `https://...` or `[text](https://...)` | Your default browser | – |
 
-`[[Target|shown text]]` and `[[Target#section]]` also work. **Resolution order:** exact file name, then title, then alias. If two notes share a title, the most recently edited one wins. Links to archived notes still work and are shown dimmed.
+`[[Target|shown text]]` and `[[Target#section]]` also work. **Resolution order:** the linking note's vault first (exact file name, then title, then alias), then the other vaults in order. If two notes share a title, the most recently edited one wins. Links to archived notes still work and are shown dimmed.
 
-**Backlinks.** The strip at the bottom lists every note that links to the current one or mentions its ticket key. `Ctrl+Shift+B` expands it into a list.
+**Backlinks.** The strip at the bottom lists every note that links to the current one or mentions its ticket key. Links from other vaults count when they name the vault (`[[work:Plan]]`). `Ctrl+Shift+B` expands it into a list.
 
 **History** works like a browser. `Alt+Left` and `Alt+Right` restore each note's cursor and scroll position. It keeps the last 100 entries and is cleared when you quit.
 
-### Jira, Gerrit and smart paste
+### Tickets, attached links and smart paste
 
-- **`Ctrl+J`** opens the ticket using the Jira URL template (for example `https://yourco.atlassian.net/browse/{key}`), or the note's `jira:` override.
-- **`Ctrl+Shift+G`** adds a Gerrit URL or change number to the note's `gerrit:` list. **`Ctrl+G`** opens it, or shows a picker if there are several.
-- The app stays open behind the browser. If you'd rather it hide, turn on Settings → General → *Hide the window after opening a Jira or Gerrit link*.
+Each vault can connect to the systems you use, in Settings → Vaults. A vault with neither kind is a plain notes vault: no ticket notes, no key highlighting, no extra buttons, and URLs paste as they are.
+
+**Ticket systems.** Items in these get a note each, named by key (`tickets/PROJ-123.md`). Each has a name, an icon, a **key pattern** (a regular expression) and a **URL**, where `{key}` is the key and `{n}` its number. Presets:
+
+| Preset | Keys | URL |
+|---|---|---|
+| Jira | `[A-Z][A-Z0-9]+-\d+` (`PROJ-123`) | `https://yourco.atlassian.net/browse/{key}` |
+| GitHub issues | `GH-\d+` (`GH-42`) | `https://github.com/OWNER/REPO/issues/{n}` |
+| GitLab issues | `GL-\d+` | `https://gitlab.com/GROUP/PROJECT/-/issues/{n}` |
+| Custom | yours | yours |
+
+A vault can have several. When patterns overlap, one with a fixed prefix (`GH-`) is checked first.
+
+**Attached links.** A note collects these in a front matter list. Each has a name, an icon, a **front matter key** and a **URL** for bare entries (`{n}` is the entry). Presets: **Gerrit** (`gerrit:`), **GitHub pull requests** (`prs:`), **GitLab merge requests** (`mrs:`), **Confluence / wiki** (`docs:`) and **Custom**.
+
+- **`Ctrl+J`** opens the note's ticket (or the note's `jira:` override URL).
+- **`Ctrl+Shift+G`** attaches a link: paste a URL and its site picks the link type (a bare id goes to the vault's only link type, or you pick one). **`Ctrl+G`** opens an attached link, with a picker if there are several.
+- The header and the properties row show a button for the ticket and for each kind of link the note has.
+- The app stays open behind the browser. If you'd rather it hide, turn on Settings → General → *Hide the window after opening a link*.
+- **New vaults** can start as plain notes or copy another vault's links.
 
 **Smart paste** (on by default; `Ctrl+Shift+V` always pastes as typed):
 
 | Where | You paste | Result |
 |---|---|---|
-| Switcher, `Alt+J` pop-up, Notes view search | A Jira URL (`…/browse/PROJ-123`, or a board link with `selectedIssue=PROJ-123`) | It becomes `PROJ-123 ` with the caret after it. If the ticket exists it's the top result. Otherwise keep typing its name, and **Create** makes `PROJ-123 <name>` |
-| Editor, any note | A Jira URL | Inserts `PROJ-123`, which links |
-| Editor, a ticket note | A Gerrit URL (same host as the Gerrit template) | Added to the `gerrit:` front matter, with an **Undo** toast |
+| Switcher, `Alt+J` pop-up, Notes view search | A ticket URL from any vault (`…/browse/PROJ-123`, a Jira board link with `selectedIssue=PROJ-123`, `…/issues/42` for `GH-42`) | It becomes `PROJ-123 ` with the caret after it. If the ticket exists it's the top result. Otherwise keep typing its name, and **Create** makes `PROJ-123 <name>` |
+| Editor, any note | A ticket URL | Inserts the key, which links |
+| Editor, a ticket or general note | A URL of one of the vault's link types (same site as its URL) | Added to that list in the front matter, with an **Undo** toast |
 
 ### Quick switcher pop-up
 
 Press **`Alt+J`** from any app. A small search box appears near the top of the screen your mouse is on. The main window stays wherever it is, maximised or hidden.
 
-- It's the same switcher as `Ctrl+K`: fuzzy search by ticket key, ticket name, title, date, text or `@status`, with your recent and active notes listed when it's empty.
+- It's the same switcher as `Ctrl+K`: fuzzy search across every vault by ticket key, ticket name, title, date or text, with `@status`, `#tag` and `in:vault` filters, and your recent and active notes listed when it's empty. The vault you last used comes first, and `Tab` narrows to a vault.
 - **`Enter`** opens the selected note in the app.
-- When nothing matches, the **Create** row creates the note and opens it. `PROJ-1234 Do this thing` creates a ticket with that name, and pasting a Jira URL gives you `PROJ-1234 ` to type the name after.
+- When nothing matches, the **Create** row creates the note (in the vault you last used, or the one you narrowed to) and opens it. `PROJ-1234 Do this thing` creates a ticket with that name in the vault the key belongs to, and pasting a ticket URL gives you `PROJ-1234 ` to type the name after.
 - **`Esc`** (or clicking anywhere else) closes the pop-up and returns you to what you were doing.
 - `Alt+J` again while it's open closes it. You can change the key in Settings → General.
 
@@ -358,21 +449,21 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 
 - Both windows show the same live text. You can type in either, and the edits merge.
 - Drag it by its title bar. The pin icon turns always-on-top off and on, and **×** closes it. `Esc` does nothing here, so it can't be closed by accident.
-- `Ctrl+;`, `Ctrl+J`, `Ctrl+G`, `Ctrl+Shift+S` and `Ctrl+Enter` work inside it. Links open in the main window.
+- `Ctrl+;`, `Ctrl+J`, `Ctrl+G`, `Ctrl+Shift+S`, `Ctrl+Shift+T` and `Ctrl+Enter` work inside it. Links open in the main window.
 - Up to 5 notes can be pinned. Each window's position and size are remembered per note, and pinned windows come back at login (Settings → General).
 - The tray menu has a **Pinned notes** submenu to focus or close each one.
 - If the note is renamed or archived, the window follows it.
 
 ### Daily notes and todos
 
-`Ctrl+D` opens today's note (`daily/YYYY-MM-DD.md`), creating it from a template with a `## Todo` section. The cursor lands at the end of the todo list, ready to type.
+`Ctrl+D` opens today's note in the current vault (`daily/YYYY-MM-DD.md`), creating it from a template with a `## Todo` section. Each vault has its own daily notes. The cursor lands at the end of the todo list, ready to type.
 
 - `Enter` at the end of a `- [ ] item` continues the list with a new checkbox.
 - `Ctrl+Enter` on a checkbox line (or clicking the box) toggles it.
 - Unchecked items don't roll over to the next day.
 - If the last note you had open was a **previous** day's daily note, summoning opens today's instead.
 
-**Template:** edit it in Settings → Notes. It's saved as `templates/daily.md` in the notes folder. `{{date}}` and `{{weekday}}` are filled in.
+**Template:** edit it in Settings → Notes (pick the vault when you have several). It's saved as `templates/daily.md` in that vault's folder. `{{date}}` and `{{weekday}}` are filled in.
 
 ### Archiving and renaming
 
@@ -385,7 +476,7 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 - **Login:** Stash Notes starts with Windows and stays hidden in the tray, already loaded. Starting it from the Start menu shows the window.
 - **`Alt+N`**: if the window is hidden, it shows and focuses the editor. If it's visible and focused, it hides. If it's behind another window, it comes to the front. It never touches pinned windows.
 - **Close (X), Minimize and `Esc`** hide to the tray. Quit from the tray menu or with `Ctrl+Shift+Q`.
-- **Tray icon:** left-click toggles the window. Right-click opens the menu: *Show, Today's note, Open notes folder, Settings, Pinned notes, Quit*. The tooltip counts your active notes.
+- **Tray icon:** left-click toggles the window. Right-click opens the menu: *Show, Vault (with more than one), Today's note, Open notes folder (the current vault's), Settings, Pinned notes, Quit*. The tooltip counts your active notes.
 - **Single instance:** launching Stash Notes again just shows the running window.
 - **Window size and position** are remembered.
 
@@ -397,31 +488,30 @@ Press **`Ctrl+,`** (or click the sidebar's gear, or use **Settings** in the tray
 
 | Category | Options |
 |---|---|
-| General | Launch at login · Start hidden in tray · Restore pinned notes · What opens on summon · Show/hide hotkey and quick switcher hotkey (press the keys to set; a key another app owns is refused) · Hide after opening Jira/Gerrit |
+| General | Launch at login · Start hidden in tray · Restore pinned notes · What opens on summon · Show/hide hotkey and quick switcher hotkey (press the keys to set; a key another app owns is refused) · Hide after opening a link |
+| Vaults | Each vault's name, color and folder · Its ticket systems and attached link types (presets or custom; name, icon, key pattern or front matter key, URL with a live preview) · Open its folder · Reorder · Remove · Add a vault (plain, or with another vault's links) |
 | Window | Show in taskbar · Always on top · Sidebar expanded |
 | Editor | Live formatting · Comfortable line width · Font and size · Line height · Spell check · Smart paste · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
-| Notes | Notes folder (with a folder picker) · Default status for new tickets · Ticket key pattern (with a test field) · Daily note template |
-| Links | Jira and Gerrit URL templates, each with a live preview |
-| Notes view | Show daily notes · Show closed notes · Default sort · Group by status |
+| Notes | Default status for new tickets · Daily note template (per vault) |
+| Notes view | Show daily notes · Show closed notes · Default sort · Group by (none, status, tag) |
 | Statuses | Icon, name, color and *active* flag of each status · Reorder · Add · Remove |
+| Tags | Every tag with its note count · Color · Rename or remove on every note (with Undo) |
 | Shortcuts | Every in-app shortcut: click it and press new keys. Conflicts are refused. Reset per row or all |
 | Appearance | Theme (follow Windows, light, dark) · Accent color · Animations (follow Windows, on, off) |
 
-Each category has **Reset to defaults**. The footer opens `settings.json` and the notes folder.
+Most categories have **Reset to defaults**. The footer opens `settings.json` and the current vault's folder.
 
 **`settings.json`** (`%APPDATA%\com.lukewestgate.stashnotes\settings.json`) is still the source of truth, and hand edits show up in the screen live. Every key is optional. Keys the app doesn't know are kept. The main keys:
 
 | Key | Default |
 |---|---|
-| `vaultPath` | `Documents\StashNotes` (`~` means your user folder) |
+| `vaults` | `[{ "id": "personal", "name": "Personal", "path": "", "color": "blue", "tickets": [], "links": [] }]`. `path` empty means `Documents\StashNotes`, and `~` is your user folder. `tickets` entries are `{ "name", "icon", "pattern", "url" }`, `links` entries are `{ "name", "icon", "field", "url" }` |
 | `hotkey` / `switcherHotkey` | `Alt+N` / `Alt+J` |
 | `onSummon` | `last` (or `daily`) |
 | `startHidden`, `autostart`, `restorePinned` | `true` |
 | `showInTaskbar`, `alwaysOnTop`, `hideAfterExternalLink` | `false` |
-| `ticketPattern` | `[A-Z][A-Z0-9]+-\d+` (escape backslashes in JSON: `"\\d"`) |
-| `jira.urlTemplate` | `https://yourco.atlassian.net/browse/{key}` |
-| `gerrit.urlTemplate` | `https://gerrit.example.com/c/{n}` |
 | `defaultStatus` | `open` |
+| `tagColors` | `{}`, e.g. `{ "bug": "red" }` |
 | `statuses` | the five statuses above, each `{ "name", "icon", "color", "active" }`. `icon` is a [Lucide](https://lucide.dev/icons) name from the Settings grid, e.g. `circle-dot` |
 | `liveFormatting`, `smartPaste`, `readableWidth` | `true` |
 | `spellCheck` | `false` |
@@ -429,24 +519,26 @@ Each category has **Reset to defaults**. The footer opens `settings.json` and th
 | `timestampFormat` | `yyyy-MM-dd HH:mm` |
 | `theme`, `accent` | `system`, `blue` |
 | `animations` | `system` (or `on`, `off`) |
-| `notesView` | `{ "showDaily": false, "showClosed": false, "sort": "edited", "groupByStatus": false }` |
+| `notesView` | `{ "showDaily": false, "showClosed": false, "sort": "edited", "groupBy": "none" }` |
 | `keys.*` | see [Keyboard shortcuts](#keyboard-shortcuts). `pinNote` is a two-key chord like `"Ctrl+E P"` |
 | `schemaVersion` | managed by the app |
 
-`session.json` in the same folder holds the last open note, recently opened notes, pinned windows and the sidebar state. It's safe to delete.
+Key patterns are regular expressions: escape backslashes in JSON (`"[A-Z]+-\\d+"`).
+
+`session.json` in the same folder holds the current vault, the last open note (overall and per vault), recently opened notes, pinned windows and the sidebar state. It's safe to delete.
 
 ---
 
 ## Your data and safety
 
-- **Plain files are the source of truth.** Notes are ordinary UTF-8 markdown files. You can edit them in any editor while Stash Notes runs, keep the folder in Git or OneDrive, and back it up any way you like. The search index lives only in memory and is rebuilt at every start.
+- **Plain files are the source of truth.** Notes are ordinary UTF-8 markdown files. You can edit them in any editor while Stash Notes runs, keep vault folders in Git or OneDrive, and back them up any way you like. The search index lives only in memory and is rebuilt at every start.
 - **One writer.** Rust holds the text of each open note, and every window (main and pinned) edits that one copy. Only that copy is written to disk, so two windows can never overwrite each other.
 - **Autosave** runs 300 ms after the last change, and on hide, quit, navigate, archive and rename.
 - **Crash-safe writes:** each save goes to a temporary file that's then renamed over the original. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
 - **External changes:** if a note changes on disk while it has no unsaved edits, it reloads silently in every window. If it has unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
 - **Nothing is deleted.** Archiving and closing move files. Renaming rewrites links, and **Undo** puts everything back.
-- **Upgrades are safe.** The installer only replaces the app. Notes live in your notes folder and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten.
-- **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside the notes folder. Only `http`/`https` URLs can be opened.
+- **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten.
+- **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside a vault folder. Only `http`/`https` URLs can be opened.
 
 ---
 
@@ -502,7 +594,7 @@ stash-notes/
 │   ├── QuickApp.svelte         The Alt+J quick switcher pop-up
 │   ├── components/             Header, Sidebar, Switcher, NotesView, SettingsView, Backlinks,
 │   │                           StatusPicker, KeyRecorder, Help, Prompt, Picker, StatusIcon,
-│   │                           Icon, Highlight, Toasts, EmptyState
+│   │                           Icon, Highlight, Toasts, EmptyState, TagPicker, TagChip, VaultTag
 │   └── lib/
 │       ├── api.ts              Typed wrappers for the Rust commands and events
 │       ├── buffer.ts           Syncs an editor with its note's Rust buffer (CodeMirror collab)
@@ -513,6 +605,7 @@ stash-notes/
 │       ├── history.ts          Back/forward history
 │       ├── icons.ts            The Lucide icons the app uses, by name
 │       ├── highlight.ts        Which letters of a result to highlight
+│       ├── links.ts            Ticket systems and link types: presets, pasted URLs, URLs to open
 │       ├── motion.ts           Animation setting and the shared pop-in transitions
 │       ├── toasts.svelte.ts    Toast queue (timers, pause on hover, sticky errors)
 │       ├── status.ts / appearance.ts
@@ -530,8 +623,8 @@ stash-notes/
 │   │   ├── hotkey.rs           Global hotkeys
 │   │   └── state.rs            Shared state and session persistence
 │   ├── core/                   `stash-core` (no Tauri dependency; unit tested)
-│   │   ├── src/                vault, index & search, notes, front matter, statuses,
-│   │   │                       change sets, dates, settings
+│   │   ├── src/                vault, index & search, query filters (@ # in:), notes,
+│   │   │                       front matter, statuses, change sets, dates, settings
 │   │   └── tests/perf.rs       5,000-note performance check
 │   ├── capabilities/           Webview permissions (core events and window dragging only)
 │   └── tauri.conf.json         Windows, bundle and security config
@@ -572,13 +665,17 @@ To publish a new version, bump `version` in `package.json`, `src-tauri/Cargo.tom
 
 **The window appears but typing goes to the previous app.** Windows sometimes refuses focus to a window brought up by a background process. Stash Notes works around this. If it still happens, press the hotkey once more, and please open an issue.
 
-**Jira/Gerrit open the wrong site.** Set the URL templates in Settings → Links.
+**Jira/Gerrit open the wrong site.** Set the URLs of the vault's ticket systems and link types in Settings → Vaults (each shows a preview).
 
-**My ticket keys aren't highlighted.** Keys must match the ticket pattern (Settings → Notes has a test field). Lower-case keys typed in the switcher are upper-cased for you.
+**My ticket keys aren't highlighted, or `Ctrl+J` does nothing.** Ticket keys only exist in vaults with a ticket system, and must match its key pattern (Settings → Vaults). Lower-case keys typed in the switcher are upper-cased for you.
+
+**A note I know exists isn't in the sidebar or Notes view.** They show the current vault. Search (`Ctrl+K`) covers every vault; opening the note switches to its vault.
+
+**My notes disappeared after upgrading to 0.5.** They haven't: your notes folder is now the first vault. Check Settings → Vaults, and **Open notes folder** in the tray.
 
 **A pinned window is off screen.** Close it from the tray menu (**Pinned notes**) and pin the note again.
 
-**Where are my notes?** Use **Open notes folder** in the tray menu or in Settings.
+**Where are my notes?** Use **Open notes folder** in the tray menu (the current vault's), or the folder button on each vault in Settings → Vaults.
 
 **I want to start fresh.** Quit the app, then delete `%APPDATA%\com.lukewestgate.stashnotes`. Your notes folder is never touched.
 
@@ -592,7 +689,11 @@ Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. W
 - **Closed notes are archived.** Setting *closed* also moves the note into `archive/`, and reopening moves it back (owner's choice on the spec's open question).
 - **Sidebar.** A thin rail with a hamburger that expands into the full sidebar (owner's choice). The expanded state is remembered.
 - **No in-app updater.** The spec's auto-update section is left out at the owner's request. Installing a newer version replaces the old one in place, and only the per-user NSIS installer is shipped, so there's never a second copy. The update-related settings (*Check for updates*, *Install automatically*) and the pre-update vault snapshot are therefore not present.
-- **Jira and Gerrit URLs** default to placeholders. Set yours in Settings → Links.
+- **Jira and Gerrit are presets, not built in** (owner's request for 0.5): each vault chooses its ticket systems and link types, so a personal vault can be plain notes. Their URLs default to placeholders; set yours in Settings → Vaults.
+- **Vaults** (0.5, owner's design): one current vault drives the sidebar, Notes view, Today and new notes; opening a note from another vault switches with it; search covers all vaults (current first) and narrows with `in:` or `Tab`. Daily notes are per vault. Notes can't yet be moved between vaults, and statuses are shared by all vaults.
+- **Vault ids** are fixed when a vault is created so that `in:work`, `[[work:Note]]` and saved note paths keep working after a rename.
+- **Switching vault is `Ctrl+Shift+O`**, not `Ctrl+Shift+V`, which is plain paste.
+- **Tags** live only in front matter (not `#tags` in the text), and daily notes don't take tags, like statuses.
 - **Daily todos don't roll over** (spec v1).
 - **Shortcuts beyond the spec:** `F2` rename, `Ctrl+S` save now, `Ctrl+Click` follow, and right-click on a sidebar row to set its status.
 - **Shortcut conflicts** are refused when recording, not just flagged, so two actions can never share a key.
