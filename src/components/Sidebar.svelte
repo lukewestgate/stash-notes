@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { Keys, SearchHit, StatusDef } from "../lib/api";
+  import type { Keys, NoteMeta, SearchHit, StatusDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
-  import { relTime } from "../lib/text";
+  import { isoDate, relTime } from "../lib/text";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
@@ -10,6 +10,8 @@
     more: number;
     recent: SearchHit[];
     current: string | null;
+    /** The note open in the editor, when the editor is showing. */
+    open: NoteMeta | null;
     /** Which full-window view is showing, to highlight its row. */
     screen: string;
     expanded: boolean;
@@ -33,6 +35,7 @@
     more,
     recent,
     current,
+    open,
     screen,
     expanded,
     width,
@@ -56,9 +59,20 @@
     | { kind: "settings" }
     | { kind: "note"; hit: SearchHit };
 
+  const isToday = $derived(open?.kind === "daily" && open.date === isoDate());
+  /** The open note, when no other row stands for it: shown under "Open" so it's clear where you are. */
+  const openHit = $derived.by<SearchHit | null>(() => {
+    if (!open || isToday) return null;
+    const listed = active.some((h) => h.path === open.path) || (expanded && recent.some((h) => h.path === open.path));
+    if (listed) return null;
+    const { path, kind, title, label, key, status, archived } = open;
+    return { path, kind, title, label, key, status, archived, mtime: 0, snippet: null, score: 0 };
+  });
+
   const items = $derived<Item[]>([
     { kind: "today" },
     { kind: "notes" },
+    ...(openHit ? [{ kind: "note" as const, hit: openHit }] : []),
     ...active.map((hit) => ({ kind: "note" as const, hit })),
     ...(more > 0 ? [{ kind: "more" as const }] : []),
     ...(expanded ? recent.map((hit) => ({ kind: "note" as const, hit })) : []),
@@ -157,7 +171,7 @@
     class:current={it.hit.path === current && screen === "editor"}
     data-i={i}
     tabindex={focused === i ? 0 : -1}
-    title={tip(it.hit)}
+    title={it.hit.mtime ? tip(it.hit) : name(it.hit)}
     onclick={() => run(it)}
     onfocus={() => (focused = i)}
     oncontextmenu={(e) => {
@@ -193,11 +207,15 @@
       <span class="ico">{@render icon("menu")}</span>
       {#if expanded}<span class="label brand">Stash Notes</span>{/if}
     </button>
-    {@render row(items[0], "Today", "today", formatKey(keys.dailyNote), false)}
+    {@render row(items[0], "Today", "today", formatKey(keys.dailyNote), isToday)}
     {@render row(items[1], "Notes", "notes", formatKey(keys.notesView), screen === "notes")}
   </div>
 
   <div class="groups">
+    {#if openHit}
+      {#if expanded}<div class="group">Open</div>{:else}<div class="sep"></div>{/if}
+      {@render noteRow(items[2] as Item & { kind: "note" })}
+    {/if}
     {#if active.length}
       {#if expanded}<div class="group">Active</div>{:else}<div class="sep"></div>{/if}
       {#each items.filter((it) => it.kind === "note" && active.includes(it.hit)) as it (it.kind === "note" ? it.hit.path : "")}
@@ -232,6 +250,7 @@
   .sidebar {
     position: relative;
     width: 44px;
+    transition: width var(--motion) ease;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -303,12 +322,19 @@
   .row:hover {
     background: var(--hover);
   }
+  .row {
+    transition: background-color var(--motion-fast) ease;
+  }
   .row:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
   .row.current {
-    background: var(--selected);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .row.current .label,
+  .row.nav.current .ico {
+    color: var(--accent);
   }
   .row.current::before {
     content: "";

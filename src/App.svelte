@@ -1032,6 +1032,7 @@
       bind:this={sidebar}
       active={side.active}
       more={side.more}
+      open={screen === "editor" ? meta : null}
       recent={side.recent}
       current={currentPath}
       {screen}
