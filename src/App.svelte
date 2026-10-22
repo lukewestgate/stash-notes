@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Toasts from "./components/Toasts.svelte";
+  import { toaster, type ToastAction, type ToastKind } from "./lib/toasts.svelte";
   import { EditorState, type Extension } from "@codemirror/state";
   import { EditorView } from "@codemirror/view";
   import { completionStatus } from "@codemirror/autocomplete";
@@ -51,11 +53,6 @@
     | { type: "picker"; title: string; items: { label: string; detail?: string }[]; choose: (i: number) => void }
     | { type: "status"; path: string; current: string | null; title: string };
 
-  interface Toast {
-    id: number;
-    text: string;
-    action?: { label: string; run: () => void };
-  }
 
   let settings = $state<Settings | null>(null);
   let vaultPath = $state("");
@@ -68,7 +65,6 @@
   let backlinkItems = $state<SearchHit[]>([]);
   let backlinksOpen = $state(false);
   let overlay = $state<Overlay | null>(null);
-  let toasts = $state<Toast[]>([]);
   /** Set when the open note changed on disk while it had unsaved edits (or it vanished). */
   let conflict = $state<{ deleted: boolean } | null>(null);
   let nav = $state({ canBack: false, canForward: false });
@@ -105,7 +101,6 @@
   let serverDirty = false;
   let tickets = ticketRegex("[A-Z][A-Z0-9]+-\\d+");
   let keySpecs: Partial<Record<keyof Keys, KeySpec | null>> = {};
-  let toastId = 0;
   let pinChord: KeySpec[] = [];
   /** The first key of a chord was pressed; shows the hint until the second (or 1.5 s). */
   let chordPending = $state(false);
@@ -113,14 +108,17 @@
 
   // ---------- small helpers ----------
 
-  function toast(text: string, action?: Toast["action"], ms = action ? 5000 : 3500) {
-    const id = ++toastId;
-    toasts = [...toasts, { id, text, action }];
-    setTimeout(() => (toasts = toasts.filter((t) => t.id !== id)), ms);
+  function toast(text: string, action?: ToastAction, kind: ToastKind = "info") {
+    toaster.show(text, kind, action);
+  }
+
+  /** A success notice. */
+  function done(text: string, action?: ToastAction) {
+    toaster.show(text, "done", action);
   }
 
   function fail(e: unknown) {
-    toast(String(e instanceof Error ? e.message : e));
+    toaster.show(String(e instanceof Error ? e.message : e), "error");
   }
 
   function updateNav() {
@@ -456,8 +454,8 @@
       view.dispatch({ changes: edit });
       await flush();
       const msg = `Added Gerrit link (${meta?.gerrit.length ?? 1} total)`;
-      if (!undoable) return toast(msg);
-      toast(msg, {
+      if (!undoable) return done(msg);
+      done(msg, {
         label: "Undo",
         run: () => {
           if (currentPath !== path) return;
@@ -526,7 +524,7 @@
       const to = await api.archiveNote(from);
       moved(from, to);
       const archived = to.startsWith("archive/");
-      toast(archived ? "Archived" : "Unarchived", {
+      done(archived ? "Archived" : "Unarchived", {
         label: "Undo",
         run: async () => {
           try {
@@ -567,7 +565,7 @@
           await show(r.newPath, hist.current, true);
           const links = r.linksUpdated === 1 ? "1 link" : `${r.linksUpdated} links`;
           const notes = r.filesChanged === 1 ? "1 other note" : `${r.filesChanged} other notes`;
-          toast(`Renamed — updated ${links} in ${notes}`, {
+          done(`Renamed — updated ${links} in ${notes}`, {
             label: "Undo",
             run: async () => {
               try {
@@ -610,7 +608,7 @@
       if (path === currentPath) meta = r.meta;
       if (r.path !== path) {
         moved(path, r.path);
-        toast(r.meta.archived ? "Closed — moved to the archive" : "Reopened — moved out of the archive");
+        done(r.meta.archived ? "Closed — moved to the archive" : "Reopened — moved out of the archive");
       }
       listVersion++;
       refreshSide();
@@ -629,7 +627,7 @@
     try {
       await flush();
       const pinned = await api.pinToggle(path);
-      toast(pinned ? "Pinned — it stays on top beside your work" : "Unpinned");
+      done(pinned ? "Pinned — it stays on top beside your work" : "Unpinned");
     } catch (e) {
       fail(e);
     }
@@ -964,7 +962,7 @@
       }),
       on<null>("open-daily", openDaily),
       on<null>("quit-requested", quit),
-      on<string>("toast", (t) => toast(t)),
+      on<string>("toast", (t) => toast(t, undefined, "warn")),
       on<Settings>("settings-changed", (s) => {
         if (settings && s.vaultPath !== settings.vaultPath) indexing = true;
         const fromScreen = screen === "settings";
@@ -991,7 +989,7 @@
         };
         vaultPath = s.vaultPath;
         settingsPath = s.settingsPath;
-        s.warnings.forEach((w) => toast(w, undefined, 8000));
+        s.warnings.forEach((w) => toast(w, undefined, "warn"));
         let path = s.lastPath;
         const today = isoDate();
         const staleDaily = path?.startsWith("daily/") && path < `daily/${today}.md`;
@@ -1032,9 +1030,9 @@
       bind:this={sidebar}
       active={side.active}
       more={side.more}
-      open={screen === "editor" ? meta : null}
       recent={side.recent}
       current={currentPath}
+      open={screen === "editor" ? meta : null}
       {screen}
       expanded={sideExpanded}
       width={sideWidth}
@@ -1165,21 +1163,7 @@
     </div>
   {/if}
 
-  <div class="toasts" aria-live="polite">
-    {#each toasts as t (t.id)}
-      <div class="toast">
-        <span>{t.text}</span>
-        {#if t.action}
-          <button
-            onclick={() => {
-              t.action!.run();
-              toasts = toasts.filter((x) => x.id !== t.id);
-            }}>{t.action.label}</button
-          >
-        {/if}
-      </div>
-    {/each}
-  </div>
+  <Toasts />
 </main>
 
 <style>
@@ -1222,8 +1206,7 @@
     border-bottom: 1px solid var(--border);
     font-size: 13px;
   }
-  .conflict button,
-  .toast button {
+  .conflict button {
     font: inherit;
     font-size: 12.5px;
     color: var(--fg);
@@ -1249,29 +1232,5 @@
   .chord kbd {
     font: inherit;
     font-weight: 600;
-  }
-  .toasts {
-    position: fixed;
-    right: 12px;
-    bottom: 36px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-    z-index: 40;
-    pointer-events: none;
-  }
-  .toast {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    max-width: min(520px, calc(100vw - 24px));
-    padding: 7px 12px;
-    background: var(--toast-bg);
-    color: var(--toast-fg);
-    border-radius: 7px;
-    box-shadow: var(--shadow);
-    font-size: 13px;
-    pointer-events: auto;
   }
 </style>

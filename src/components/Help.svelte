@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dim, pop } from "../lib/motion";
   import type { Keys } from "../lib/api";
   import { formatKey } from "../lib/keys";
 
@@ -49,8 +50,8 @@
   ];
 </script>
 
-<div class="backdrop" role="presentation">
-  <div class="help" role="dialog" aria-label="Keyboard shortcuts">
+<div class="backdrop" role="presentation" in:dim>
+  <div class="help" in:pop role="dialog" aria-label="Keyboard shortcuts">
     <h2>Keyboard shortcuts</h2>
     <div class="cols">
       <table>

@@ -112,14 +112,6 @@ body {
   color: var(--fg);
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: var(--font-size);
-  /* No animations on show/hide; keep everything instant. */
-}
-
-*,
-*::before,
-*::after {
-  transition-duration: 0s !important;
-  animation-duration: 0s !important;
 }
 
 input,
@@ -127,9 +119,30 @@ textarea {
   caret-color: currentColor;
 }
 
-button:focus-visible {
+/* One hover and focus language everywhere: a soft fill on hover, an accent
+   ring for keyboard focus only (never on mouse clicks). */
+button,
+select,
+input,
+[role="option"] {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
+}
+button:focus-visible,
+[role="option"]:focus-visible,
+input[type="checkbox"]:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+button:disabled {
+  cursor: default;
 }
 
 /* ---- editor ---- */
@@ -352,4 +365,16 @@ button:focus-visible {
   border: 1px solid var(--border);
   color: var(--fg-muted);
   border-radius: 6px;
+}
+
+/* Animations off (Settings > Appearance, or the OS "reduce motion" setting). */
+:root[data-motion="off"] {
+  --motion-fast: 0s;
+  --motion: 0s;
+}
+:root[data-motion="off"] *,
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  animation-duration: 0s !important;
+  transition-duration: 0s !important;
 }

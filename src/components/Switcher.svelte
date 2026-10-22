@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { dim, pop } from "../lib/motion";
   import { api, type SearchHit, type StatusDef } from "../lib/api";
+  import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
@@ -102,8 +104,8 @@
   }
 </script>
 
-<div class="backdrop" class:embedded role="presentation">
-  <div class="switcher" bind:this={box} role="dialog" aria-label={mode === "link" ? "Link to note" : "Quick switcher"}>
+<div class="backdrop" class:embedded role="presentation" in:dim>
+  <div class="switcher" in:pop bind:this={box} role="dialog" aria-label={mode === "link" ? "Link to note" : "Quick switcher"}>
     <div class="inputrow">
       <span class="lead"><Icon name="search" size={16} /></span>
       <input
@@ -160,7 +162,11 @@
         </button>
       {/if}
       {#if rowCount === 0}
-        <div class="empty">{query ? "No matches" : "No notes yet — type a name to create one"}</div>
+        {#if query}
+          <EmptyState icon="search-x" title="No matches" />
+        {:else}
+          <EmptyState icon="file-plus" title="No notes yet">Type a name and press <kbd>Enter</kbd> to create one.</EmptyState>
+        {/if}
       {/if}
     </div>
     <div class="hints">
@@ -315,10 +321,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .empty {
-    padding: 14px;
-    color: var(--fg-muted);
   }
   .hints {
     display: flex;

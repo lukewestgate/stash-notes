@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dim, pop } from "../lib/motion";
   import { onMount } from "svelte";
   import type { StatusDef } from "../lib/api";
   import Icon from "./Icon.svelte";
@@ -46,8 +47,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation">
-  <div class="picker" role="dialog" aria-label={title}>
+<div class="backdrop" role="presentation" in:dim>
+  <div class="picker" in:pop role="dialog" aria-label={title}>
     <input bind:this={input} bind:value={filter} oninput={() => (sel = 0)} onkeydown={keydown} placeholder={title} spellcheck="false" />
     {#each items as item, i (item.label)}
       <button class="row" class:selected={i === sel} onmousemove={() => (sel = i)} onclick={() => onChoose(item.name)}>

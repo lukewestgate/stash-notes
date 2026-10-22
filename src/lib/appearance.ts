@@ -1,6 +1,7 @@
 // Theme, fonts and accent color from settings, applied to the page.
 
 import type { Settings } from "./api";
+import { applyMotion } from "./motion";
 
 export function applyAppearance(s: Settings) {
   const root = document.documentElement;
@@ -11,5 +12,6 @@ export function applyAppearance(s: Settings) {
   if (s.fontFamily) root.style.setProperty("--editor-font", `"${s.fontFamily}", "Segoe UI", system-ui, sans-serif`);
   else root.style.removeProperty("--editor-font");
   root.style.setProperty("--accent", `var(--c-${s.accent || "blue"})`);
+  applyMotion(s.animations);
   root.style.setProperty("--content-max", s.readableWidth ? "calc(80ch + 48px)" : "none");
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dim, pop } from "../lib/motion";
   import { onMount } from "svelte";
 
   interface Props {
@@ -26,8 +27,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation">
-  <div class="prompt" role="dialog" aria-label={title}>
+<div class="backdrop" role="presentation" in:dim>
+  <div class="prompt" in:pop role="dialog" aria-label={title}>
     <label>
       <span>{title}</span>
       <input bind:this={input} bind:value={text} {placeholder} onkeydown={keydown} spellcheck="false" autocomplete="off" />

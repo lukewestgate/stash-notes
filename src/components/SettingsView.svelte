@@ -44,7 +44,7 @@
     "Notes view": ["notesView"],
     Statuses: ["statuses"],
     Shortcuts: ["keys"],
-    Appearance: ["theme", "accent"],
+    Appearance: ["theme", "accent", "animations"],
   };
 
   const ACTIONS: [keyof Keys, string][] = [
@@ -518,6 +518,14 @@
             {/each}
           </span>
         </div>
+        <div class="row">
+          <span class="text">Animations<span class="hint">pop-ups, toasts and the sidebar slide and fade in</span></span>
+          <select value={draft.animations} onchange={(e) => set("animations", e.currentTarget.value as Settings["animations"])}>
+            <option value="system">Follow Windows</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
       {/if}
       {@render error(category)}
     </div>
@@ -634,6 +642,7 @@
   select:focus,
   textarea:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
   }
   .wide {
     width: min(380px, 50vw);

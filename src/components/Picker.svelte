@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dim, pop } from "../lib/motion";
   import { onMount } from "svelte";
 
   interface Props {
@@ -30,8 +31,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation">
-  <div class="picker" role="listbox" aria-label={title} tabindex="-1" bind:this={box} onkeydown={keydown}>
+<div class="backdrop" role="presentation" in:dim>
+  <div class="picker" in:pop role="listbox" aria-label={title} tabindex="-1" bind:this={box} onkeydown={keydown}>
     <div class="title">{title}</div>
     {#each items as item, i}
       <button
