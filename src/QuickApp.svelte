@@ -67,6 +67,7 @@
         current={null}
         {isTicket}
         statuses={settings.statuses}
+        tagColors={settings.tagColors}
         {pasteKey}
         onChoose={choose}
         onCreate={create}

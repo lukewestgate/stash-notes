@@ -7,6 +7,7 @@ pub mod dates;
 pub mod frontmatter;
 pub mod index;
 pub mod note;
+pub mod query;
 pub mod settings;
 pub mod status;
 pub mod vault;

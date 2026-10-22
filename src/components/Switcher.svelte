@@ -1,6 +1,8 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import { api, type SearchHit, type StatusDef } from "../lib/api";
+  import { api, type SearchHit, type StatusDef, type TagCount } from "../lib/api";
+  import { completeTag, tagSuggestions, typingTag } from "../lib/text";
+  import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
   import Icon from "./Icon.svelte";
@@ -13,6 +15,7 @@
     current: string | null;
     isTicket: (q: string) => boolean;
     statuses: StatusDef[];
+    tagColors: Record<string, string>;
     /** A pasted Jira URL becomes its key. */
     pasteKey: (text: string) => string | null;
     onChoose: (hit: SearchHit, peek: boolean) => void;
@@ -24,7 +27,7 @@
     /** Embedded only: the content's height changed. */
     onSize?: (height: number) => void;
   }
-  let { mode, current, isTicket, statuses, pasteKey, onChoose, onCreate, embedded = false, onClose, onSize }: Props =
+  let { mode, current, isTicket, statuses, tagColors, pasteKey, onChoose, onCreate, embedded = false, onClose, onSize }: Props =
     $props();
   let box: HTMLDivElement;
 
@@ -52,8 +55,19 @@
   let input: HTMLInputElement;
   let list: HTMLDivElement;
   let seq = 0;
+  let allTags = $state<TagCount[]>([]);
+  api.listTags().then((t) => (allTags = t), () => {});
+  const suggestions = $derived(tagSuggestions(query, allTags));
+  /** What's searched: a tag still being typed (with suggestions showing) doesn't filter yet. */
+  const searched = $derived(
+    suggestions.length && !allTags.some((t) => t.name === typingTag(query)) ? query.replace(/#[\p{L}\p{N}_/-]*$/u, "") : query,
+  );
+  const isFilter = (w: string) => w.length > 1 && (w.startsWith("@") || w.startsWith("#") || w.startsWith("in:"));
+  /** The query without filter words: what a new note would be called. */
+  const title = $derived(query.split(/\s+/).filter((w) => w && !isFilter(w)).join(" "));
 
-  const showCreate = $derived(query.trim() !== "" && !exact);
+  const showCreate = $derived(title !== "" && !exact);
+  const newTags = $derived(query.split(/\s+/).filter((w) => w.length > 1 && w.startsWith("#")).map((w) => w.slice(1).toLowerCase()));
   const rowCount = $derived(hits.length + (showCreate ? 1 : 0));
 
   async function run(q: string, archived: boolean) {
@@ -70,7 +84,7 @@
   }
 
   $effect(() => {
-    run(query, includeArchived);
+    run(searched, includeArchived);
   });
 
   $effect(() => {
@@ -97,6 +111,9 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       choose(sel, e.altKey);
+    } else if (e.key === "Tab" && suggestions.length) {
+      e.preventDefault();
+      query = completeTag(query, suggestions[0]);
     } else if (e.key === "Tab") {
       e.preventDefault();
       includeArchived = !includeArchived;
@@ -119,6 +136,12 @@
       />
       {#if includeArchived}<span class="flag">+ archived</span>{/if}
     </div>
+    {#if suggestions.length}
+      <div class="suggest">
+        <span class="shint"><kbd>Tab</kbd></span>
+        {#each suggestions as t}<TagChip tag={t} colors={tagColors} onclick={() => { query = completeTag(query, t); input.focus(); }} />{/each}
+      </div>
+    {/if}
     <div class="results" bind:this={list}>
       {#each hits as hit, i (hit.path)}
         <button
@@ -134,6 +157,7 @@
             <span class="sym"><StatusIcon status={hit.status} {statuses} /></span>
             <span class="name"><Highlight text={hit.title} {query} /></span>
             {#if hit.label}<span class="label"><Highlight text={hit.label} {query} /></span>{/if}
+            {#each hit.tags as t}<TagChip tag={t} colors={tagColors} />{/each}
             {#if hit.archived}<span class="tag">archived</span>{/if}
           </span>
           {#if hit.snippet}<span class="snippet"><Highlight text={hit.snippet} {query} /></span>{/if}
@@ -150,14 +174,15 @@
           <span class="line">
             <span class="kind new">new</span>
             <span class="sym new"><Icon name="plus" size={14} /></span>
-            {#if isTicket(query.trim())}
-              {@const [key, ...name] = query.trim().split(/\s+/)}
+            {#if isTicket(title)}
+              {@const [key, ...name] = title.split(/\s+/)}
               <span class="name">Create {key.toUpperCase()}</span>
               <span class="label">{name.length ? `"${name.join(" ")}"` : "ticket note"}</span>
             {:else}
-              <span class="name">Create "{query.trim()}"</span>
+              <span class="name">Create "{title}"</span>
               <span class="label">note</span>
             {/if}
+            {#each newTags as t}<TagChip tag={t} colors={tagColors} />{/each}
           </span>
         </button>
       {/if}
@@ -236,6 +261,24 @@
     outline: none;
     background: transparent;
     color: var(--fg);
+  }
+  .suggest {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .shint {
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .shint kbd {
+    font: inherit;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
   }
   .flag {
     font-size: 12px;

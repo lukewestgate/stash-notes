@@ -14,6 +14,7 @@
     keys: Keys;
     statuses: StatusDef[];
     onStatus: () => void;
+    onTags: () => void;
     onBack: () => void;
     onForward: () => void;
     onJira: () => void;
@@ -34,6 +35,7 @@
     keys,
     statuses,
     onStatus,
+    onTags,
     onBack,
     onForward,
     onJira,
@@ -80,6 +82,17 @@
         {#if meta.status}<StatusIcon status={meta.status} {statuses} label />{:else}<span class="nostatus"
             ><Icon name="circle-dashed" size={14} />status</span
           >{/if}
+      </button>
+    {/if}
+    {#if meta && meta.kind !== "daily"}
+      <button
+        class="action"
+        class:icon={!meta.tags.length}
+        onclick={onTags}
+        title="Tags ({formatKey(keys.setTags)})"
+        aria-label="Tags"
+      >
+        <Icon name={meta.tags.length > 1 ? "tags" : "tag"} size={15} />{#if meta.tags.length}<span class="count">{meta.tags.length}</span>{/if}
       </button>
     {/if}
     {#if hasKey}

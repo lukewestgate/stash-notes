@@ -5,6 +5,7 @@
 use crate::dates;
 use crate::frontmatter;
 use crate::note::{self, NoteKind, NoteMeta, TicketMatcher};
+use crate::query::Query;
 use crate::status::{self, StatusDef, StatusFilter};
 use chrono::{Local, NaiveDate, TimeZone};
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
@@ -77,6 +78,7 @@ impl NoteEntry {
             label: self.meta.label.clone(),
             key: self.meta.key.clone(),
             status: self.meta.status.clone(),
+            tags: self.meta.tags.clone(),
             archived: self.meta.archived,
             mtime: self.mtime,
             snippet,
@@ -89,11 +91,11 @@ impl NoteEntry {
         self.meta.archived || self.meta.status.as_deref() == Some(status::CLOSED)
     }
 
-    fn matches_filters(&self, filters: &[StatusFilter], defs: &[StatusDef]) -> bool {
-        filters.is_empty()
-            || filters
-                .iter()
-                .any(|f| f.matches(self.meta.status.as_deref(), self.meta.kind != NoteKind::Daily, defs))
+    /// The query's `@status` filters (any of them) and `#tag` filters (all of them).
+    fn matches_filters(&self, q: &Query, defs: &[StatusDef]) -> bool {
+        (q.statuses.is_empty()
+            || q.statuses.iter().any(|f| f.matches(self.meta.status.as_deref(), self.meta.kind != NoteKind::Daily, defs)))
+            && q.tags_match(&self.meta.tags)
     }
 
     fn body_contains_all(&self, words: &[String]) -> bool {
@@ -136,6 +138,7 @@ pub struct SearchHit {
     pub label: Option<String>,
     pub key: Option<String>,
     pub status: Option<String>,
+    pub tags: Vec<String>,
     pub archived: bool,
     /// Last edited, ms since epoch.
     pub mtime: i64,
@@ -301,12 +304,13 @@ impl Index {
     /// sorted; or, when the query has text, search results in rank order.
     /// Rows carry a snippet: the matching line, else the first body line.
     pub fn list(&self, query: &str, opts: &ListOptions) -> SearchResults {
-        let (text, filters) = status::parse_filters(query);
-        let wants_closed = filters.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
+        let q = Query::parse(query);
+        let text = &q.text;
+        let wants_closed = q.statuses.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
         let keep = |e: &NoteEntry| {
             (opts.include_daily || e.meta.kind != NoteKind::Daily || !text.trim().is_empty())
                 && (opts.include_put_away || wants_closed || !e.is_put_away())
-                && e.matches_filters(&filters, opts.statuses)
+                && e.matches_filters(&q, opts.statuses)
         };
         if !text.trim().is_empty() {
             let search = SearchOptions {
@@ -425,14 +429,14 @@ impl Index {
     }
 
     pub fn search(&self, query: &str, opts: &SearchOptions) -> SearchResults {
-        let (text, filters) = status::parse_filters(query);
+        let parsed = Query::parse(query);
         // Asking for closed notes by name shows them even when put away.
-        let wants_closed = filters.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
+        let wants_closed = parsed.statuses.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
         let show_put_away = opts.include_archived || wants_closed;
-        let visible = |e: &NoteEntry| (show_put_away || !e.is_put_away()) && e.matches_filters(&filters, opts.statuses);
-        let q = text.trim();
+        let visible = |e: &NoteEntry| (show_put_away || !e.is_put_away()) && e.matches_filters(&parsed, opts.statuses);
+        let q = parsed.text.trim();
         if q.is_empty() {
-            if filters.is_empty() {
+            if !parsed.has_filters() {
                 return SearchResults { hits: self.recent(opts), exact: false };
             }
             let mut all: Vec<&NoteEntry> = self.notes.values().filter(|e| visible(e)).collect();
@@ -535,6 +539,19 @@ impl Index {
             .map(|(score, e, body_only)| e.summary(if body_only { e.matching_line(&words) } else { None }, score))
             .collect();
         SearchResults { hits, exact }
+    }
+
+    /// Every tag in use with how many notes carry it, most used first.
+    pub fn tags(&self) -> Vec<(String, usize)> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for e in self.notes.values() {
+            for t in &e.meta.tags {
+                *counts.entry(t.as_str()).or_default() += 1;
+            }
+        }
+        let mut out: Vec<(String, usize)> = counts.into_iter().map(|(t, n)| (t.to_string(), n)).collect();
+        out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        out
     }
 
     /// Recently opened notes, newest first, topped up with recently edited
@@ -703,6 +720,21 @@ mod tests {
         assert!(!paths("@none", &o).iter().any(|p| p.starts_with("daily/")));
         // Active notes are listed first in the empty query
         assert_eq!(paths("", &o)[..2], ["tickets/A-1.md".to_string(), "notes/n.md".to_string()]);
+    }
+
+    #[test]
+    fn tag_filters() {
+        let mut i = idx();
+        i.upsert("tickets/A-1.md", "---\nstatus: open\ntags: [bug/ui, urgent]\n---\n# A-1 Button\n", 50);
+        i.upsert("notes/r.md", "---\ntags: [research]\n---\n# Button research\n", 40);
+        let r = HashMap::new();
+        let paths = |q: &str| i.search(q, &opts(&r)).hits.into_iter().map(|h| h.path).collect::<Vec<_>>();
+        assert_eq!(paths("#bug"), vec!["tickets/A-1.md"]);
+        assert_eq!(paths("#bug #urgent button"), vec!["tickets/A-1.md"]);
+        assert_eq!(paths("#research"), vec!["notes/r.md"]);
+        assert!(paths("#bug #research").is_empty());
+        assert_eq!(i.tags()[0].1, 1);
+        assert_eq!(i.tags().len(), 3);
     }
 
     #[test]

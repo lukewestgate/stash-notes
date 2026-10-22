@@ -272,6 +272,46 @@ pub fn set_scalar(content: &str, key: &str, value: Option<&str>) -> Option<Edit>
     value.map(|v| Edit { from: inner_start, to: inner_start, insert: format!("{key}: {v}{nl}") })
 }
 
+/// Compute the edit that sets `key` to the inline list `[a, b]` (or removes
+/// the key when `items` is empty), replacing a block list if there is one.
+/// Returns None when nothing would change.
+pub fn set_inline_list(content: &str, key: &str, items: &[String]) -> Option<Edit> {
+    let nl = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let fm = parse(content);
+    let line = format!("{key}: [{}]", items.join(", "));
+    let Some((inner_start, inner_end)) = fm.inner else {
+        return (!items.is_empty()).then(|| Edit {
+            from: 0,
+            to: 0,
+            insert: format!("---{nl}{line}{nl}---{nl}{}", if content.is_empty() { "" } else { nl }),
+        });
+    };
+    // The key line and any indented or `- item` lines under it.
+    let mut found: Option<(usize, usize)> = None;
+    for (start, l) in lines_with_offsets(&content[inner_start..inner_end]) {
+        let abs = inner_start + start;
+        let end = abs + content[abs..].find('\n').map(|i| i + 1).unwrap_or(content.len() - abs);
+        if let Some((s, _)) = found {
+            let stripped = l.trim_start();
+            if l.starts_with(char::is_whitespace) || stripped.starts_with("- ") || stripped == "-" {
+                found = Some((s, end));
+                continue;
+            }
+            break;
+        }
+        if !l.starts_with(char::is_whitespace) && l.split_once(':').is_some_and(|(k, _)| k.trim() == key) {
+            found = Some((abs, end));
+        }
+    }
+    match found {
+        Some((from, to)) => {
+            let insert = if items.is_empty() { String::new() } else { format!("{line}{nl}") };
+            (content[from..to] != insert).then_some(Edit { from, to, insert })
+        }
+        None => (!items.is_empty()).then(|| Edit { from: inner_end, to: inner_end, insert: format!("{line}{nl}") }),
+    }
+}
+
 /// Convert a byte offset in `text` to a UTF-16 offset (what the editor uses).
 pub fn utf16_offset(text: &str, byte: usize) -> usize {
     text[..byte].encode_utf16().count()
@@ -377,6 +417,23 @@ mod tests {
         assert_eq!(set_scalar(t, "status", Some("open")).unwrap().apply(t), "---\nstatus: open\n---\n\n# Note\n");
         let t = "---\r\nstatus: open\r\n---\r\n";
         assert_eq!(set_scalar(t, "status", Some("todo")).unwrap().apply(t), "---\r\nstatus: todo\r\n---\r\n");
+    }
+
+    #[test]
+    fn inline_lists() {
+        let tags = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let t = "---\nstatus: open\n---\nbody";
+        let out = set_inline_list(t, "tags", &tags(&["bug", "ui"])).unwrap().apply(t);
+        assert_eq!(out, "---\nstatus: open\ntags: [bug, ui]\n---\nbody");
+        let out2 = set_inline_list(&out, "tags", &tags(&["bug"])).unwrap().apply(&out);
+        assert_eq!(out2, "---\nstatus: open\ntags: [bug]\n---\nbody");
+        assert_eq!(set_inline_list(&out2, "tags", &tags(&["bug"])), None);
+        assert_eq!(set_inline_list(&out2, "tags", &[]).unwrap().apply(&out2), t);
+        let block = "---\ntags:\n  - a\n  - b\nstatus: x\n---\n";
+        assert_eq!(set_inline_list(block, "tags", &tags(&["c"])).unwrap().apply(block), "---\ntags: [c]\nstatus: x\n---\n");
+        let none = "# Note\n";
+        assert_eq!(set_inline_list(none, "tags", &tags(&["x"])).unwrap().apply(none), "---\ntags: [x]\n---\n\n# Note\n");
+        assert_eq!(set_inline_list(none, "tags", &[]), None);
     }
 
     #[test]

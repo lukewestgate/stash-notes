@@ -3,7 +3,9 @@
   // and is written to settings.json, which stays the source of truth: hand
   // edits to the file show up here live.
   import { onMount } from "svelte";
-  import { api, type Keys, type Settings, type StatusDef } from "../lib/api";
+  import { api, type Keys, type Settings, type StatusDef, type TagCount } from "../lib/api";
+  import { toaster } from "../lib/toasts.svelte";
+  import TagChip from "./TagChip.svelte";
   import { sameKeys } from "../lib/keys";
   import { COLORS } from "../lib/status";
   import { jiraUrl, gerritUrl, timestamp } from "../lib/text";
@@ -29,6 +31,7 @@
     "Links",
     "Notes view",
     "Statuses",
+    "Tags",
     "Shortcuts",
     "Appearance",
   ] as const;
@@ -43,6 +46,7 @@
     Links: ["jira", "gerrit"],
     "Notes view": ["notesView"],
     Statuses: ["statuses"],
+    Tags: ["tagColors"],
     Shortcuts: ["keys"],
     Appearance: ["theme", "accent", "animations"],
   };
@@ -59,6 +63,7 @@
     ["addGerrit", "Add Gerrit link"],
     ["timestamp", "Insert timestamp"],
     ["setStatus", "Set status"],
+    ["setTags", "Add or remove tags"],
     ["backlinks", "Backlinks panel"],
     ["archive", "Archive / unarchive"],
     ["rename", "Rename note"],
@@ -86,6 +91,56 @@
   let patternSample = $state("PROJ-123 and OPS-7 were mentioned");
   let patternHits = $state<string[]>([]);
   let saving = 0;
+  let tags = $state<TagCount[]>([]);
+  /** The tag whose rename field is open. */
+  let renaming = $state<string | null>(null);
+
+  async function loadTags() {
+    tags = await api.listTags().catch(() => []);
+  }
+
+  $effect(() => {
+    if (category === "Tags") loadTags();
+  });
+
+  function setTagColor(tag: string, color: string | null) {
+    save("tagColors", (s) => {
+      if (color) s.tagColors[tag] = color;
+      else delete s.tagColors[tag];
+    });
+  }
+
+  /** Rename `from` on every note (or remove it when `to` is empty), with Undo. */
+  async function renameTag(from: string, to: string) {
+    renaming = null;
+    const target = to.trim().replace(/^#/, "").toLowerCase();
+    if (target === from) return;
+    try {
+      const r = await api.renameTag(from, target);
+      const color = draft.tagColors[from];
+      if (color) {
+        await save("tagColors", (s) => {
+          delete s.tagColors[from];
+          if (target) s.tagColors[target] = color;
+        });
+      }
+      const what = target ? `Renamed #${from} to #${target}` : `Removed #${from}`;
+      toaster.show(`${what} on ${r.notes} ${r.notes === 1 ? "note" : "notes"}`, "done", {
+        label: "Undo",
+        run: async () => {
+          await api.undoTagRename(r.undoId).catch((e) => toaster.show(String(e), "error"));
+          if (color) await save("tagColors", (s) => {
+            if (target) delete s.tagColors[target];
+            s.tagColors[from] = color;
+          });
+          loadTags();
+        },
+      });
+      loadTags();
+    } catch (e) {
+      toaster.show(String(e instanceof Error ? e.message : e), "error");
+    }
+  }
 
   // Hand edits to settings.json arrive as a new `settings`; show them unless
   // a save of ours is in flight.
@@ -414,7 +469,17 @@
             <option value="title">Title or key</option>
           </select>
         </div>
-        {@render toggle("Group by status", draft.notesView.groupByStatus, (v) => save("notesView", (s) => (s.notesView.groupByStatus = v)))}
+        <div class="row">
+          <span class="text">Group by</span>
+          <select
+            value={draft.notesView.groupBy}
+            onchange={(e) => save("notesView", (s) => (s.notesView.groupBy = e.currentTarget.value as Settings["notesView"]["groupBy"]))}
+          >
+            <option value="none">Nothing</option>
+            <option value="status">Status</option>
+            <option value="tag">Tag</option>
+          </select>
+        </div>
       {:else if category === "Statuses"}
         <table class="statuses">
           <thead><tr><th>Icon</th><th>Name</th><th>Color</th><th>Active</th><th></th></tr></thead>
@@ -481,6 +546,48 @@
         <button class="btn" onclick={() => editStatuses((l) => l.push({ name: `status${l.length + 1}`, icon: "diamond", color: "teal", active: true }))}>Add status</button>
         {@render error("statuses")}
         <p class="note">Notes keep whatever status they have; renaming a status here doesn't rewrite notes. Setting <b>closed</b> moves a note into the archive.</p>
+      {:else if category === "Tags"}
+        {#if tags.length}
+          <table class="tags">
+            <thead><tr><th>Tag</th><th>Notes</th><th>Color</th><th></th></tr></thead>
+            <tbody>
+              {#each tags as t (t.name)}
+                <tr>
+                  <td>
+                    {#if renaming === t.name}
+                      <input
+                        value={t.name}
+                        {@attach (el) => { el.focus(); el.select(); }}
+                        onkeydown={(e) => {
+                          if (e.key === "Enter") renameTag(t.name, e.currentTarget.value);
+                          else if (e.key === "Escape") { e.stopPropagation(); renaming = null; }
+                        }}
+                        onblur={() => (renaming = null)}
+                        aria-label="New name for #{t.name}"
+                      />
+                    {:else}
+                      <TagChip tag={t.name} colors={draft.tagColors} />
+                    {/if}
+                  </td>
+                  <td class="num-cell">{t.count}</td>
+                  <td class="swatches">
+                    <button class="swatch none" class:on={!draft.tagColors[t.name]} title="No color" aria-label="No color" onclick={() => setTagColor(t.name, null)}></button>
+                    {#each COLORS as c}
+                      <button class="swatch" class:on={draft.tagColors[t.name] === c} style="background: var(--c-{c})" title={c} aria-label={c} onclick={() => setTagColor(t.name, c)}></button>
+                    {/each}
+                  </td>
+                  <td class="ops">
+                    <button class="mini wide-mini" onclick={() => (renaming = t.name)} title="Rename on every note">Rename</button>
+                    <button class="mini" onclick={() => renameTag(t.name, "")} title="Remove from every note" aria-label="Remove #{t.name}"><Icon name="trash" size={14} /></button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <p class="note">No tags yet. Press <b>{draft.keys.setTags}</b> on a note to add one.</p>
+        {/if}
+        <p class="note">Tags live in each note's front matter (<code>tags: [bug, research]</code>). Renaming or removing a tag rewrites those notes, and nested tags (<code>bug/ui</code>) follow their parent. A nested tag without its own color uses its parent's.</p>
       {:else if category === "Shortcuts"}
         <table class="keys">
           <tbody>
@@ -706,6 +813,10 @@
     width: 24px;
     padding: 0;
   }
+  .ops .mini.wide-mini {
+    width: auto;
+    padding: 0 8px;
+  }
   .mini:disabled {
     opacity: 0.35;
     cursor: default;
@@ -741,6 +852,17 @@
   }
   .statuses input:not([type="checkbox"]) {
     width: 110px;
+  }
+  .swatch.none {
+    background: transparent;
+    border: 1px dashed var(--fg-muted);
+  }
+  .num-cell {
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .tags input {
+    width: 160px;
   }
   .icon-cell {
     position: relative;

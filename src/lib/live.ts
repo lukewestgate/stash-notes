@@ -6,7 +6,7 @@ import { syntaxTree } from "@codemirror/language";
 import { EditorSelection, type EditorState, type Range, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type { MarkdownConfig } from "@lezer/markdown";
-import { checkboxToggle, WIKI_RE } from "./text";
+import { checkboxToggle, normalizeTag, WIKI_RE } from "./text";
 import { iconElement } from "./icons";
 
 /** Parse a leading `---` block as front matter, so YAML isn't read as markdown. */
@@ -108,6 +108,7 @@ export interface FrontMatterInfo {
   status: string | null;
   gerrit: number;
   aliases: string[];
+  tags: string[];
 }
 
 /** The pieces of front matter the properties row shows. */
@@ -123,13 +124,23 @@ export function readFrontMatter(text: string): FrontMatterInfo {
   }
   const aliasLine = /^aliases:[ \t]*\[(.*)\]/m.exec(text)?.[1];
   const aliases = aliasLine ? aliasLine.split(",").map((x) => x.trim().replace(/^["']|["']$/g, "")).filter(Boolean) : [];
-  return { status: status?.toLowerCase() ?? null, gerrit, aliases };
+  const tagBlock = /^tags:[ \t]*(\[.*\]|[^\n]*)\n?((?:[ \t]+-[^\n]*\n?)*)/m.exec(text);
+  const rawTags = tagBlock
+    ? [...tagBlock[1].replace(/^\[|\]$/g, "").split(","), ...tagBlock[2].split("\n").map((l) => l.replace(/^\s*-\s*/, ""))]
+    : [];
+  const tags = [...new Set(rawTags.map((t) => normalizeTag(t.replace(/^["']|["']$/g, ""))).filter((t): t is string => !!t))];
+  return { status: status?.toLowerCase() ?? null, gerrit, aliases, tags };
 }
 
 /** What the front matter row needs from the app. */
 export interface PropertiesHooks {
   statusView(status: string): { icon: string; color: string; name: string };
   onStatus(): void;
+  /** Open the tag picker. */
+  onTags(): void;
+  /** Show the notes with this tag. */
+  onTag(tag: string): void;
+  tagColor(tag: string): string | null;
   onJira(): void;
   onGerrit(): void;
   hasJira(): boolean;
@@ -180,6 +191,12 @@ class PropertiesWidget extends WidgetType {
         () => hooks?.onGerrit(),
         "git-pull-request",
       );
+    for (const t of this.info.tags) {
+      const b = button("cm-prop cm-prop-tag", `#${t}`, `Notes tagged #${t}`, () => hooks?.onTag(t));
+      const c = hooks?.tagColor(t);
+      if (c) b.style.setProperty("--c", `var(--c-${c})`);
+    }
+    button("cm-prop cm-prop-add", this.info.tags.length ? "" : "tag", "Add or remove tags", () => hooks?.onTags(), this.info.tags.length ? "plus" : "tag");
     if (this.info.aliases.length) {
       const a = document.createElement("span");
       a.className = "cm-prop-text";

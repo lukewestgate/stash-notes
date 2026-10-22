@@ -57,6 +57,8 @@ pub struct AppState {
     pub index_ready: AtomicBool,
     pub warnings: Mutex<Vec<String>>,
     pub undo: Mutex<HashMap<u64, RenameUndo>>,
+    /// Tag renames: each note's tags before the rename.
+    pub tag_undo: Mutex<HashMap<u64, Vec<(String, Vec<String>)>>>,
     pub next_undo: AtomicU64,
     pub watchers: Mutex<Vec<notify::RecommendedWatcher>>,
     /// Bumped when the vault is re-pointed, so a stale background index build is discarded.
@@ -80,6 +82,7 @@ impl AppState {
             index_ready: AtomicBool::new(false),
             warnings: Mutex::new(Vec::new()),
             undo: Mutex::new(HashMap::new()),
+            tag_undo: Mutex::new(HashMap::new()),
             next_undo: AtomicU64::new(1),
             watchers: Mutex::new(Vec::new()),
             vault_generation: AtomicU64::new(0),

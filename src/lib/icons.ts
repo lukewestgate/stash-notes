@@ -6,7 +6,7 @@ import {
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleHelp, CirclePause, CirclePlay, CircleSlash,
   CircleX, Clock, Diamond, ExternalLink, Eye, FilePlus, FileText, Flag, Flame, GitPullRequest, Hourglass,
   Inbox, Info, Keyboard, List, Menu, Pin, PinOff, Plus, Search, SearchX, Settings, Square, Star, Ticket,
-  Trash2, Triangle, TriangleAlert, X, Zap, type IconNode,
+  Tag, Tags, Trash2, Triangle, TriangleAlert, X, Zap, type IconNode,
 } from "lucide";
 
 const ICONS = {
@@ -52,6 +52,8 @@ const ICONS = {
   "search-x": SearchX,
   settings: Settings,
   square: Square,
+  tag: Tag,
+  tags: Tags,
   star: Star,
   ticket: Ticket,
   trash: Trash2,

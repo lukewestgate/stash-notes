@@ -1,4 +1,4 @@
-//! Note statuses (todo, open, blocked, backlog, closed) and `@status` query filters.
+//! Note statuses (todo, open, blocked, backlog, closed) and what `@status` filters match.
 
 use serde::{Deserialize, Serialize};
 
@@ -85,39 +85,17 @@ impl StatusFilter {
     }
 }
 
-/// Split `@status` tokens out of a query: (remaining text, filters).
-/// A note matches when it matches any of the filters.
-pub fn parse_filters(query: &str) -> (String, Vec<StatusFilter>) {
-    let mut rest = Vec::new();
-    let mut filters = Vec::new();
-    for word in query.split_whitespace() {
-        match word.strip_prefix('@') {
-            Some(f) if !f.is_empty() => filters.push(match f.to_lowercase().as_str() {
-                "active" => StatusFilter::Active,
-                "none" => StatusFilter::None,
-                other => StatusFilter::Named(other.to_string()),
-            }),
-            _ => rest.push(word),
-        }
-    }
-    (rest.join(" "), filters)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn filters() {
-        let (q, f) = parse_filters("@open rollout @Active");
-        assert_eq!(q, "rollout");
-        assert_eq!(f, vec![StatusFilter::Named("open".into()), StatusFilter::Active]);
         let defs = default_statuses();
         assert!(StatusFilter::Active.matches(Some("blocked"), true, &defs));
         assert!(!StatusFilter::Active.matches(Some("backlog"), true, &defs));
         assert!(StatusFilter::None.matches(None, true, &defs));
         assert!(!StatusFilter::None.matches(None, false, &defs));
-        assert_eq!(parse_filters("a @ b").0, "a @ b");
     }
 
     #[test]

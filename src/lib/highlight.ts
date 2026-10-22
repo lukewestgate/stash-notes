@@ -14,7 +14,7 @@ export function highlight(text: string, query: string): Part[] {
   const words = query
     .toLowerCase()
     .split(/\s+/)
-    .filter((w) => w && !w.startsWith("@"));
+    .filter((w) => w && !w.startsWith("@") && !w.startsWith("#") && !w.startsWith("in:"));
   for (const word of words) {
     const at = lower.indexOf(word);
     if (at >= 0) {

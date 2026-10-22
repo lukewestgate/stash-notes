@@ -7,8 +7,9 @@
   import { EditorView } from "@codemirror/view";
   import StatusIcon from "./components/StatusIcon.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
+  import TagPicker from "./components/TagPicker.svelte";
   import Picker from "./components/Picker.svelte";
-  import { api, on, type NoteMeta, type Settings } from "./lib/api";
+  import { api, on, type NoteMeta, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { decoConfig, editorExtensions, editorState, setEditorDark, setSpellCheck } from "./lib/editor";
   import { applyAppearance } from "./lib/appearance";
@@ -26,6 +27,7 @@
   let message = $state("");
   let overlay = $state<
     | { type: "status" }
+    | { type: "tags"; all: TagCount[] }
     | { type: "gerrit"; items: { label: string; detail?: string }[]; urls: string[] }
     | null
   >(null);
@@ -113,6 +115,21 @@
     view.focus();
   }
 
+  async function pickTags() {
+    if (!meta || meta.kind === "daily") return;
+    overlay = { type: "tags", all: await api.listTags().catch(() => []) };
+  }
+
+  async function setTags(tags: string[]) {
+    if (!path) return;
+    try {
+      await sync?.drain();
+      meta = (await api.setTags(path, tags)).meta;
+    } catch (e) {
+      say(String(e));
+    }
+  }
+
   async function toggleOnTop() {
     onTop = !onTop;
     await api.pinSetOnTop(onTop);
@@ -161,6 +178,9 @@
     } else if (is(k.setStatus)) {
       stop();
       if (meta?.kind !== "daily") overlay = { type: "status" };
+    } else if (is(k.setTags)) {
+      stop();
+      pickTags();
     } else if (is(k.followLink)) {
       stop();
       const pos = view.state.selection.main.head;
@@ -191,6 +211,10 @@
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
       onStatus: () => (overlay = { type: "status" }),
+      onTags: pickTags,
+      // Tag searches happen in the main window.
+      onTag: (t) => api.openInMain(`::notes#${t}`),
+      tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onJira: openJira,
       onGerrit: openGerrit,
       hasJira: () => meta?.kind === "ticket" || firstTicket(view.state.doc.toString(), tickets) !== null,
@@ -274,6 +298,19 @@
 
   {#if overlay?.type === "status" && settings}
     <StatusPicker statuses={settings.statuses} current={meta?.status ?? null} title="Status" onChoose={setStatus} />
+  {:else if overlay?.type === "tags" && settings && meta}
+    {@const o = overlay}
+    <TagPicker
+      title="Tags"
+      tags={meta.tags}
+      all={o.all}
+      colors={settings.tagColors}
+      onChange={setTags}
+      onClose={() => {
+        overlay = null;
+        view.focus();
+      }}
+    />
   {:else if overlay?.type === "gerrit"}
     {@const o = overlay}
     <Picker title="Open Gerrit change" items={o.items} onChoose={(i) => { overlay = null; api.openUrl(o.urls[i]); }} />

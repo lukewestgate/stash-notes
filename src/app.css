@@ -279,6 +279,17 @@ button:disabled {
 .cm-prop-status {
   font-weight: 600;
 }
+.cm-prop-tag {
+  --c: var(--fg-muted);
+  color: var(--c);
+  border-color: color-mix(in srgb, var(--c) 35%, transparent);
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+}
+.cm-prop-add {
+  color: var(--fg-muted);
+  border-style: dashed;
+  padding: 1px 6px;
+}
 .cm-prop-text {
   color: var(--fg-muted);
 }

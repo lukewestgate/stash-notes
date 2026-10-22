@@ -180,7 +180,7 @@ pub async fn quick_open(app: AppHandle, path: String) -> Res<()> {
 /// Create a note from the pop-up's query and open it in the main window.
 #[tauri::command]
 pub async fn quick_create(app: AppHandle, title: String) -> Res<String> {
-    let path = create_note(app.state(), title)?;
+    let path = create_note(app.clone(), app.state(), title)?;
     crate::quick::open_in_main(&app, &path);
     Ok(path)
 }
@@ -272,9 +272,24 @@ pub fn resolve_link(state: State<AppState>, target: String) -> Res<String> {
     ensure_note(&state, &target)
 }
 
-/// Create a note from the switcher: a ticket if `title` is a key, else a regular note.
+/// Create a note from the switcher: a ticket if `title` is a key, else a
+/// regular note. Filter words in the query are left out of the title, and
+/// `#tags` in it are given to the new note.
 #[tauri::command]
-pub fn create_note(state: State<AppState>, title: String) -> Res<String> {
+pub fn create_note(app: AppHandle, state: State<AppState>, title: String) -> Res<String> {
+    let q = stash_core::query::Query::parse(&title);
+    let existed = state.index.read().unwrap().resolve(q.text.trim()).is_some();
+    let path = create_titled(&state, q.text.trim())?;
+    if !existed && !q.tags.is_empty() {
+        let _ = edit_note(&app, &state, &path, |content, meta| {
+            Ok((meta.kind != stash_core::NoteKind::Daily).then(|| frontmatter::set_inline_list(content, "tags", &q.tags)).flatten())
+        });
+    }
+    Ok(path)
+}
+
+fn create_titled(state: &AppState, title: &str) -> Res<String> {
+    let title = title.to_string();
     // `PROJ-1234 Do this thing`: a ticket note named in its heading
     // (the file stays PROJ-1234.md so links never break).
     if let Some((key, name)) = state.tickets().split_named(&title) {
@@ -287,9 +302,9 @@ pub fn create_note(state: State<AppState>, title: String) -> Res<String> {
             state.index.write().unwrap().upsert(&path, &text, vault.mtime(&path));
             return Ok(path);
         }
-        return ensure_note(&state, &key);
+        return ensure_note(state, &key);
     }
-    ensure_note(&state, &title)
+    ensure_note(state, &title)
 }
 
 /// Today's (or `date`'s) daily note, created from the template if missing.
@@ -420,6 +435,57 @@ pub struct StatusResult {
     meta: NoteMeta,
 }
 
+/// The outcome of `edit_note`.
+struct NoteEdit {
+    before: NoteMeta,
+    old_content: String,
+    new_content: String,
+    edit: Option<frontmatter::Edit>,
+    /// The note was open, so the edit went through its shared buffer.
+    was_open: bool,
+}
+
+/// Apply a front matter edit to a note: through its buffer when it's open
+/// (so every window showing it updates), else straight to disk.
+/// `make` sees the current text and metadata and returns the edit, if any.
+fn edit_note(
+    app: &AppHandle,
+    state: &AppState,
+    path: &str,
+    make: impl FnOnce(&str, &NoteMeta) -> Result<Option<frontmatter::Edit>, String>,
+) -> Res<NoteEdit> {
+    let open_text = buffers::text(app, path);
+    let content = match &open_text {
+        Some(t) => t.clone(),
+        None => state.vault.read().unwrap().read(path).map_err(err)?,
+    };
+    let before = meta_for(state, path, &content);
+    let edit = make(&content, &before)?;
+    let new_content = edit.as_ref().map(|e| e.apply(&content)).unwrap_or_else(|| content.clone());
+    if edit.is_some() {
+        if open_text.is_some() {
+            buffers::apply_server_change(app, path, &new_content, true);
+        } else {
+            let vault = state.vault.read().unwrap();
+            let mtime = vault.write(path, &new_content).map_err(err)?;
+            state.index.write().unwrap().upsert(path, &new_content, mtime);
+        }
+    }
+    Ok(NoteEdit { before, old_content: content, new_content, edit, was_open: open_text.is_some() })
+}
+
+impl NoteEdit {
+    /// The edit in editor (UTF-16) offsets, for a window that has the note
+    /// open without a shared buffer. Open notes already got it.
+    fn text_edit(&self) -> Option<TextEdit> {
+        self.edit.as_ref().filter(|_| !self.was_open).map(|e| TextEdit {
+            from: frontmatter::utf16_offset(&self.old_content, e.from),
+            to: frontmatter::utf16_offset(&self.old_content, e.to),
+            insert: e.insert.clone(),
+        })
+    }
+}
+
 /// Set (or clear) a note's status on disk. Setting `closed` also moves the
 /// note into the archive, and any other status moves a closed, archived note back.
 #[tauri::command]
@@ -427,60 +493,112 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
     use stash_core::status::CLOSED;
     let path = Vault::clean(&path).map_err(err)?;
     let status = status.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
-    let open_text = buffers::text(&app, &path);
-    let vault = state.vault.read().unwrap();
-    let content = match &open_text {
-        Some(t) => t.clone(),
-        None => vault.read(&path).map_err(err)?,
-    };
-    let before = meta_for(&state, &path, &content);
-    if before.kind == stash_core::NoteKind::Daily {
-        return Err("daily notes don't have a status".into());
-    }
-    let edit = frontmatter::set_scalar(&content, "status", status.as_deref());
-    let new_content = edit.as_ref().map(|e| e.apply(&content)).unwrap_or_else(|| content.clone());
-    if edit.is_some() {
-        if open_text.is_some() {
-            // Goes through the shared buffer so every window showing the note updates.
-            drop(vault);
-            buffers::apply_server_change(&app, &path, &new_content, true);
-        } else {
-            let mtime = vault.write(&path, &new_content).map_err(err)?;
-            state.index.write().unwrap().upsert(&path, &new_content, mtime);
-            drop(vault);
+    let done = edit_note(&app, &state, &path, |content, meta| {
+        if meta.kind == stash_core::NoteKind::Daily {
+            return Err("daily notes don't have a status".into());
         }
-    } else {
-        drop(vault);
-    }
-    let vault = state.vault.read().unwrap();
+        Ok(frontmatter::set_scalar(content, "status", status.as_deref()))
+    })?;
+    let before = &done.before;
     let closing = status.as_deref() == Some(CLOSED) && !before.archived;
     let reopening = status.as_deref() != Some(CLOSED) && before.archived && before.status.as_deref() == Some(CLOSED);
     let mut new_path = path.clone();
     if closing || reopening {
         new_path = Vault::archive_target(&path);
-        vault.move_note(&path, &new_path).map_err(err)?;
-        let mut index = state.index.write().unwrap();
-        index.remove(&path);
-        index.upsert(&new_path, &new_content, vault.mtime(&new_path));
-        drop(index);
+        {
+            let vault = state.vault.read().unwrap();
+            vault.move_note(&path, &new_path).map_err(err)?;
+            let mut index = state.index.write().unwrap();
+            index.remove(&path);
+            index.upsert(&new_path, &done.new_content, vault.mtime(&new_path));
+        }
         state.session.lock().unwrap().moved(&path, &new_path);
         state.save_session();
-        drop(vault);
         buffers::moved(&app, &path, &new_path);
-    } else {
-        drop(vault);
     }
     crate::tray::refresh_tooltip(&app);
-    Ok(StatusResult {
-        // Open notes already got the edit through their buffer.
-        edit: edit.filter(|_| open_text.is_none()).map(|e| TextEdit {
-            from: frontmatter::utf16_offset(&content, e.from),
-            to: frontmatter::utf16_offset(&content, e.to),
-            insert: e.insert,
-        }),
-        meta: meta_for(&state, &new_path, &new_content),
-        path: new_path,
-    })
+    Ok(StatusResult { edit: done.text_edit(), meta: meta_for(&state, &new_path, &done.new_content), path: new_path })
+}
+
+/// Replace a note's tags (normalized; invalid ones are dropped).
+#[tauri::command]
+pub fn set_tags(app: AppHandle, state: State<AppState>, path: String, tags: Vec<String>) -> Res<StatusResult> {
+    let path = Vault::clean(&path).map_err(err)?;
+    let mut clean: Vec<String> = Vec::new();
+    for t in tags.iter().filter_map(|t| stash_core::query::normalize_tag(t)) {
+        if !clean.contains(&t) {
+            clean.push(t);
+        }
+    }
+    let done = edit_note(&app, &state, &path, |content, meta| {
+        if meta.kind == stash_core::NoteKind::Daily {
+            return Err("daily notes don't have tags".into());
+        }
+        Ok(frontmatter::set_inline_list(content, "tags", &clean))
+    })?;
+    Ok(StatusResult { edit: done.text_edit(), meta: meta_for(&state, &path, &done.new_content), path })
+}
+
+#[derive(Serialize)]
+pub struct TagCount {
+    name: String,
+    count: usize,
+}
+
+/// Every tag in use, most used first.
+#[tauri::command]
+pub fn list_tags(state: State<AppState>) -> Vec<TagCount> {
+    state.index.read().unwrap().tags().into_iter().map(|(name, count)| TagCount { name, count }).collect()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagRename {
+    notes: usize,
+    undo_id: u64,
+}
+
+/// Rename a tag (and the tags nested under it) on every note, or remove it
+/// when `to` is empty. Returns how many notes changed and an undo id.
+#[tauri::command]
+pub fn rename_tag(app: AppHandle, state: State<AppState>, from: String, to: String) -> Res<TagRename> {
+    use stash_core::query::{normalize_tag, tag_within};
+    let from = normalize_tag(&from).ok_or("not a valid tag")?;
+    let to = if to.trim().is_empty() { None } else { Some(normalize_tag(&to).ok_or("tags use letters, digits, - _ and /")?) };
+    let affected: Vec<(String, Vec<String>)> = state
+        .index
+        .read()
+        .unwrap()
+        .entries()
+        .filter(|e| e.meta.tags.iter().any(|t| tag_within(t, &from)))
+        .map(|e| (e.path().to_string(), e.meta.tags.clone()))
+        .collect();
+    let mut previous = Vec::new();
+    for (path, tags) in affected {
+        let mut next: Vec<String> = Vec::new();
+        for t in &tags {
+            let renamed = if tag_within(t, &from) { to.as_ref().map(|to| format!("{to}{}", &t[from.len()..])) } else { Some(t.clone()) };
+            if let Some(r) = renamed.filter(|r| !next.contains(r)) {
+                next.push(r);
+            }
+        }
+        edit_note(&app, &state, &path, |content, _| Ok(frontmatter::set_inline_list(content, "tags", &next)))?;
+        previous.push((path, tags));
+    }
+    let id = state.next_undo.fetch_add(1, Ordering::Relaxed);
+    let notes = previous.len();
+    state.tag_undo.lock().unwrap().insert(id, previous);
+    Ok(TagRename { notes, undo_id: id })
+}
+
+/// Put back the tags a `rename_tag` changed.
+#[tauri::command]
+pub fn undo_tag_rename(app: AppHandle, state: State<AppState>, undo_id: u64) -> Res<()> {
+    let previous = state.tag_undo.lock().unwrap().remove(&undo_id).ok_or("nothing to undo")?;
+    for (path, tags) in previous {
+        edit_note(&app, &state, &path, |content, _| Ok(frontmatter::set_inline_list(content, "tags", &tags)))?;
+    }
+    Ok(())
 }
 
 /// The Notes view's rows.

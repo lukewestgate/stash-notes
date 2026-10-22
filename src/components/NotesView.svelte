@@ -2,7 +2,7 @@
   export interface NotesViewState {
     query: string;
     sort: import("../lib/api").SortBy;
-    grouped: boolean;
+    group: "none" | "status" | "tag";
     showDaily: boolean;
     showPutAway: boolean;
   }
@@ -10,9 +10,10 @@
 
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type Keys, type SearchHit, type SortBy, type StatusDef } from "../lib/api";
+  import { api, type Keys, type SearchHit, type SortBy, type StatusDef, type TagCount } from "../lib/api";
   import { formatKey } from "../lib/keys";
-  import { relTime } from "../lib/text";
+  import { completeTag, relTime, tagSuggestions, typingTag } from "../lib/text";
+  import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
   import Icon from "./Icon.svelte";
@@ -21,6 +22,7 @@
   interface Props {
     view: NotesViewState;
     statuses: StatusDef[];
+    tagColors: Record<string, string>;
     keys: Keys;
     /** Bumped by the app when notes change, to reload the list. */
     version: number;
@@ -30,7 +32,23 @@
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;
   }
-  let { view = $bindable(), statuses, keys, version, isTicket, pasteKey, onOpen, onCreate }: Props = $props();
+  let { view = $bindable(), statuses, tagColors, keys, version, isTicket, pasteKey, onOpen, onCreate }: Props = $props();
+
+  let allTags = $state<TagCount[]>([]);
+  $effect(() => {
+    void version;
+    api.listTags().then((t) => (allTags = t), () => {});
+  });
+  const suggestions = $derived(tagSuggestions(view.query, allTags));
+  /** What's searched: a tag still being typed (with suggestions showing) doesn't filter yet. */
+  const searched = $derived(
+    suggestions.length && !allTags.some((t) => t.name === typingTag(view.query)) ? view.query.replace(/#[\p{L}\p{N}_/-]*$/u, "") : view.query,
+  );
+
+  function complete(tag: string) {
+    view.query = completeTag(view.query, tag);
+    input?.focus();
+  }
 
   function paste(e: ClipboardEvent) {
     const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
@@ -51,8 +69,8 @@
   };
 
   type Row =
-    | { type: "note"; hit: SearchHit }
-    | { type: "header"; key: string; label: string; count: number; status: string | null }
+    | { type: "note"; hit: SearchHit; group?: string }
+    | { type: "header"; key: string; label: string; count: number; status: string | null; tag: string | null }
     | { type: "create"; query: string };
 
   let hits = $state<SearchHit[]>([]);
@@ -65,8 +83,9 @@
   let list: HTMLDivElement;
   let seq = 0;
 
-  const text = $derived(view.query.split(/\s+/).filter((w) => w && !w.startsWith("@")).join(" "));
-  const filters = $derived(view.query.split(/\s+/).filter((w) => w.length > 1 && w.startsWith("@")));
+  const isFilter = (w: string) => w.length > 1 && (w.startsWith("@") || w.startsWith("#") || w.startsWith("in:"));
+  const text = $derived(view.query.split(/\s+/).filter((w) => w && !isFilter(w)).join(" "));
+  const filters = $derived(view.query.split(/\s+/).filter(isFilter));
 
   async function load(query: string, daily: boolean, putAway: boolean, sort: SortBy) {
     const my = ++seq;
@@ -82,7 +101,7 @@
 
   $effect(() => {
     void version;
-    load(view.query, view.showDaily, view.showPutAway, view.sort);
+    load(searched, view.showDaily, view.showPutAway, view.sort);
   });
 
   // Reset the selection when the query changes, not when the list reloads.
@@ -91,11 +110,14 @@
     sel = 0;
   });
 
-  function groupKey(h: SearchHit): string {
-    return h.status ?? "";
+  /** The groups a note belongs to: its status, or each of its tags. */
+  function groupKeys(h: SearchHit): string[] {
+    if (view.group === "tag") return h.tags.length ? h.tags : [""];
+    return [h.status ?? ""];
   }
 
-  function groupOrder(key: string): number {
+  function groupOrder(key: string, counts: Map<string, number>): number {
+    if (view.group === "tag") return key ? -(counts.get(key) ?? 0) : 1e9;
     if (!key) return 1000;
     const i = statuses.findIndex((s) => s.name === key);
     if (i < 0) return 900;
@@ -105,22 +127,34 @@
 
   const rows = $derived.by<Row[]>(() => {
     const out: Row[] = [];
-    if (view.grouped && !text) {
+    if (view.group !== "none" && !text) {
       const groups = new Map<string, SearchHit[]>();
       for (const h of hits) {
-        const k = groupKey(h);
-        if (!groups.has(k)) groups.set(k, []);
-        groups.get(k)!.push(h);
+        for (const k of groupKeys(h)) {
+          if (!groups.has(k)) groups.set(k, []);
+          groups.get(k)!.push(h);
+        }
       }
-      for (const k of [...groups.keys()].sort((a, b) => groupOrder(a) - groupOrder(b))) {
+      const counts = new Map([...groups].map(([k, v]) => [k, v.length]));
+      const byTag = view.group === "tag";
+      const keys = [...groups.keys()].sort((a, b) => groupOrder(a, counts) - groupOrder(b, counts) || a.localeCompare(b));
+      for (const k of keys) {
         const items = groups.get(k)!;
-        out.push({ type: "header", key: k, label: k || "no status", count: items.length, status: k || null });
-        if (!collapsed.has(k)) for (const h of items) out.push({ type: "note", hit: h });
+        out.push({
+          type: "header",
+          key: k,
+          label: k ? (byTag ? `#${k}` : k) : byTag ? "no tags" : "no status",
+          count: items.length,
+          status: !byTag && k ? k : null,
+          tag: byTag && k ? k : null,
+        });
+        if (!collapsed.has(k)) for (const h of items) out.push({ type: "note", hit: h, group: k });
       }
     } else {
       for (const h of hits) out.push({ type: "note", hit: h });
     }
     if (text.trim() && !exact) out.push({ type: "create", query: view.query.trim() });
+    // (Rust leaves filter words out of the new note's title and gives it the #tags.)
     return out;
   });
 
@@ -166,6 +200,13 @@
     collapsed = next;
   }
 
+  const GROUPS = ["none", "status", "tag"] as const;
+  const GROUP_LABEL = { none: "Not grouped", status: "Grouped by status", tag: "Grouped by tag" };
+
+  function cycleGroup() {
+    view.group = GROUPS[(GROUPS.indexOf(view.group) + 1) % GROUPS.length];
+  }
+
   function cycleSort() {
     view.sort = SORTS[(SORTS.indexOf(view.sort) + 1) % SORTS.length];
   }
@@ -188,6 +229,9 @@
     } else if (k === "Enter") {
       e.preventDefault();
       activate(sel);
+    } else if (k === "Tab" && suggestions.length) {
+      e.preventDefault();
+      complete(suggestions[0]);
     } else if (k === "Tab") {
       e.preventDefault();
       view.showPutAway = !view.showPutAway;
@@ -196,7 +240,7 @@
       cycleSort();
     } else if (e.altKey && !e.ctrlKey && (k === "g" || k === "G" || e.code === "KeyG")) {
       e.preventDefault();
-      view.grouped = !view.grouped;
+      cycleGroup();
     } else if (e.altKey && !e.ctrlKey && (k === "d" || k === "D" || e.code === "KeyD")) {
       e.preventDefault();
       view.showDaily = !view.showDaily;
@@ -224,6 +268,12 @@
       autocomplete="off"
     />
   </div>
+  {#if suggestions.length}
+    <div class="suggest" aria-label="Tag suggestions">
+      <span class="shint"><kbd>Tab</kbd></span>
+      {#each suggestions as t}<TagChip tag={t} colors={tagColors} onclick={() => complete(t)} />{/each}
+    </div>
+  {/if}
   <div class="chips">
     {#each filters as f}<span class="chip on">{f}</span>{/each}
     <button class="chip" class:on={view.showDaily} onclick={() => (view.showDaily = !view.showDaily)} title="Alt+D">
@@ -235,8 +285,8 @@
     <button class="chip" onclick={cycleSort} title="Alt+S">
       {text ? "Sorted by relevance" : `Sorted by ${SORT_LABEL[view.sort]}`}
     </button>
-    <button class="chip" class:on={view.grouped} onclick={() => (view.grouped = !view.grouped)} title="Alt+G">
-      {view.grouped ? "Grouped by status" : "Not grouped"}
+    <button class="chip" class:on={view.group !== "none"} onclick={cycleGroup} title="Alt+G">
+      {GROUP_LABEL[view.group]}
     </button>
     <span class="count">{hits.length} {hits.length === 1 ? "note" : "notes"}</span>
   </div>
@@ -249,7 +299,7 @@
     tabindex="-1"
   >
     <div class="spacer" style="height: {rows.length * ROW}px">
-      {#each rows.slice(first, last) as row, j (row.type === "note" ? row.hit.path : row.type === "header" ? `h:${row.key}` : "create")}
+      {#each rows.slice(first, last) as row, j (row.type === "note" ? `${row.group ?? ""}:${row.hit.path}` : row.type === "header" ? `h:${row.key}` : "create")}
         {@const i = first + j}
         <div
           class="row {row.type}"
@@ -269,6 +319,7 @@
               <span class="line1">
                 <span class="name"><Highlight text={name(row.hit)} query={view.query} /></span>
                 {#if row.hit.kind === "ticket" && row.hit.label}<span class="label"><Highlight text={row.hit.label} query={view.query} /></span>{/if}
+                {#each row.hit.tags.filter((t) => t !== row.group) as t}<TagChip tag={t} colors={tagColors} />{/each}
                 {#if row.hit.kind === "daily"}<span class="tag">daily</span>{/if}
                 {#if row.hit.archived}<span class="tag">archived</span>{/if}
               </span>
@@ -278,7 +329,7 @@
           {:else if row.type === "header"}
             <span class="caret" class:closed={collapsed.has(row.key)}><Icon name="chevron-down" size={14} /></span>
             {#if row.status}<StatusIcon status={row.status} {statuses} />{/if}
-            <span class="hname">{row.label}</span>
+            {#if row.tag}<TagChip tag={row.tag} colors={tagColors} />{:else}<span class="hname">{row.label}</span>{/if}
             <span class="hcount">{row.count}</span>
           {:else}
             <span class="sym new"><Icon name="plus" size={14} /></span>
@@ -351,6 +402,23 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
   }
+  .suggest {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 0 16px 4px;
+  }
+  .shint {
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .shint kbd {
+    font: inherit;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
   .chips {
     display: flex;
     flex-wrap: wrap;
@@ -408,9 +476,11 @@
   .row.header {
     background: var(--bg-raised);
     font-size: 12px;
+    color: var(--fg-muted);
+  }
+  .hname {
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--fg-muted);
   }
   .row.header.selected {
     background: var(--selected);
@@ -434,7 +504,7 @@
   .line1 {
     display: flex;
     gap: 8px;
-    align-items: baseline;
+    align-items: center;
     white-space: nowrap;
     overflow: hidden;
   }

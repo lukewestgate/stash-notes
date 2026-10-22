@@ -19,6 +19,7 @@ export interface NoteMeta {
   gerrit: string[];
   aliases: string[];
   status: string | null;
+  tags: string[];
 }
 
 /** A note opened in a window: its buffer's text and version (see buffers.rs). */
@@ -44,6 +45,7 @@ export interface SearchHit {
   label: string | null;
   key: string | null;
   status: string | null;
+  tags: string[];
   archived: boolean;
   mtime: number;
   snippet: string | null;
@@ -62,6 +64,11 @@ export interface StatusResult {
   path: string;
   edit: TextEdit | null;
   meta: NoteMeta;
+}
+
+export interface TagCount {
+  name: string;
+  count: number;
 }
 
 export interface SearchResults {
@@ -87,6 +94,7 @@ export interface Keys {
   rename: string;
   openSettings: string;
   setStatus: string;
+  setTags: string;
   notesView: string;
   toggleSidebar: string;
   focusSidebar: string;
@@ -99,7 +107,7 @@ export interface NotesViewSettings {
   showDaily: boolean;
   showClosed: boolean;
   sort: SortBy;
-  groupByStatus: boolean;
+  groupBy: "none" | "status" | "tag";
 }
 
 export interface Settings {
@@ -131,6 +139,8 @@ export interface Settings {
   restorePinned: boolean;
   notesView: NotesViewSettings;
   statuses: StatusDef[];
+  /** Tag -> color name. */
+  tagColors: Record<string, string>;
   defaultStatus: string;
   keys: Keys;
 }
@@ -208,6 +218,10 @@ export const api = {
   search: (query: string, includeArchived: boolean, current: string | null, limit = 50) =>
     call<SearchResults>("search", { query, includeArchived, current, limit }),
   setStatus: (path: string, status: string | null) => call<StatusResult>("set_status", { path, status }),
+  setTags: (path: string, tags: string[]) => call<StatusResult>("set_tags", { path, tags }),
+  listTags: () => call<TagCount[]>("list_tags"),
+  renameTag: (from: string, to: string) => call<{ notes: number; undoId: number }>("rename_tag", { from, to }),
+  undoTagRename: (undoId: number) => call<void>("undo_tag_rename", { undoId }),
   listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy) =>
     call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort }),
   sidebar: () => call<{ active: SearchHit[]; more: number; recent: SearchHit[] }>("sidebar"),

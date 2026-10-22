@@ -31,6 +31,7 @@
     [keys.backlinks, "Expand / collapse backlinks"],
     [keys.archive, "Archive / unarchive note"],
     [keys.setStatus, "Set status", "1–5 pick directly; closed also archives"],
+    [keys.setTags, "Add or remove tags", "#tag in search filters by it"],
     [keys.pinNote.replace(" ", ", then "), "Pop the note out into a pinned window (again to close)"],
     [keys.help, "This help"],
   ]);

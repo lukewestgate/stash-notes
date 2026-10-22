@@ -11,7 +11,7 @@ pub enum OnSummon {
 }
 
 /// Bumped when a stored setting changes meaning; see `migrate`.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -59,6 +59,8 @@ pub struct Settings {
     pub notes_view: NotesViewSettings,
     /// Status list, in display order.
     pub statuses: Vec<StatusDef>,
+    /// Tag -> theme color name, for tags given a color in Settings.
+    pub tag_colors: std::collections::BTreeMap<String, String>,
     /// Status given to new ticket notes (empty for none).
     pub default_status: String,
     /// In-app shortcuts.
@@ -73,12 +75,13 @@ pub struct NotesViewSettings {
     pub show_closed: bool,
     /// `edited`, `opened`, `status` or `title`.
     pub sort: String,
-    pub group_by_status: bool,
+    /// `none`, `status` or `tag`.
+    pub group_by: String,
 }
 
 impl Default for NotesViewSettings {
     fn default() -> Self {
-        NotesViewSettings { show_daily: false, show_closed: false, sort: "edited".into(), group_by_status: false }
+        NotesViewSettings { show_daily: false, show_closed: false, sort: "edited".into(), group_by: "none".into() }
     }
 }
 
@@ -114,6 +117,7 @@ pub struct Keys {
     pub rename: String,
     pub open_settings: String,
     pub set_status: String,
+    pub set_tags: String,
     pub notes_view: String,
     pub toggle_sidebar: String,
     pub focus_sidebar: String,
@@ -151,6 +155,7 @@ impl Default for Settings {
             restore_pinned: true,
             notes_view: NotesViewSettings::default(),
             statuses: default_statuses(),
+            tag_colors: Default::default(),
             default_status: "open".into(),
             keys: Keys::default(),
         }
@@ -193,6 +198,7 @@ impl Default for Keys {
             rename: "F2".into(),
             open_settings: "Ctrl+,".into(),
             set_status: "Ctrl+Shift+S".into(),
+            set_tags: "Ctrl+Shift+T".into(),
             notes_view: "Ctrl+L".into(),
             toggle_sidebar: "Ctrl+\\".into(),
             focus_sidebar: "Ctrl+0".into(),
@@ -234,6 +240,14 @@ pub fn migrate(text: &str) -> Option<String> {
                         st.insert("icon".into(), icon.into());
                     }
                 }
+            }
+        }
+    }
+    if version < 5 {
+        // 0.5 groups the Notes view by status or by tag.
+        if let Some(serde_json::Value::Object(nv)) = obj.get_mut("notesView") {
+            if let Some(g) = nv.remove("groupByStatus") {
+                nv.insert("groupBy".into(), if g == serde_json::Value::Bool(true) { "status" } else { "none" }.into());
             }
         }
     }
@@ -299,6 +313,9 @@ mod tests {
         let (s, _) = Settings::from_json(&migrate(v3).unwrap());
         assert_eq!(s.statuses[0].icon, "circle-dot");
         assert_eq!(s.statuses[1].icon, "circle");
+        let v4 = r#"{"schemaVersion":4,"notesView":{"groupByStatus":true}}"#;
+        let (s, _) = Settings::from_json(&migrate(v4).unwrap());
+        assert_eq!(s.notes_view.group_by, "status");
         let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
         assert!(merged.contains("\"futureKey\": 1"));
         assert!(merged.contains("\"hotkey\": \"Alt+N\""));

@@ -208,3 +208,32 @@ export function isGerritUrl(text: string, gerritTemplate: string): boolean {
     return false;
   }
 }
+
+/** A tag in canonical form (same rules as Rust's `normalize_tag`): lower case,
+ * no leading `#`, letters, digits, `-`, `_` and `/`; not digits alone. */
+export function normalizeTag(raw: string): string | null {
+  const t = raw.trim().replace(/^#+/, "").replace(/^\/+|\/+$/g, "").toLowerCase();
+  if (!t || !/^[\p{L}\p{N}_/-]+$/u.test(t) || /^\d+$/.test(t) || t.includes("//")) return null;
+  return t;
+}
+
+/** The partial tag being typed at the end of a search (`rollout #bu` -> `bu`), if any. */
+export function typingTag(query: string): string | null {
+  const m = /(?:^|\s)#([\p{L}\p{N}_/-]*)$/u.exec(query);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** Tags to suggest for the tag being typed, most used first. */
+export function tagSuggestions(query: string, all: { name: string }[], limit = 6): string[] {
+  const part = typingTag(query);
+  if (part === null) return [];
+  return all
+    .map((t) => t.name)
+    .filter((t) => t.startsWith(part) && t !== part)
+    .slice(0, limit);
+}
+
+/** Replace the tag being typed with `tag`. */
+export function completeTag(query: string, tag: string): string {
+  return query.replace(/#[\p{L}\p{N}_/-]*$/u, `#${tag} `);
+}

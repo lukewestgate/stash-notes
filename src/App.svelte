@@ -12,11 +12,12 @@
   import Prompt from "./components/Prompt.svelte";
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
+  import TagPicker from "./components/TagPicker.svelte";
   import NotesView, { type NotesViewState } from "./components/NotesView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import { applyAppearance } from "./lib/appearance";
-  import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import {
     decoConfig,
@@ -51,7 +52,8 @@
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void }
     | { type: "picker"; title: string; items: { label: string; detail?: string }[]; choose: (i: number) => void }
-    | { type: "status"; path: string; current: string | null; title: string };
+    | { type: "status"; path: string; current: string | null; title: string }
+    | { type: "tags"; path: string; tags: string[]; all: TagCount[]; title: string };
 
 
   let settings = $state<Settings | null>(null);
@@ -74,7 +76,7 @@
   let beforeSettings: "editor" | "notes" = "editor";
   /** The notes folder is being indexed (after changing it). */
   let indexing = $state(false);
-  let notesState = $state<NotesViewState>({ query: "", sort: "edited", grouped: false, showDaily: false, showPutAway: false });
+  let notesState = $state<NotesViewState>({ query: "", sort: "edited", group: "none", showDaily: false, showPutAway: false });
   /** Bumped when notes change, so lists reload. */
   let listVersion = $state(0);
   let notesView = $state<NotesView>();
@@ -617,6 +619,51 @@
     }
   }
 
+  // ---------- tags ----------
+
+  /** Open the tag picker for `path` (default: the current note). */
+  async function pickTags(path = currentPath, tags = meta?.tags ?? [], title = meta?.title ?? "") {
+    if (!path) return;
+    if (path === currentPath && meta?.kind === "daily") {
+      toast("Daily notes don't have tags");
+      return;
+    }
+    let all: TagCount[] = [];
+    try {
+      all = await api.listTags();
+    } catch {
+      // the picker still works with the note's own tags
+    }
+    overlay = { type: "tags", path, tags, all, title: `Tags for ${title}` };
+  }
+
+  async function applyTags(path: string, tags: string[]) {
+    try {
+      if (path === currentPath) await flush();
+      const r = await api.setTags(path, tags);
+      if (path === currentPath) meta = r.meta;
+      listVersion++;
+      refreshSide();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** The Notes view, filtered to one tag. */
+  function showTag(tag: string) {
+    openNotesView(`#${tag}`);
+  }
+
+  /** Run `pick` on the focused sidebar row, the selected Notes view row, or the open note. */
+  function forTarget(pick: (hit: SearchHit | null) => void) {
+    const sideHit = sidebarHasFocus() ? sidebar?.focusedHit() : null;
+    if (sideHit) pick(sideHit);
+    else if (screen === "notes") {
+      const h = notesView?.selected();
+      if (h) pick(h);
+    } else pick(null);
+  }
+
   // ---------- pinned notes ----------
 
   /** Pop the current note (or the focused sidebar / Notes view row) out, or close its pinned window. */
@@ -650,7 +697,7 @@
 
   function closeOverlay() {
     overlay = null;
-    requestAnimationFrame(() => view.focus());
+    requestAnimationFrame(() => (screen === "notes" ? notesView?.focus() : view.focus()));
   }
 
   function insertLink(target: string, sel: { from: number; to: number; text: string }) {
@@ -672,7 +719,8 @@
     try {
       const path = await api.createNote(query);
       if (o?.type === "switcher" && o.mode === "link" && o.sel) {
-        insertLink(startsWithTicket(query) ? query.trim().split(/\s+/)[0].toUpperCase() : query, o.sel);
+        const title = query.split(/\s+/).filter((w) => w && !/^(@|#|in:)./.test(w)).join(" ");
+        insertLink(startsWithTicket(title) ? title.split(/\s+/)[0].toUpperCase() : title, o.sel);
       } else {
         navigate(path);
       }
@@ -791,14 +839,13 @@
     quit,
     rename: startRename,
     openSettings: () => toggleSettings(),
-    setStatus: () => {
-      const sideHit = sidebarHasFocus() ? sidebar?.focusedHit() : null;
-      if (sideHit) pickStatus(sideHit.path, sideHit.status, sideHit.key ?? sideHit.title);
-      else if (screen === "notes") {
-        const h = notesView?.selected();
-        if (h) pickStatus(h.path, h.status, h.key ?? h.title);
-      } else pickStatus();
-    },
+    setStatus: () => forTarget((h) => (h ? pickStatus(h.path, h.status, h.key ?? h.title) : pickStatus())),
+    setTags: () =>
+      forTarget((h) => {
+        if (h?.kind === "daily") toast("Daily notes don't have tags");
+        else if (h) pickTags(h.path, h.tags, h.key ?? h.title);
+        else pickTags();
+      }),
     notesView: () => openNotesView(),
     pinNote: () => togglePin(),
     toggleSidebar: () => setSideExpanded(!sideExpanded),
@@ -938,6 +985,9 @@
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
       onStatus: () => pickStatus(),
+      onTags: () => pickTags(),
+      onTag: showTag,
+      tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onJira: openJira,
       onGerrit: openGerrit,
       hasJira: () => hasKey,
@@ -952,7 +1002,8 @@
       on<{ path: string; dirty: boolean; meta: NoteMeta | null }>("buffer-state", onBufferState),
       on<{ path: string; deleted: boolean }>("buffer-conflict", onBufferConflict),
       on<{ from: string; to: string }>("note-moved", (m) => moved(m.from, m.to)),
-      on<string>("open-note", (p) => navigate(p)),
+      // `::notes#tag` (from a pinned window's tag chip) opens the Notes view on that tag.
+      on<string>("open-note", (p) => (p.startsWith(`${NOTES}#`) ? showTag(p.slice(NOTES.length + 1)) : navigate(p))),
       on<string[]>("pins-changed", (p) => (pinnedPaths = p)),
       on<null>("open-settings", () => toggleSettings(true)),
       on<null>("index-ready", () => {
@@ -983,7 +1034,7 @@
         notesState = {
           query: "",
           sort: s.settings.notesView.sort,
-          grouped: s.settings.notesView.groupByStatus,
+          group: s.settings.notesView.groupBy,
           showDaily: s.settings.notesView.showDaily,
           showPutAway: s.settings.notesView.showClosed,
         };
@@ -1061,6 +1112,7 @@
       keys={settings.keys}
       statuses={settings.statuses}
       onStatus={() => pickStatus()}
+      onTags={() => pickTags()}
       onBack={back}
       onForward={forward}
       onJira={openJira}
@@ -1119,6 +1171,7 @@
       bind:this={notesView}
       bind:view={notesState}
       statuses={settings.statuses}
+      tagColors={settings.tagColors}
       keys={settings.keys}
       version={listVersion}
       isTicket={startsWithTicket}
@@ -1126,7 +1179,7 @@
       onOpen={(p) => navigate(p)}
       onCreate={async (q) => {
         try {
-          navigate(await api.createNote(q.replace(/@\S+/g, "").trim()));
+          navigate(await api.createNote(q));
         } catch (e) {
           fail(e);
         }
@@ -1142,6 +1195,7 @@
       isTicket={startsWithTicket}
       {pasteKey}
       statuses={settings?.statuses ?? []}
+      tagColors={settings?.tagColors ?? {}}
       onChoose={switcherChoose}
       onCreate={switcherCreate}
     />
@@ -1152,6 +1206,16 @@
   {:else if overlay?.type === "status" && settings}
     {@const o = overlay}
     <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} onChoose={(st) => applyStatus(o.path, st)} />
+  {:else if overlay?.type === "tags" && settings}
+    {@const o = overlay}
+    <TagPicker
+      title={o.title}
+      tags={o.tags}
+      all={o.all}
+      colors={settings.tagColors}
+      onChange={(t) => applyTags(o.path, t)}
+      onClose={closeOverlay}
+    />
   {:else if overlay?.type === "picker"}
     <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} />
   {/if}

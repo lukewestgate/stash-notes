@@ -5,12 +5,12 @@
 import type { NoteKind, NoteMeta, SearchHit, Settings, Startup } from "./api";
 import { mockEmit } from "./api";
 import { ChangeSet, Text } from "@codemirror/state";
-import { isoDate } from "./text";
+import { isoDate, normalizeTag } from "./text";
 
 const today = isoDate();
 
 const settings: Settings = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   vaultPath: "(browser demo – nothing is saved)",
   hotkey: "Alt+N",
   switcherHotkey: "Alt+J",
@@ -35,7 +35,7 @@ const settings: Settings = {
   liveFormatting: true,
   smartPaste: true,
   restorePinned: true,
-  notesView: { showDaily: false, showClosed: false, sort: "edited", groupByStatus: false },
+  notesView: { showDaily: false, showClosed: false, sort: "edited", groupBy: "none" },
   statuses: [
     { name: "todo", icon: "circle", color: "blue", active: true },
     { name: "open", icon: "circle-dot", color: "green", active: true },
@@ -43,6 +43,7 @@ const settings: Settings = {
     { name: "backlog", icon: "circle-dashed", color: "gray", active: false },
     { name: "closed", icon: "circle-check", color: "purple", active: false },
   ],
+  tagColors: { bug: "red" },
   defaultStatus: "open",
   keys: {
     hide: "Esc",
@@ -62,6 +63,7 @@ const settings: Settings = {
     rename: "F2",
     openSettings: "Ctrl+,",
     setStatus: "Ctrl+Shift+S",
+    setTags: "Ctrl+Shift+T",
     notesView: "Ctrl+L",
     toggleSidebar: "Ctrl+\\",
     focusSidebar: "Ctrl+0",
@@ -78,7 +80,7 @@ const notes = new Map<string, string>([
     "tickets/PROJ-123.md",
     `---\nstatus: open\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n# PROJ-123 Rollout date question\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
   ],
-  ["tickets/OPS-4123.md", "---\nstatus: blocked\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
+  ["tickets/OPS-4123.md", "---\nstatus: blocked\ntags: [bug, infra]\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
   ["notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
   ["archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
 ]);
@@ -140,6 +142,8 @@ function meta(path: string, text: string): NoteMeta {
   const named = heading?.startsWith(s) ? heading.slice(s.length).replace(/^[\s:–—-]+/, "") : heading;
   const label = named || (typeof fields.title === "string" ? fields.title : null);
   const gerrit = fields.gerrit;
+  const rawTags = fields.tags;
+  const tagList = Array.isArray(rawTags) ? rawTags : typeof rawTags === "string" ? rawTags.replace(/^\[|\]$/g, "").split(",") : [];
   return {
     path,
     kind,
@@ -152,7 +156,22 @@ function meta(path: string, text: string): NoteMeta {
     gerrit: Array.isArray(gerrit) ? gerrit : typeof gerrit === "string" ? [gerrit] : [],
     aliases: [],
     status: kind !== "daily" && typeof fields.status === "string" ? fields.status : null,
+    tags: kind === "daily" ? [] : [...new Set(tagList.map((t) => normalizeTag(t)).filter((t): t is string => !!t))],
   };
+}
+
+/** `#tag` filters (all must match; a parent matches nested tags). */
+function tagFilter(q: string): (h: SearchHit) => boolean {
+  const want = q.split(/\s+/).filter((w) => w.startsWith("#")).map((w) => normalizeTag(w)).filter((t): t is string => !!t);
+  return (h) => want.every((w) => h.tags.some((t) => t === w || t.startsWith(`${w}/`)));
+}
+
+function setTagsIn(text: string, tags: string[]): string {
+  const line = tags.length ? `tags: [${tags.join(", ")}]\n` : "";
+  if (/^tags:.*\n/m.test(text)) return text.replace(/^tags:.*\n/m, line);
+  if (!line) return text;
+  if (text.startsWith("---\n")) return `---\n${line}${text.slice(4)}`;
+  return `---\n${line}---\n\n${text}`;
 }
 
 function hit(path: string, snippet: string | null = null, score = 0): SearchHit {
@@ -164,6 +183,7 @@ function hit(path: string, snippet: string | null = null, score = 0): SearchHit 
     label: m.label,
     key: m.key,
     status: m.status,
+    tags: m.tags,
     archived: m.archived,
     mtime: mtimes.get(path) ?? 0,
     snippet,
@@ -359,11 +379,39 @@ export function handle(cmd: string, a: A): unknown {
       changed(path);
       return { path, edit: null, meta: meta(path, next) };
     }
+    case "set_tags": {
+      const text = notes.get(a.path)!;
+      const tags = [...new Set((a.tags as string[]).map((t) => normalizeTag(t)).filter((t): t is string => !!t))];
+      const next = setTagsIn(text, tags);
+      serverEdit(a.path, next);
+      changed(a.path);
+      return { path: a.path, edit: null, meta: meta(a.path, next) };
+    }
+    case "list_tags": {
+      const counts = new Map<string, number>();
+      for (const p of notes.keys()) for (const t of hit(p).tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+      return [...counts].map(([name, count]) => ({ name, count })).sort((x, y) => y.count - x.count || x.name.localeCompare(y.name));
+    }
+    case "rename_tag": {
+      let n = 0;
+      for (const p of [...notes.keys()]) {
+        const tags = hit(p).tags;
+        if (!tags.some((t) => t === a.from || t.startsWith(`${a.from}/`))) continue;
+        const next = tags.flatMap((t) => (t === a.from || t.startsWith(`${a.from}/`) ? (a.to ? [a.to + t.slice(a.from.length)] : []) : [t]));
+        serverEdit(p, setTagsIn(notes.get(p)!, [...new Set(next)]));
+        changed(p);
+        n++;
+      }
+      return { notes: n, undoId: 0 };
+    }
+    case "undo_tag_rename":
+      throw new Error("undo is not available in the browser demo");
     case "undo_rename":
       throw new Error("undo is not available in the browser demo");
     case "search": {
-      const q = String(a.query).trim().toLowerCase();
-      const visible = [...notes.keys()].filter((p) => a.includeArchived || !p.startsWith("archive/"));
+      const tagged = tagFilter(String(a.query));
+      const q = String(a.query).split(/\s+/).filter((w) => !w.startsWith("#")).join(" ").trim().toLowerCase();
+      const visible = [...notes.keys()].filter((p) => (a.includeArchived || !p.startsWith("archive/")) && tagged(hit(p)));
       if (!q) {
         return {
           hits: visible
@@ -392,9 +440,10 @@ export function handle(cmd: string, a: A): unknown {
     case "list_notes": {
       const q = String(a.query).trim().toLowerCase();
       const filters = q.split(/\s+/).filter((w) => w.startsWith("@")).map((w) => w.slice(1));
-      const text = q.split(/\s+/).filter((w) => w && !w.startsWith("@")).join(" ");
+      const text = q.split(/\s+/).filter((w) => w && !w.startsWith("@") && !w.startsWith("#")).join(" ");
       const hits = [...notes.keys()]
         .map((p) => hit(p, notes.get(p)!.replace(/^---[\s\S]*?---\n/, "").split("\n").find((l) => l.trim() && !l.startsWith("#")) ?? null))
+        .filter(tagFilter(q))
         .filter((h) => a.includeDaily || h.kind !== "daily")
         .filter((h) => a.includePutAway || (!h.archived && h.status !== "closed"))
         .filter((h) => !filters.length || filters.some((f) => (f === "active" ? ["todo", "open", "blocked"].includes(h.status ?? "") : f === "none" ? !h.status : h.status === f)))

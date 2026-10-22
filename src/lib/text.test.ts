@@ -4,6 +4,10 @@ import {
   firstTicket,
   gerritUrl,
   isGerritUrl,
+  normalizeTag,
+  typingTag,
+  tagSuggestions,
+  completeTag,
   jiraKeyFromUrl,
   jiraUrl,
   looksLikeGerrit,
@@ -96,5 +100,28 @@ describe("smart paste", () => {
     const g = "https://gerrit.example.com/c/{n}";
     expect(isGerritUrl("https://gerrit.example.com/c/proj/+/12399", g)).toBe(true);
     expect(isGerritUrl("https://example.com/c/proj/+/12399", g)).toBe(false);
+  });
+});
+
+describe("normalizeTag", () => {
+  it("canonicalizes and rejects", () => {
+    expect(normalizeTag("#Bug")).toBe("bug");
+    expect(normalizeTag("bug/UI/")).toBe("bug/ui");
+    expect(normalizeTag("123")).toBeNull();
+    expect(normalizeTag("a b")).toBeNull();
+    expect(normalizeTag("")).toBeNull();
+  });
+});
+
+describe("tag completion", () => {
+  const all = [{ name: "bug" }, { name: "bug/ui" }, { name: "research" }];
+  it("suggests and completes the tag being typed", () => {
+    expect(typingTag("rollout #bu")).toBe("bu");
+    expect(typingTag("rollout #bug ")).toBeNull();
+    expect(typingTag("#")).toBe("");
+    expect(tagSuggestions("x #b", all)).toEqual(["bug", "bug/ui"]);
+    expect(tagSuggestions("x #bug", all)).toEqual(["bug/ui"]);
+    expect(tagSuggestions("x", all)).toEqual([]);
+    expect(completeTag("x #bu", "bug")).toBe("x #bug ");
   });
 });

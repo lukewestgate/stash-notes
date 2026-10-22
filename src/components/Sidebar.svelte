@@ -65,8 +65,8 @@
     if (!open || isToday) return null;
     const listed = active.some((h) => h.path === open.path) || (expanded && recent.some((h) => h.path === open.path));
     if (listed) return null;
-    const { path, kind, title, label, key, status, archived } = open;
-    return { path, kind, title, label, key, status, archived, mtime: 0, snippet: null, score: 0 };
+    const { path, kind, title, label, key, status, tags, archived } = open;
+    return { path, kind, title, label, key, status, tags, archived, mtime: 0, snippet: null, score: 0 };
   });
 
   const items = $derived<Item[]>([
@@ -140,7 +140,8 @@
 
   const name = (h: SearchHit) => (h.kind === "ticket" && h.key ? h.key : h.title);
   const tip = (h: SearchHit) =>
-    `${h.kind === "ticket" && h.label ? `${h.key} ${h.label}` : h.title}${h.status ? ` — ${h.status}` : ""}\nEdited ${relTime(h.mtime)} ago`;
+    `${h.kind === "ticket" && h.label ? `${h.key} ${h.label}` : h.title}${h.status ? ` — ${h.status}` : ""}` +
+    `${h.tags.length ? `\n${h.tags.map((t) => `#${t}`).join(" ")}` : ""}\nEdited ${relTime(h.mtime)} ago`;
   const indexOf = (it: Item) => items.indexOf(it);
 </script>
 

@@ -17,6 +17,7 @@ describe("highlight", () => {
   });
   it("ignores status filters and words that don't match", () => {
     expect(marked("Disk alerts", "@open disk zzz")).toBe("[Disk] alerts");
+    expect(marked("build agents", "#bug in:work")).toBe("build agents");
     expect(marked("abc", "")).toBe("abc");
   });
 });

@@ -192,6 +192,8 @@ pub struct NoteMeta {
     pub aliases: Vec<String>,
     /// Front matter `status` (never set on daily notes).
     pub status: Option<String>,
+    /// Front matter `tags`, normalized (never set on daily notes).
+    pub tags: Vec<String>,
 }
 
 /// Parse a note's metadata from its path and content.
@@ -221,7 +223,19 @@ pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMet
         gerrit: fm.list("gerrit"),
         aliases: fm.list("aliases"),
         status: if kind == NoteKind::Daily { None } else { fm.scalar("status").map(|s| s.to_lowercase()) },
+        tags: if kind == NoteKind::Daily { Vec::new() } else { tags_of(&fm) },
     }
+}
+
+/// The note's tags, normalized and deduplicated, in the order written.
+fn tags_of(fm: &frontmatter::FrontMatter) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in fm.list("tags").iter().flat_map(|t| t.split([',', ' '])).filter_map(crate::query::normalize_tag) {
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -293,7 +307,12 @@ mod tests {
         assert_eq!(m.title, "Real Title");
         let m = parse_meta("notes/x.md", "no heading", &t);
         assert_eq!(m.title, "x");
-        let m = parse_meta("archive/daily/2026-10-22.md", "", &t);
+        let m = parse_meta("notes/x.md", "---\ntags: [Bug, research, bug]\n---\n", &t);
+        assert_eq!(m.tags, vec!["bug", "research"]);
+        let m = parse_meta("notes/x.md", "---\ntags:\n  - '#ui'\n---\n", &t);
+        assert_eq!(m.tags, vec!["ui"]);
+        let m = parse_meta("archive/daily/2026-10-22.md", "---\ntags: [x]\n---\n", &t);
+        assert!(m.tags.is_empty());
         assert!(m.archived);
         assert_eq!(m.date, dates::parse_iso("2026-10-22"));
     }
