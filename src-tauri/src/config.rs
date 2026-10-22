@@ -196,8 +196,8 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
     let state = app.state::<AppState>();
     let changed = |f: &dyn Fn(&Settings) -> String| old.map(|o| f(o) != f(new)).unwrap_or(true);
 
-    if changed(&|s| s.hotkey.clone()) {
-        if let Err(e) = hotkey::register(app, &new.hotkey) {
+    if changed(&|s| format!("{}\n{}", s.hotkey, s.capture_hotkey)) {
+        for e in hotkey::register(app, &new.hotkey, &new.capture_hotkey) {
             state.warn(e.clone());
             if old.is_some() {
                 let _ = app.emit("toast", e);
@@ -278,4 +278,9 @@ mod tests {
         assert!(regex_check(r"[A-Z]+-\d+").is_ok());
         assert!(regex_check(r"[A-Z+-\d+").is_err());
     }
+}
+
+/// The chrono format for timestamps, from `timestampFormat` (`yyyy-MM-dd HH:mm` style).
+pub fn timestamp_format(s: &Settings) -> String {
+    stash_core::settings::chrono_format(&s.timestamp_format)
 }

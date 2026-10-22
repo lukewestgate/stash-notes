@@ -17,6 +17,10 @@ pub struct Settings {
     pub vault_path: String,
     /// Global show/hide hotkey.
     pub hotkey: String,
+    /// Global quick capture hotkey.
+    pub capture_hotkey: String,
+    /// How Ctrl+; and quick capture write timestamps (yyyy MM dd HH mm ss).
+    pub timestamp_format: String,
     pub on_summon: OnSummon,
     /// When launched at login, stay in the tray instead of showing the window.
     pub start_hidden: bool,
@@ -108,6 +112,8 @@ impl Default for Settings {
         Settings {
             vault_path: String::new(),
             hotkey: "Alt+N".into(),
+            capture_hotkey: "Alt+J".into(),
+            timestamp_format: "yyyy-MM-dd HH:mm".into(),
             on_summon: OnSummon::Last,
             start_hidden: true,
             autostart: true,
@@ -198,9 +204,51 @@ impl Settings {
     }
 }
 
+/// Convert a `yyyy-MM-dd HH:mm` style format into a chrono format string.
+/// Supported: yyyy, yy, MM, dd, HH, hh, mm, ss, a (am/pm); other text is kept.
+pub fn chrono_format(f: &str) -> String {
+    let mut out = String::new();
+    let mut rest = f;
+    const TOKENS: [(&str, &str); 9] = [
+        ("yyyy", "%Y"),
+        ("yy", "%y"),
+        ("MM", "%m"),
+        ("dd", "%d"),
+        ("HH", "%H"),
+        ("hh", "%I"),
+        ("mm", "%M"),
+        ("ss", "%S"),
+        ("a", "%P"),
+    ];
+    'outer: while !rest.is_empty() {
+        for (t, c) in TOKENS {
+            if let Some(r) = rest.strip_prefix(t) {
+                out.push_str(c);
+                rest = r;
+                continue 'outer;
+            }
+        }
+        let ch = rest.chars().next().unwrap();
+        if ch == '%' {
+            out.push_str("%%");
+        } else {
+            out.push(ch);
+        }
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timestamp_formats() {
+        assert_eq!(chrono_format("yyyy-MM-dd HH:mm"), "%Y-%m-%d %H:%M");
+        assert_eq!(chrono_format("dd/MM/yy hh:mm a"), "%d/%m/%y %I:%M %P");
+        assert_eq!(chrono_format("[100%]"), "[100%%]");
+    }
 
     #[test]
     fn partial_json_fills_defaults() {

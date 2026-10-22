@@ -104,6 +104,8 @@ export interface NotesViewSettings {
 export interface Settings {
   vaultPath: string;
   hotkey: string;
+  captureHotkey: string;
+  timestampFormat: string;
   onSummon: "last" | "daily";
   startHidden: boolean;
   autostart: boolean;
@@ -174,6 +176,9 @@ export const api = {
   pinClose: () => call<void>("pin_close"),
   pinSetOnTop: (on: boolean) => call<void>("pin_set_on_top", { on }),
   openInMain: (path: string) => call<void>("open_in_main", { path }),
+  captureSubmit: (text: string) => call<{ path: string; target: string }>("capture_submit", { text }),
+  captureHide: () => call<void>("capture_hide"),
+  captureResize: (height: number) => call<void>("capture_resize", { height }),
   resolveLink: (target: string) => call<string>("resolve_link", { target }),
   createNote: (title: string) => call<string>("create_note", { title }),
   dailyNote: (date: string) => call<string>("daily_note", { date }),

@@ -17,4 +17,5 @@ const target = document.getElementById("app")!;
 const kind = await windowKind();
 document.documentElement.dataset.window = kind;
 if (kind === "pin") mount((await import("./PinnedApp.svelte")).default, { target });
+else if (kind === "capture") mount((await import("./CaptureApp.svelte")).default, { target });
 else mount((await import("./App.svelte")).default, { target });

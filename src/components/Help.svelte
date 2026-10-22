@@ -5,13 +5,15 @@
   interface Props {
     keys: Keys;
     hotkey: string;
+    captureHotkey: string;
     settingsPath: string;
     vaultPath: string;
   }
-  let { keys, hotkey, settingsPath, vaultPath }: Props = $props();
+  let { keys, hotkey, captureHotkey, settingsPath, vaultPath }: Props = $props();
 
   const rows = $derived<[string, string, string?][]>([
     [hotkey, "Show or hide Stash Notes", "global, works from any app"],
+    [captureHotkey, "Quick capture a line", "global; start with a ticket key or [] for a todo"],
     [keys.hide, "Close overlay, else hide the window"],
     [keys.quickSwitcher, "Quick switcher: find, open or create a note", "with text selected: link it"],
     [keys.dailyNote, "Today's daily note"],

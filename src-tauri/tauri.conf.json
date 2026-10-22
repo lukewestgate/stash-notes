@@ -22,6 +22,22 @@
         "center": true,
         "visible": false,
         "skipTaskbar": true
+      },
+      {
+        "label": "capture",
+        "title": "Quick capture",
+        "url": "index.html",
+        "width": 600,
+        "height": 78,
+        "decorations": false,
+        "resizable": true,
+        "visible": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "focus": true,
+        "shadow": true,
+        "minHeight": 60,
+        "minWidth": 400
       }
     ],
     "security": {
@@ -30,7 +46,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "category": "Productivity",
     "shortDescription": "Keyboard-first, always-resident notepad for work",
     "icon": [
@@ -41,8 +59,12 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
-      "nsis": { "installMode": "currentUser" }
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
   }
 }

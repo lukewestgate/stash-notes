@@ -12,6 +12,8 @@ const today = isoDate();
 const settings: Settings = {
   vaultPath: "(browser demo – nothing is saved)",
   hotkey: "Alt+N",
+  captureHotkey: "Alt+J",
+  timestampFormat: "yyyy-MM-dd HH:mm",
   onSummon: "last",
   startHidden: true,
   autostart: true,
@@ -258,6 +260,17 @@ export function handle(cmd: string, a: A): unknown {
       window.close();
       return;
     case "pin_set_on_top":
+      return;
+    case "capture_submit": {
+      const t = String(a.text).trim();
+      const key = /^([A-Z][A-Z0-9]+-\d+)\s+(.*)$/s.exec(t);
+      const path = key ? ensure(key[1]) : ensure(today);
+      serverEdit(path, `${notes.get(path)!.trimEnd()}\n- ${today} 12:00 ${key ? key[2] : t}\n`);
+      changed(path);
+      return { path, target: key ? key[1] : "Today" };
+    }
+    case "capture_hide":
+    case "capture_resize":
       return;
     case "open_in_main":
       mockEmit("open-note", a.path);

@@ -2,6 +2,7 @@
 //! window; the web UI only draws and sends commands.
 
 mod buffers;
+mod capture;
 mod commands;
 mod config;
 mod hotkey;
@@ -61,6 +62,17 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == capture::LABEL {
+                // Clicking elsewhere puts the box away (its text is kept for next time).
+                if let WindowEvent::Focused(false) = event {
+                    capture::hide(window.app_handle());
+                }
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    capture::hide(window.app_handle());
+                }
+                return;
+            }
             if pins::is_pin(window.label()) {
                 match event {
                     WindowEvent::CloseRequested { api, .. } => {
@@ -101,6 +113,9 @@ pub fn run() {
             commands::buffer_pull,
             commands::buffer_resolve,
             commands::buffer_flush,
+            commands::capture_submit,
+            commands::capture_hide,
+            commands::capture_resize,
             commands::pin_toggle,
             commands::pin_path,
             commands::pin_close,

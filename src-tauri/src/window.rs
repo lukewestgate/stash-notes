@@ -20,9 +20,8 @@ pub fn show(app: &AppHandle) {
     let _ = w.show();
     let _ = w.unminimize();
     let _ = w.set_focus();
-    #[cfg(windows)]
-    force_foreground(&w);
-    let _ = app.emit("summoned", ());
+    focus_hard(&w);
+    let _ = app.emit_to(MAIN, "summoned", ());
 }
 
 /// Hide to the tray. Windows hands focus back to the previously active window.
@@ -42,6 +41,14 @@ pub fn toggle(app: &AppHandle) {
     } else {
         show(app);
     }
+}
+
+/// Make sure `w` really gets keyboard focus (see `force_foreground`).
+pub fn focus_hard(w: &WebviewWindow) {
+    #[cfg(windows)]
+    force_foreground(w);
+    #[cfg(not(windows))]
+    let _ = w;
 }
 
 /// Windows' foreground lock can refuse focus to a window shown by a background

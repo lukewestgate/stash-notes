@@ -124,6 +124,22 @@ pub fn open_in_main(app: AppHandle, path: String) {
     let _ = app.emit_to(window::MAIN, "open-note", path);
 }
 
+/// Quick capture: append the text to its note (see capture.rs).
+#[tauri::command]
+pub fn capture_submit(app: AppHandle, text: String) -> Res<crate::capture::Captured> {
+    crate::capture::submit(&app, &text)
+}
+
+#[tauri::command]
+pub fn capture_hide(app: AppHandle) {
+    crate::capture::hide(&app);
+}
+
+#[tauri::command]
+pub fn capture_resize(app: AppHandle, height: f64) {
+    crate::capture::resize(&app, height);
+}
+
 /// After a conflict: reload from disk, or keep the buffer and save it.
 #[tauri::command]
 pub fn buffer_resolve(app: AppHandle, path: String, reload: bool) -> Res<()> {
@@ -140,7 +156,7 @@ pub fn buffer_flush(app: AppHandle, path: Option<String>) {
 }
 
 /// Get the path for `target` (ticket key, date or title), creating the note if needed.
-fn ensure_note(state: &AppState, target: &str) -> Res<String> {
+pub fn ensure_note(state: &AppState, target: &str) -> Res<String> {
     let target = target.trim();
     if target.is_empty() {
         return Err("empty note name".into());
