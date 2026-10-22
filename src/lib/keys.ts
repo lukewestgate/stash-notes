@@ -78,3 +78,19 @@ export function formatKey(spec: string): string {
     k.key.length === 1 ? k.key.toUpperCase() : k.key === "esc" ? "Esc" : k.key[0].toUpperCase() + k.key.slice(1);
   return [k.ctrl && "Ctrl", k.alt && "Alt", k.shift && "Shift", k.meta && "Win", name].filter(Boolean).join("+");
 }
+
+/** A chord like "Ctrl+E P": the keys pressed one after the other. */
+export function parseChord(spec: string): KeySpec[] {
+  return spec
+    .trim()
+    .split(/\s+/)
+    .map(parseKey)
+    .filter((k): k is KeySpec => k !== null);
+}
+
+/** Does `e` match the chord's second key? Holding the first key's modifiers is fine too ("Ctrl+P"). */
+export function matchesChordTail(e: KeyboardEvent, chord: KeySpec[]): boolean {
+  const [first, second] = chord;
+  if (!second) return false;
+  return matches(e, second) || matches(e, { ...second, ctrl: second.ctrl || first.ctrl, alt: second.alt || first.alt });
+}

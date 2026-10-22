@@ -2,6 +2,7 @@
 //! the in-memory index and fuzzy search. Nothing in here knows about Tauri,
 //! so it can be unit tested on any platform.
 
+pub mod changes;
 pub mod dates;
 pub mod frontmatter;
 pub mod index;

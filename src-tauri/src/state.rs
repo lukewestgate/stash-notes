@@ -19,6 +19,8 @@ pub struct Session {
     pub recents: HashMap<String, i64>,
     /// Small UI preferences the app remembers (sidebar width, etc.).
     pub ui: serde_json::Map<String, serde_json::Value>,
+    /// Pinned windows, restored at login.
+    pub pins: Vec<crate::pins::Pin>,
 }
 
 const MAX_RECENTS: usize = 300;

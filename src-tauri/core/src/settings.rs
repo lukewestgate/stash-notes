@@ -36,6 +36,8 @@ pub struct Settings {
     pub live_formatting: bool,
     /// Turn pasted Jira links into keys and Gerrit links into front matter.
     pub smart_paste: bool,
+    /// Reopen pinned notes at login.
+    pub restore_pinned: bool,
     pub notes_view: NotesViewSettings,
     /// Status list, in display order.
     pub statuses: Vec<StatusDef>,
@@ -97,6 +99,8 @@ pub struct Keys {
     pub notes_view: String,
     pub toggle_sidebar: String,
     pub focus_sidebar: String,
+    /// A two-key chord: the first key, then the second (space separated).
+    pub pin_note: String,
 }
 
 impl Default for Settings {
@@ -117,6 +121,7 @@ impl Default for Settings {
             font_size: 14,
             live_formatting: true,
             smart_paste: true,
+            restore_pinned: true,
             notes_view: NotesViewSettings::default(),
             statuses: default_statuses(),
             default_status: "open".into(),
@@ -164,6 +169,7 @@ impl Default for Keys {
             notes_view: "Ctrl+L".into(),
             toggle_sidebar: "Ctrl+\\".into(),
             focus_sidebar: "Ctrl+0".into(),
+            pin_note: "Ctrl+E P".into(),
         }
     }
 }

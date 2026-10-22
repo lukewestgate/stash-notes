@@ -28,6 +28,7 @@
     [keys.backlinks, "Expand / collapse backlinks"],
     [keys.archive, "Archive / unarchive note"],
     [keys.setStatus, "Set status", "1–5 pick directly; closed also archives"],
+    [keys.pinNote.replace(" ", ", then "), "Pop the note out into a pinned window (again to close)"],
     [keys.help, "This help"],
   ]);
   const extra = $derived<[string, string][]>([
@@ -54,7 +55,7 @@
         <tbody>
           {#each rows as [k, what, note]}
             <tr>
-              <td class="key"><kbd>{formatKey(k)}</kbd></td>
+              <td class="key"><kbd>{k.includes(", then") ? k : formatKey(k)}</kbd></td>
               <td>{what}{#if note}<span class="note">&nbsp;— {note}</span>{/if}</td>
             </tr>
           {/each}

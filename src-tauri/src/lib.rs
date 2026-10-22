@@ -1,9 +1,11 @@
 //! Stash Notes: a tray-resident notepad. Rust owns files, search and the
 //! window; the web UI only draws and sends commands.
 
+mod buffers;
 mod commands;
 mod config;
 mod hotkey;
+mod pins;
 mod state;
 mod tray;
 mod window;
@@ -42,6 +44,7 @@ pub fn run() {
                 state.warn(format!("ticketPattern `{}` is not a valid regex; using the default", settings.ticket_pattern));
             }
             app.manage(state);
+            app.manage(buffers::Buffers::default());
 
             config::apply_settings(&handle, None, &settings);
             tray::build(&handle)?;
@@ -51,9 +54,24 @@ pub fn run() {
             if !(from_login && settings.start_hidden) {
                 window::show(&handle);
             }
+            // After the main window, so pinned notes end up on top of it.
+            if settings.restore_pinned {
+                pins::restore(&handle);
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
+            if pins::is_pin(window.label()) {
+                match event {
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        pins::close(window.app_handle(), window.label());
+                    }
+                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => pins::remember_geometry(window.app_handle(), window.label()),
+                    _ => {}
+                }
+                return;
+            }
             if window.label() != window::MAIN {
                 return;
             }
@@ -77,9 +95,17 @@ pub fn run() {
             commands::get_startup,
             commands::get_settings,
             commands::set_settings,
-            commands::open_note,
-            commands::read_note,
-            commands::save_note,
+            commands::buffer_open,
+            commands::buffer_close,
+            commands::buffer_push,
+            commands::buffer_pull,
+            commands::buffer_resolve,
+            commands::buffer_flush,
+            commands::pin_toggle,
+            commands::pin_path,
+            commands::pin_close,
+            commands::pin_set_on_top,
+            commands::open_in_main,
             commands::resolve_link,
             commands::create_note,
             commands::daily_note,

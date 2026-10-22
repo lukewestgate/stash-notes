@@ -28,6 +28,7 @@ pub fn show(app: &AppHandle) {
 /// Hide to the tray. Windows hands focus back to the previously active window.
 pub fn hide(app: &AppHandle) {
     let Some(w) = main_window(app) else { return };
+    crate::buffers::flush_all(app);
     let _ = app.save_window_state(state_flags());
     let _ = w.hide();
 }

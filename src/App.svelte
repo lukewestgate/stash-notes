@@ -12,7 +12,8 @@
   import StatusPicker from "./components/StatusPicker.svelte";
   import NotesView, { type NotesViewState } from "./components/NotesView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
-  import { api, on, onWindowFocus, type Keys, type NoteData, type NoteMeta, type SearchHit, type Settings } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings } from "./lib/api";
+  import { NoteSync } from "./lib/buffer";
   import {
     decoConfig,
     editorExtensions,
@@ -24,7 +25,7 @@
   import { liveConfig, propertiesHooks } from "./lib/live";
   import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
-  import { formatKey, matches, parseKey, type KeySpec } from "./lib/keys";
+  import { formatKey, matches, matchesChordTail, parseChord, parseKey, type KeySpec } from "./lib/keys";
   import {
     checkboxToggle,
     firstTicket,
@@ -53,8 +54,6 @@
     action?: { label: string; run: () => void };
   }
 
-  const AUTOSAVE_MS = 300;
-
   let settings = $state<Settings | null>(null);
   let vaultPath = $state("");
   let settingsPath = $state("");
@@ -65,8 +64,8 @@
   let backlinksOpen = $state(false);
   let overlay = $state<Overlay | null>(null);
   let toasts = $state<Toast[]>([]);
-  /** Set when the open note changed on disk while we had unsaved edits (or it vanished). */
-  let conflict = $state<{ disk: string | null } | null>(null);
+  /** Set when the open note changed on disk while it had unsaved edits (or it vanished). */
+  let conflict = $state<{ deleted: boolean } | null>(null);
   let nav = $state({ canBack: false, canForward: false });
   /** What fills the main area. The editor stays mounted underneath full-window views. */
   let screen = $state<"editor" | "notes">("editor");
@@ -91,14 +90,17 @@
   let extensions: Extension[];
   const hist = new History();
   let currentPath = $state<string | null>(null);
-  let savedContent = "";
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
-  let saveChain: Promise<void> = Promise.resolve();
-  /** Write even if the text matches what we last loaded ("Keep mine" after a conflict). */
-  let forceSave = false;
+  /** Sync with the Rust-owned buffer of the open note. */
+  let sync: NoteSync | null = null;
+  /** The buffer has edits not yet written to disk. */
+  let serverDirty = false;
   let tickets = ticketRegex("[A-Z][A-Z0-9]+-\\d+");
   let keySpecs: Partial<Record<keyof Keys, KeySpec | null>> = {};
   let toastId = 0;
+  let pinChord: KeySpec[] = [];
+  /** The first key of a chord was pressed; shows the hint until the second (or 1.5 s). */
+  let chordPending = $state(false);
+  let chordTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ---------- small helpers ----------
 
@@ -135,6 +137,8 @@
   function applySettings(s: Settings) {
     settings = s;
     keySpecs = Object.fromEntries(Object.entries(s.keys).map(([k, v]) => [k, parseKey(v)]));
+    pinChord = parseChord(s.keys.pinNote);
+    keySpecs.pinNote = null; // a chord, handled separately
     tickets = ticketRegex(s.ticketPattern);
     decoConfig.tickets = tickets;
     const root = document.documentElement;
@@ -164,54 +168,35 @@
   }
 
   // ---------- saving ----------
+  // Rust owns the text and autosaves it; the editor only pushes its edits.
 
-  function save(): Promise<void> {
-    saveChain = saveChain.then(async () => {
-      if (!currentPath || conflict) return;
-      const content = docText();
-      if (content === savedContent && !forceSave) {
-        dirty = false;
-        return;
-      }
-      const path = currentPath;
-      try {
-        const m = await api.saveNote(path, content);
-        forceSave = false;
-        if (path === currentPath) {
-          savedContent = content;
-          meta = m;
-          dirty = docText() !== content;
-          hasKey = computeHasKey();
-        }
-      } catch (e) {
-        toast(`Could not save: ${e}`);
-      }
-    });
-    return saveChain;
+  function updateDirty() {
+    dirty = serverDirty || (sync?.pending ?? false);
   }
 
-  function flush(): Promise<void> {
-    clearTimeout(saveTimer);
-    return save();
+  /** Push local edits and have Rust write the note now. */
+  async function flush(): Promise<void> {
+    if (!sync) return;
+    await sync.drain();
+    await api.bufferFlush(sync.path).catch(() => {});
   }
 
   function onDocChange() {
-    dirty = true;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(save, AUTOSAVE_MS);
+    sync?.push().then(updateDirty);
+    updateDirty();
   }
 
   // ---------- opening notes ----------
 
   /** Where the cursor goes when a note is opened fresh. */
-  function defaultCursor(data: NoteData): number {
-    if (data.meta.kind === "daily") return todoCursor(data.content) ?? data.content.length;
+  function defaultCursor(data: Opened): number {
+    if (data.meta.kind === "daily") return todoCursor(data.text) ?? data.text.length;
     // A ticket with no name yet: put the caret after `# PROJ-123 ` so the name can be typed.
     if (data.meta.kind === "ticket" && !data.meta.label) {
-      const m = /^# .*$/m.exec(data.content);
+      const m = /^# .*$/m.exec(data.text);
       if (m) return m.index + m[0].length;
     }
-    return data.content.length;
+    return data.text.length;
   }
 
   /** Remember cursor and scroll for the entry on screen. */
@@ -231,15 +216,21 @@
       requestAnimationFrame(() => notesView?.focus());
       return;
     }
-    const data = await api.openNote(path);
+    const data = await api.bufferOpen(path);
+    if (sync && sync.path !== path) {
+      const old = sync.path;
+      sync.close();
+      api.bufferClose(old).catch(() => {});
+    } else sync?.close();
     screen = "editor";
     currentPath = path;
-    savedContent = data.content;
     meta = data.meta;
-    dirty = false;
-    conflict = null;
-    view.setState(EditorState.create({ doc: data.content, extensions }));
-    const len = data.content.length;
+    serverDirty = data.dirty;
+    conflict = data.deleted ? { deleted: true } : null;
+    view.setState(EditorState.create({ doc: data.text, extensions: [extensions, NoteSync.extension(data)] }));
+    sync = new NoteSync(path, view, () => reopen());
+    updateDirty();
+    const len = data.text.length;
     const anchor = restore && entry && entry.anchor >= 0 ? Math.min(entry.anchor, len) : defaultCursor(data);
     view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
     if (restore && entry) {
@@ -252,6 +243,13 @@
     refreshSidebar();
     if (sideOverlay) sideExpanded = false;
     focusEditor();
+  }
+
+  /** The view fell behind its buffer: load it again where we are. */
+  async function reopen() {
+    if (!currentPath) return;
+    remember();
+    await show(currentPath, hist.current, true).catch(fail);
   }
 
   async function refreshSidebar() {
@@ -485,6 +483,7 @@
 
   function moved(from: string, to: string) {
     hist.rename(from, to);
+    if (sync?.path === from) sync.path = to;
     if (currentPath === from) {
       currentPath = to;
       if (meta) meta = { ...meta, path: to, archived: to.startsWith("archive/") };
@@ -580,18 +579,30 @@
     try {
       if (path === currentPath) await flush();
       const r = await api.setStatus(path, status);
-      if (path === currentPath) {
-        if (r.edit) view.dispatch({ changes: r.edit });
-        savedContent = docText();
-        dirty = false;
-        meta = r.meta;
-      }
+      // An open note receives the edit through its buffer.
+      if (path === currentPath) meta = r.meta;
       if (r.path !== path) {
         moved(path, r.path);
         toast(r.meta.archived ? "Closed — moved to the archive" : "Reopened — moved out of the archive");
       }
       listVersion++;
       refreshSide();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  // ---------- pinned notes ----------
+
+  /** Pop the current note (or the focused sidebar / Notes view row) out, or close its pinned window. */
+  async function togglePin() {
+    const hit = sidebarHasFocus() ? sidebar?.focusedHit() : screen === "notes" ? notesView?.selected() : null;
+    const path = hit?.path ?? (screen === "editor" ? currentPath : null);
+    if (!path) return;
+    try {
+      await flush();
+      const pinned = await api.pinToggle(path);
+      toast(pinned ? "Pinned — it stays on top beside your work" : "Unpinned");
     } catch (e) {
       fail(e);
     }
@@ -673,49 +684,35 @@
     }, 150);
   }
 
-  async function onVaultChanged(paths: string[]) {
+  function onVaultChanged() {
     refreshSide();
     listVersion++;
-    const path = currentPath;
-    if (!path || !paths.includes(path)) return;
-    const disk = await api.readNote(path).catch(() => undefined);
-    if (disk === undefined || path !== currentPath || disk === savedContent) return;
-    const current = docText();
-    if (disk === current) {
-      savedContent = disk;
-      dirty = false;
-      return;
-    }
-    if (disk !== null && current === savedContent && !dirty) {
-      reloadFromDisk(disk);
-    } else {
-      conflict = { disk };
-    }
   }
 
-  async function reloadFromDisk(text: string) {
-    const anchor = Math.min(head(), text.length);
-    const scroll = view.scrollDOM.scrollTop;
-    savedContent = text;
-    view.setState(EditorState.create({ doc: text, extensions, selection: { anchor } }));
-    requestAnimationFrame(() => (view.scrollDOM.scrollTop = scroll));
-    dirty = false;
-    conflict = null;
-    if (currentPath) {
-      try {
-        meta = (await api.openNote(currentPath)).meta;
-      } catch {
-        // keep old meta
-      }
+  function onBufferState(ev: { path: string; dirty: boolean; meta: NoteMeta | null }) {
+    if (ev.path !== currentPath) return;
+    serverDirty = ev.dirty;
+    if (ev.meta) {
+      meta = ev.meta;
+      hasKey = computeHasKey();
     }
-    hasKey = computeHasKey();
-    focusEditor();
+    if (!ev.dirty && conflict && !conflict.deleted) conflict = null;
+    updateDirty();
   }
 
-  function keepMine() {
-    conflict = null;
-    forceSave = true;
-    flush();
+  function onBufferConflict(ev: { path: string; deleted: boolean }) {
+    if (ev.path === currentPath) conflict = { deleted: ev.deleted };
+  }
+
+  async function resolveConflict(reload: boolean) {
+    if (!currentPath) return;
+    try {
+      await sync?.drain();
+      await api.bufferResolve(currentPath, reload);
+      conflict = null;
+    } catch (e) {
+      fail(e);
+    }
     focusEditor();
   }
 
@@ -778,6 +775,7 @@
       } else pickStatus();
     },
     notesView: () => openNotesView(),
+    pinNote: () => togglePin(),
     toggleSidebar: () => setSideExpanded(!sideExpanded),
     focusSidebar: () => {
       if (sidebarHasFocus()) focusMain();
@@ -810,6 +808,23 @@
       e.preventDefault();
       e.stopPropagation();
     };
+
+    if (chordPending && !["Control", "Shift", "Alt", "Meta"].includes(e.key)) {
+      chordPending = false;
+      clearTimeout(chordTimer);
+      if (matchesChordTail(e, pinChord)) {
+        stop();
+        togglePin();
+        return;
+      }
+    }
+    if (!overlay && pinChord.length === 2 && matches(e, pinChord[0])) {
+      stop();
+      chordPending = true;
+      clearTimeout(chordTimer);
+      chordTimer = setTimeout(() => (chordPending = false), 1500);
+      return;
+    }
 
     if (overlay) {
       if (is("hide") || (overlay.type === "help" && is("help"))) {
@@ -896,6 +911,11 @@
     const unlisten: Promise<() => void>[] = [
       on<null>("summoned", onSummoned),
       on<string[]>("vault-changed", onVaultChanged),
+      on<{ path: string; dirty: boolean; meta: NoteMeta | null }>("buffer-state", onBufferState),
+      on<{ path: string; deleted: boolean }>("buffer-conflict", onBufferConflict),
+      on<{ from: string; to: string }>("note-moved", (m) => moved(m.from, m.to)),
+      on<string>("open-note", (p) => navigate(p)),
+      on<null>("open-settings", () => actions.openSettings()),
       on<null>("index-ready", refreshSide),
       on<null>("open-daily", openDaily),
       on<null>("quit-requested", quit),
@@ -1004,14 +1024,14 @@
 
   {#if conflict}
     <div class="conflict" role="alert">
-      {#if conflict.disk === null}
+      {#if conflict.deleted}
         <span>This note was deleted or moved outside the app.</span>
-        <button onclick={keepMine}>Keep editing (recreates it)</button>
+        <button onclick={() => resolveConflict(false)}>Keep editing (recreates it)</button>
         <button onclick={back}>Go back</button>
       {:else}
         <span>This note changed on disk while you had unsaved edits.</span>
-        <button onclick={() => reloadFromDisk(conflict!.disk!)}>Reload from disk</button>
-        <button onclick={keepMine}>Keep mine</button>
+        <button onclick={() => resolveConflict(true)}>Reload from disk</button>
+        <button onclick={() => resolveConflict(false)}>Keep mine</button>
       {/if}
     </div>
   {/if}
@@ -1073,6 +1093,13 @@
     <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} onChoose={(st) => applyStatus(o.path, st)} />
   {:else if overlay?.type === "picker"}
     <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} />
+  {/if}
+
+  {#if chordPending && settings}
+    <div class="chord">
+      <kbd>{formatKey(settings.keys.pinNote.split(/\s+/)[0])}</kbd> then
+      <kbd>{settings.keys.pinNote.split(/\s+/)[1] ?? "P"}</kbd> pin or unpin this note
+    </div>
   {/if}
 
   <div class="toasts" aria-live="polite">
@@ -1142,6 +1169,23 @@
     border-radius: 5px;
     padding: 2px 8px;
     cursor: pointer;
+  }
+  .chord {
+    position: fixed;
+    left: 50%;
+    bottom: 34px;
+    transform: translateX(-50%);
+    padding: 5px 12px;
+    font-size: 12.5px;
+    background: var(--toast-bg);
+    color: var(--toast-fg);
+    border-radius: 7px;
+    box-shadow: var(--shadow);
+    z-index: 41;
+  }
+  .chord kbd {
+    font: inherit;
+    font-weight: 600;
   }
   .toasts {
     position: fixed;

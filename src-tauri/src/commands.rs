@@ -2,7 +2,7 @@
 //! every read and write goes through here and is confined to the vault.
 
 use crate::state::{now_ms, AppState};
-use crate::window;
+use crate::{buffers, window};
 use serde::Serialize;
 use stash_core::frontmatter;
 use stash_core::index::{SearchHit, SearchOptions, SearchResults};
@@ -59,51 +59,84 @@ pub fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) 
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoteData {
-    content: String,
-    meta: NoteMeta,
-}
-
 fn meta_for(state: &AppState, path: &str, content: &str) -> NoteMeta {
     note::parse_meta(path, content, &state.tickets())
 }
 
-/// Open a note for editing and record it as recently opened.
+// ---------- note buffers (see buffers.rs) ----------
+
+/// Open a note in the calling window. Opening in the main window also
+/// records it as recently opened.
 #[tauri::command]
-pub fn open_note(state: State<AppState>, path: String) -> Res<NoteData> {
+pub fn buffer_open(app: AppHandle, window: tauri::Window, state: State<AppState>, path: String) -> Res<buffers::Opened> {
     let path = Vault::clean(&path).map_err(err)?;
-    let content = state.vault.read().unwrap().read(&path).map_err(err)?;
-    {
+    let opened = buffers::open(&app, window.label(), &path)?;
+    if window.label() == window::MAIN {
         let mut s = state.session.lock().unwrap();
         s.touch(&path, now_ms());
         s.last_path = Some(path.clone());
     }
     state.save_session();
-    Ok(NoteData { meta: meta_for(&state, &path, &content), content })
-}
-
-/// Current text on disk, or None if the file is gone (used after external changes).
-#[tauri::command]
-pub fn read_note(state: State<AppState>, path: String) -> Res<Option<String>> {
-    let vault = state.vault.read().unwrap();
-    if !vault.exists(&path) {
-        return Ok(None);
-    }
-    vault.read(&path).map(Some).map_err(err)
+    Ok(opened)
 }
 
 #[tauri::command]
-pub fn save_note(app: AppHandle, state: State<AppState>, path: String, content: String) -> Res<NoteMeta> {
-    let path = Vault::clean(&path).map_err(err)?;
-    let mtime = state.vault.read().unwrap().write(&path, &content).map_err(err)?;
-    let old_status = state.index.read().unwrap().get(&path).and_then(|e| e.meta.status.clone());
-    let entry_status = state.index.write().unwrap().upsert(&path, &content, mtime).meta.status.clone();
-    if old_status != entry_status {
-        crate::tray::refresh_tooltip(&app);
+pub fn buffer_close(app: AppHandle, window: tauri::Window, path: String) {
+    buffers::close(&app, window.label(), &path);
+}
+
+#[tauri::command]
+pub fn buffer_push(app: AppHandle, path: String, version: u64, updates: Vec<buffers::Update>) -> Res<bool> {
+    buffers::push(&app, &path, version, updates)
+}
+
+#[tauri::command]
+pub fn buffer_pull(app: AppHandle, path: String, version: u64) -> Option<Vec<buffers::Update>> {
+    buffers::pull(&app, &path, version)
+}
+
+/// Pop a note out into its own window, or close its pinned window.
+#[tauri::command]
+pub fn pin_toggle(app: AppHandle, path: String) -> Res<bool> {
+    crate::pins::toggle(&app, &Vault::clean(&path).map_err(err)?)
+}
+
+/// The note a pinned window shows.
+#[tauri::command]
+pub fn pin_path(app: AppHandle, window: tauri::Window) -> Option<String> {
+    crate::pins::path_of(&app, window.label())
+}
+
+#[tauri::command]
+pub fn pin_close(app: AppHandle, window: tauri::Window) {
+    crate::pins::close(&app, window.label());
+}
+
+#[tauri::command]
+pub fn pin_set_on_top(app: AppHandle, window: tauri::Window, on: bool) {
+    crate::pins::set_on_top(&app, window.label(), on);
+}
+
+/// Open a note in the main window (links followed inside a pinned window).
+#[tauri::command]
+pub fn open_in_main(app: AppHandle, path: String) {
+    window::show(&app);
+    let _ = app.emit_to(window::MAIN, "open-note", path);
+}
+
+/// After a conflict: reload from disk, or keep the buffer and save it.
+#[tauri::command]
+pub fn buffer_resolve(app: AppHandle, path: String, reload: bool) -> Res<()> {
+    buffers::resolve(&app, &path, reload)
+}
+
+/// Save now (all open notes when `path` is None).
+#[tauri::command]
+pub fn buffer_flush(app: AppHandle, path: Option<String>) {
+    match path {
+        Some(p) => buffers::flush(&app, &p),
+        None => buffers::flush_all(&app),
     }
-    Ok(meta_for(&state, &path, &content))
 }
 
 /// Get the path for `target` (ticket key, date or title), creating the note if needed.
@@ -164,6 +197,7 @@ pub fn daily_note(state: State<AppState>, date: String) -> Res<String> {
 #[tauri::command]
 pub fn archive_note(app: AppHandle, state: State<AppState>, path: String) -> Res<String> {
     let path = Vault::clean(&path).map_err(err)?;
+    buffers::flush(&app, &path);
     let to = Vault::archive_target(&path);
     {
         let vault = state.vault.read().unwrap();
@@ -176,6 +210,7 @@ pub fn archive_note(app: AppHandle, state: State<AppState>, path: String) -> Res
     }
     state.session.lock().unwrap().moved(&path, &to);
     state.save_session();
+    buffers::moved(&app, &path, &to);
     crate::tray::refresh_tooltip(&app);
     Ok(to)
 }
@@ -190,8 +225,9 @@ pub struct RenameResult {
 }
 
 #[tauri::command]
-pub fn rename_note(state: State<AppState>, path: String, title: String) -> Res<RenameResult> {
+pub fn rename_note(app: AppHandle, state: State<AppState>, path: String, title: String) -> Res<RenameResult> {
     let path = Vault::clean(&path).map_err(err)?;
+    buffers::flush_all(&app);
     let tickets = state.tickets();
     let outcome = {
         let vault = state.vault.read().unwrap();
@@ -206,6 +242,13 @@ pub fn rename_note(state: State<AppState>, path: String, title: String) -> Res<R
     }
     state.session.lock().unwrap().moved(&path, &outcome.new_path);
     state.save_session();
+    if outcome.new_path != path {
+        buffers::moved(&app, &path, &outcome.new_path);
+    }
+    // Open notes whose links were rewritten (and the renamed note's heading) reload.
+    for p in &outcome.changed {
+        buffers::disk_changed(&app, p);
+    }
     let id = state.next_undo.fetch_add(1, Ordering::Relaxed);
     let files_changed = outcome.changed.len().saturating_sub(1);
     state.undo.lock().unwrap().insert(id, outcome.undo);
@@ -214,13 +257,20 @@ pub fn rename_note(state: State<AppState>, path: String, title: String) -> Res<R
 
 /// Undo a rename. Returns the restored (original) path.
 #[tauri::command]
-pub fn undo_rename(state: State<AppState>, undo_id: u64) -> Res<String> {
+pub fn undo_rename(app: AppHandle, state: State<AppState>, undo_id: u64) -> Res<String> {
     let undo = state.undo.lock().unwrap().remove(&undo_id).ok_or("nothing to undo")?;
+    buffers::flush_all(&app);
     let touched = state.vault.read().unwrap().undo_rename(&undo).map_err(err)?;
     for p in &touched {
         state.reindex(p);
     }
     state.session.lock().unwrap().moved(&undo.new_path, &undo.old_path);
+    if undo.new_path != undo.old_path {
+        buffers::moved(&app, &undo.new_path, &undo.old_path);
+    }
+    for p in &touched {
+        buffers::disk_changed(&app, p);
+    }
     state.save_session();
     Ok(undo.old_path)
 }
@@ -263,8 +313,12 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
     use stash_core::status::CLOSED;
     let path = Vault::clean(&path).map_err(err)?;
     let status = status.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
+    let open_text = buffers::text(&app, &path);
     let vault = state.vault.read().unwrap();
-    let content = vault.read(&path).map_err(err)?;
+    let content = match &open_text {
+        Some(t) => t.clone(),
+        None => vault.read(&path).map_err(err)?,
+    };
     let before = meta_for(&state, &path, &content);
     if before.kind == stash_core::NoteKind::Daily {
         return Err("daily notes don't have a status".into());
@@ -272,9 +326,19 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
     let edit = frontmatter::set_scalar(&content, "status", status.as_deref());
     let new_content = edit.as_ref().map(|e| e.apply(&content)).unwrap_or_else(|| content.clone());
     if edit.is_some() {
-        let mtime = vault.write(&path, &new_content).map_err(err)?;
-        state.index.write().unwrap().upsert(&path, &new_content, mtime);
+        if open_text.is_some() {
+            // Goes through the shared buffer so every window showing the note updates.
+            drop(vault);
+            buffers::apply_server_change(&app, &path, &new_content, true);
+        } else {
+            let mtime = vault.write(&path, &new_content).map_err(err)?;
+            state.index.write().unwrap().upsert(&path, &new_content, mtime);
+            drop(vault);
+        }
+    } else {
+        drop(vault);
     }
+    let vault = state.vault.read().unwrap();
     let closing = status.as_deref() == Some(CLOSED) && !before.archived;
     let reopening = status.as_deref() != Some(CLOSED) && before.archived && before.status.as_deref() == Some(CLOSED);
     let mut new_path = path.clone();
@@ -287,11 +351,15 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
         drop(index);
         state.session.lock().unwrap().moved(&path, &new_path);
         state.save_session();
+        drop(vault);
+        buffers::moved(&app, &path, &new_path);
+    } else {
+        drop(vault);
     }
-    drop(vault);
     crate::tray::refresh_tooltip(&app);
     Ok(StatusResult {
-        edit: edit.map(|e| TextEdit {
+        // Open notes already got the edit through their buffer.
+        edit: edit.filter(|_| open_text.is_none()).map(|e| TextEdit {
             from: frontmatter::utf16_offset(&content, e.from),
             to: frontmatter::utf16_offset(&content, e.to),
             insert: e.insert,
@@ -376,6 +444,7 @@ pub fn hide_window(app: AppHandle) {
 
 #[tauri::command]
 pub fn quit_app(app: AppHandle, state: State<AppState>) {
+    buffers::flush_all(&app);
     state.save_session();
     use tauri_plugin_window_state::AppHandleExt;
     let _ = app.save_window_state(window::state_flags());

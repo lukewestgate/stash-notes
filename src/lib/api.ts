@@ -21,9 +21,20 @@ export interface NoteMeta {
   status: string | null;
 }
 
-export interface NoteData {
-  content: string;
+/** A note opened in a window: its buffer's text and version (see buffers.rs). */
+export interface Opened {
+  text: string;
+  version: number;
   meta: NoteMeta;
+  dirty: boolean;
+  deleted: boolean;
+  clientID: string;
+}
+
+/** A CodeMirror change set (as JSON) and the view that made it. */
+export interface BufferUpdate {
+  changes: unknown;
+  clientID: string;
 }
 
 export interface SearchHit {
@@ -78,6 +89,7 @@ export interface Keys {
   notesView: string;
   toggleSidebar: string;
   focusSidebar: string;
+  pinNote: string;
 }
 
 export type SortBy = "edited" | "opened" | "status" | "title";
@@ -105,6 +117,7 @@ export interface Settings {
   fontSize: number;
   liveFormatting: boolean;
   smartPaste: boolean;
+  restorePinned: boolean;
   notesView: NotesViewSettings;
   statuses: StatusDef[];
   defaultStatus: string;
@@ -148,9 +161,19 @@ async function call<T>(cmd: string, args: Args = {}): Promise<T> {
 
 export const api = {
   startup: () => call<Startup>("get_startup"),
-  openNote: (path: string) => call<NoteData>("open_note", { path }),
-  readNote: (path: string) => call<string | null>("read_note", { path }),
-  saveNote: (path: string, content: string) => call<NoteMeta>("save_note", { path, content }),
+  getSettings: () => call<Settings>("get_settings"),
+  bufferOpen: (path: string) => call<Opened>("buffer_open", { path }),
+  bufferClose: (path: string) => call<void>("buffer_close", { path }),
+  bufferPush: (path: string, version: number, updates: BufferUpdate[]) =>
+    call<boolean>("buffer_push", { path, version, updates }),
+  bufferPull: (path: string, version: number) => call<BufferUpdate[] | null>("buffer_pull", { path, version }),
+  bufferResolve: (path: string, reload: boolean) => call<void>("buffer_resolve", { path, reload }),
+  bufferFlush: (path: string | null) => call<void>("buffer_flush", { path }),
+  pinToggle: (path: string) => call<boolean>("pin_toggle", { path }),
+  pinPath: () => call<string | null>("pin_path"),
+  pinClose: () => call<void>("pin_close"),
+  pinSetOnTop: (on: boolean) => call<void>("pin_set_on_top", { on }),
+  openInMain: (path: string) => call<void>("open_in_main", { path }),
   resolveLink: (target: string) => call<string>("resolve_link", { target }),
   createNote: (title: string) => call<string>("create_note", { title }),
   dailyNote: (date: string) => call<string>("daily_note", { date }),

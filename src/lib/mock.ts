@@ -4,6 +4,7 @@
 
 import type { NoteKind, NoteMeta, SearchHit, Settings, Startup } from "./api";
 import { mockEmit } from "./api";
+import { ChangeSet, Text } from "@codemirror/state";
 import { isoDate } from "./text";
 
 const today = isoDate();
@@ -24,6 +25,7 @@ const settings: Settings = {
   fontSize: 14,
   liveFormatting: true,
   smartPaste: true,
+  restorePinned: true,
   notesView: { showDaily: false, showClosed: false, sort: "edited", groupByStatus: false },
   statuses: [
     { name: "todo", symbol: "○", color: "blue", active: true },
@@ -54,6 +56,7 @@ const settings: Settings = {
     notesView: "Ctrl+L",
     toggleSidebar: "Ctrl+\\",
     focusSidebar: "Ctrl+0",
+    pinNote: "Ctrl+E P",
   },
 };
 
@@ -72,6 +75,19 @@ const notes = new Map<string, string>([
 ]);
 const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.now() - i * 60_000]));
 const recents = new Map<string, number>();
+const versions = new Map<string, number>();
+let clients = 0;
+
+/** Replace a note's text from the "backend", as a buffer update open views receive. */
+function serverEdit(path: string, next: string) {
+  const prev = notes.get(path) ?? "";
+  notes.set(path, next);
+  if (prev === next) return;
+  const v = versions.get(path) ?? 0;
+  versions.set(path, v + 1);
+  const changes = ChangeSet.of({ from: 0, to: prev.length, insert: next }, prev.length).toJSON();
+  setTimeout(() => mockEmit("buffer-updates", { path, version: v, updates: [{ changes, clientID: "app" }] }), 0);
+}
 
 const ticketFull = /^[A-Z][A-Z0-9]+-\d+$/;
 
@@ -200,18 +216,52 @@ export function handle(cmd: string, a: A): unknown {
       } satisfies Startup;
     case "get_settings":
       return settings;
-    case "open_note": {
+    case "buffer_open": {
       const text = notes.get(a.path);
       if (text === undefined) throw new Error(`no such note ${a.path}`);
       recents.set(a.path, Date.now());
-      return { content: text, meta: meta(a.path, text) };
+      return {
+        text,
+        version: versions.get(a.path) ?? 0,
+        meta: meta(a.path, text),
+        dirty: false,
+        deleted: false,
+        clientID: `mock-${++clients}`,
+      };
     }
-    case "read_note":
-      return notes.get(a.path) ?? null;
-    case "save_note":
-      notes.set(a.path, a.content);
+    case "buffer_push": {
+      const v = versions.get(a.path) ?? 0;
+      if (a.version !== v) return false;
+      let text = notes.get(a.path) ?? "";
+      for (const u of a.updates) text = ChangeSet.fromJSON(u.changes).apply(Text.of(text.split("\n"))).toString();
+      notes.set(a.path, text);
+      versions.set(a.path, v + a.updates.length);
       changed(a.path);
-      return meta(a.path, a.content);
+      setTimeout(() => {
+        mockEmit("buffer-updates", { path: a.path, version: v, updates: a.updates });
+        mockEmit("buffer-state", { path: a.path, dirty: false, meta: meta(a.path, text) });
+      }, 0);
+      return true;
+    }
+    case "buffer_pull":
+      return a.version === (versions.get(a.path) ?? 0) ? [] : null;
+    case "buffer_close":
+    case "buffer_flush":
+    case "buffer_resolve":
+      return;
+    case "pin_toggle":
+      window.open(`${location.pathname}?pin=${encodeURIComponent(a.path)}`, "_blank", "width=340,height=420");
+      return true;
+    case "pin_path":
+      return new URLSearchParams(location.search).get("pin");
+    case "pin_close":
+      window.close();
+      return;
+    case "pin_set_on_top":
+      return;
+    case "open_in_main":
+      mockEmit("open-note", a.path);
+      return;
     case "resolve_link":
     case "create_note":
       return ensure(a.target ?? a.title);
@@ -221,6 +271,7 @@ export function handle(cmd: string, a: A): unknown {
       const to = a.path.startsWith("archive/") ? a.path.slice(8) : `archive/${a.path}`;
       notes.set(to, notes.get(a.path)!);
       notes.delete(a.path);
+      versions.set(to, versions.get(a.path) ?? 0);
       changed(to);
       return to;
     }
@@ -242,16 +293,17 @@ export function handle(cmd: string, a: A): unknown {
       else if (text.startsWith("---\n")) edit = st ? { from: 4, to: 4, insert: `status: ${st}\n` } : null;
       else edit = st ? { from: 0, to: 0, insert: `---\nstatus: ${st}\n---\n\n` } : null;
       const next = edit ? text.slice(0, edit.from) + edit.insert + text.slice(edit.to) : text;
-      notes.set(path, next);
+      serverEdit(path, next);
       const archived = path.startsWith("archive/");
       if ((st === "closed") !== archived) {
         const to = archived ? path.slice(8) : `archive/${path}`;
         notes.delete(path);
         notes.set(to, next);
+        versions.set(to, versions.get(path) ?? 0);
         path = to;
       }
       changed(path);
-      return { path, edit, meta: meta(path, next) };
+      return { path, edit: null, meta: meta(path, next) };
     }
     case "undo_rename":
       throw new Error("undo is not available in the browser demo");

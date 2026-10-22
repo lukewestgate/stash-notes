@@ -24,3 +24,14 @@ describe("keys", () => {
     expect(formatKey("alt+left")).toBe("Alt+Left");
   });
 });
+
+describe("chords", () => {
+  it("parses and matches the second key with or without Ctrl", async () => {
+    const { parseChord, matchesChordTail } = await import("./keys");
+    const c = parseChord("Ctrl+E P");
+    expect(c.length).toBe(2);
+    expect(matchesChordTail(ev({ key: "p", code: "KeyP" }), c)).toBe(true);
+    expect(matchesChordTail(ev({ ctrlKey: true, key: "p", code: "KeyP" }), c)).toBe(true);
+    expect(matchesChordTail(ev({ key: "x", code: "KeyX" }), c)).toBe(false);
+  });
+});

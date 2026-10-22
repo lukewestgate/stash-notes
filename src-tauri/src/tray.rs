@@ -1,7 +1,7 @@
 //! Tray icon: left click toggles the window; right click opens the menu.
 
 use crate::{commands, window};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -32,18 +32,41 @@ pub fn refresh_tooltip(app: &AppHandle) {
     }
 }
 
-pub fn build(app: &AppHandle) -> tauri::Result<()> {
+fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
     let today = MenuItem::with_id(app, "today", "Today's note", true, None::<&str>)?;
     let folder = MenuItem::with_id(app, "folder", "Open notes folder", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &today, &folder, &settings, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &today, &folder, &settings])?;
+    let pinned = crate::pins::list_for_menu(app);
+    if !pinned.is_empty() {
+        let sub = Submenu::with_id(app, "pinned", "Pinned notes", true)?;
+        for (label, title) in pinned {
+            let note = Submenu::new(app, title, true)?;
+            note.append(&MenuItem::with_id(app, format!("pin-focus:{label}"), "Focus", true, None::<&str>)?)?;
+            note.append(&MenuItem::with_id(app, format!("pin-close:{label}"), "Close", true, None::<&str>)?)?;
+            sub.append(&note)?;
+        }
+        menu.append(&sub)?;
+    }
+    menu.append(&sep)?;
+    menu.append(&quit)?;
+    Ok(menu)
+}
 
+/// Rebuild the tray menu (the Pinned notes submenu changes).
+pub fn rebuild_menu(app: &AppHandle) {
+    if let (Some(tray), Ok(m)) = (app.tray_by_id(TRAY_ID), menu(app)) {
+        let _ = tray.set_menu(Some(m));
+    }
+}
+
+pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Stash Notes")
-        .menu(&menu)
+        .menu(&menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => window::show(app),
@@ -57,12 +80,17 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "settings" => {
-                if let Err(e) = commands::open_settings_file(app.clone(), app.state()) {
-                    let _ = app.emit("toast", e);
-                }
+                window::show(app);
+                let _ = app.emit("open-settings", ());
             }
             "quit" => commands::request_quit(app),
-            _ => {}
+            id => {
+                if let Some(label) = id.strip_prefix("pin-focus:") {
+                    crate::pins::focus(app, label);
+                } else if let Some(label) = id.strip_prefix("pin-close:") {
+                    crate::pins::close(app, label);
+                }
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
@@ -75,4 +103,3 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     builder.build(app)?;
     Ok(())
 }
-

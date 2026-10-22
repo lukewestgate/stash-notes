@@ -145,6 +145,7 @@ pub fn watch_vault(app: &AppHandle) {
             rescan_vault(&app);
         } else if !rels.is_empty() {
             for rel in &rels {
+                crate::buffers::disk_changed(&app, rel);
                 state.reindex(rel);
             }
             let _ = app.emit("vault-changed", rels.into_iter().collect::<Vec<_>>());
