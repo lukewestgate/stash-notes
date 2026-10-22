@@ -13,6 +13,7 @@
   import { api, type Keys, type SearchHit, type SortBy, type StatusDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
   import { relTime } from "../lib/text";
+  import Highlight from "./Highlight.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
@@ -265,12 +266,12 @@
             <span class="sym"><StatusIcon status={row.hit.status} {statuses} /></span>
             <span class="main">
               <span class="line1">
-                <span class="name">{name(row.hit)}</span>
-                {#if row.hit.kind === "ticket" && row.hit.label}<span class="label">{row.hit.label}</span>{/if}
+                <span class="name"><Highlight text={name(row.hit)} query={view.query} /></span>
+                {#if row.hit.kind === "ticket" && row.hit.label}<span class="label"><Highlight text={row.hit.label} query={view.query} /></span>{/if}
                 {#if row.hit.kind === "daily"}<span class="tag">daily</span>{/if}
                 {#if row.hit.archived}<span class="tag">archived</span>{/if}
               </span>
-              <span class="snippet">{row.hit.snippet ?? ""}</span>
+              <span class="snippet"><Highlight text={row.hit.snippet ?? ""} query={view.query} /></span>
             </span>
             <span class="time" title={new Date(row.hit.mtime).toLocaleString()}>{relTime(row.hit.mtime)}</span>
           {:else if row.type === "header"}

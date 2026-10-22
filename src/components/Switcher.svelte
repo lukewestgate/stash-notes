@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, type SearchHit, type StatusDef } from "../lib/api";
+  import Highlight from "./Highlight.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { onMount } from "svelte";
@@ -129,11 +130,11 @@
           <span class="line">
             <span class="kind {hit.kind}">{hit.kind}</span>
             <span class="sym"><StatusIcon status={hit.status} {statuses} /></span>
-            <span class="name">{hit.title}</span>
-            {#if hit.label}<span class="label">{hit.label}</span>{/if}
+            <span class="name"><Highlight text={hit.title} {query} /></span>
+            {#if hit.label}<span class="label"><Highlight text={hit.label} {query} /></span>{/if}
             {#if hit.archived}<span class="tag">archived</span>{/if}
           </span>
-          {#if hit.snippet}<span class="snippet">{hit.snippet}</span>{/if}
+          {#if hit.snippet}<span class="snippet"><Highlight text={hit.snippet} {query} /></span>{/if}
         </button>
       {/each}
       {#if showCreate}
