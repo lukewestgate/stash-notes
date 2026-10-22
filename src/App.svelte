@@ -11,7 +11,16 @@
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
   import { api, on, onWindowFocus, type Keys, type NoteData, type NoteMeta, type SearchHit, type Settings } from "./lib/api";
-  import { decoConfig, editorExtensions, refreshDecorations } from "./lib/editor";
+  import {
+    decoConfig,
+    editorExtensions,
+    editorState,
+    refreshDecorations,
+    setEditorDark,
+    setLiveFormatting,
+  } from "./lib/editor";
+  import { liveConfig, propertiesHooks } from "./lib/live";
+  import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
   import { formatKey, matches, parseKey, type KeySpec } from "./lib/keys";
   import {
@@ -111,10 +120,22 @@
     if (s.theme === "light" || s.theme === "dark") root.dataset.theme = s.theme;
     else delete root.dataset.theme;
     root.style.setProperty("--font-size", `${s.fontSize || 14}px`);
+    liveConfig.enabled = s.liveFormatting;
+    applyDark();
     if (view) {
-      refreshDecorations(view);
+      setLiveFormatting(view, s.liveFormatting);
       hasKey = computeHasKey();
     }
+  }
+
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+  /** Keep the editor's dark flag in step with the theme setting and Windows. */
+  function applyDark() {
+    const theme = settings?.theme ?? "system";
+    const dark = theme === "dark" || (theme === "system" && darkQuery.matches);
+    editorState.dark = dark;
+    if (view) setEditorDark(view, dark);
   }
 
   function computeHasKey() {
@@ -688,6 +709,16 @@
       linkSearch: (q) => api.search(q, false, currentPath, 30),
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
+    darkQuery.addEventListener("change", applyDark);
+    // Lets UI tests drive the editor in `npm run dev`; stripped from builds.
+    if (import.meta.env.DEV) (window as unknown as { __view: () => EditorView }).__view = () => view;
+    propertiesHooks.current = {
+      statusView: (st) => statusInfo(st, settings?.statuses ?? []),
+      onStatus: () => pickStatus(),
+      onJira: openJira,
+      onGerrit: openGerrit,
+      hasJira: () => hasKey,
+    };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
 
@@ -738,6 +769,7 @@
     return () => {
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("contextmenu", onContextMenu);
+      darkQuery.removeEventListener("change", applyDark);
       unlisten.forEach((p) => p.then((f) => f()));
       view.destroy();
     };

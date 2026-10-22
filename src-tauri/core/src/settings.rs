@@ -32,6 +32,8 @@ pub struct Settings {
     /// `system`, `light` or `dark`.
     pub theme: String,
     pub font_size: u32,
+    /// Style markdown as you type (markers hide off the caret line).
+    pub live_formatting: bool,
     /// Status list, in display order.
     pub statuses: Vec<StatusDef>,
     /// Status given to new ticket notes (empty for none).
@@ -90,6 +92,7 @@ impl Default for Settings {
             gerrit: GerritSettings::default(),
             theme: "system".into(),
             font_size: 14,
+            live_formatting: true,
             statuses: default_statuses(),
             default_status: "open".into(),
             keys: Keys::default(),

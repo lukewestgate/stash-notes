@@ -22,6 +22,7 @@ const settings: Settings = {
   gerrit: { urlTemplate: "https://gerrit.example.com/c/{n}" },
   theme: "system",
   fontSize: 14,
+  liveFormatting: true,
   statuses: [
     { name: "todo", symbol: "○", color: "blue", active: true },
     { name: "open", symbol: "●", color: "green", active: true },

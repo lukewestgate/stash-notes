@@ -1,5 +1,6 @@
-// CodeMirror 6 setup: plain markdown text with decorations for [[links]],
-// ticket keys, URLs and checkboxes, plus the `[[` link picker.
+// CodeMirror 6 setup: markdown with live formatting (see live.ts),
+// decorations for [[links]], ticket keys, URLs and checkboxes, and the `[[`
+// link picker.
 
 import {
   autocompletion,
@@ -9,9 +10,9 @@ import {
   type CompletionResult,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { type Extension, type Range, StateEffect } from "@codemirror/state";
+import { Compartment, type Extension, type Range, StateEffect } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -23,6 +24,7 @@ import {
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import type { SearchHit } from "./api";
+import { frontMatterField, frontMatterSyntax, liveConfig, liveDecorations, liveWikiLinks, toggleWrap } from "./live";
 import { checkboxToggle, URL_RE, WIKI_RE, wikiTarget } from "./text";
 
 export interface EditorHooks {
@@ -53,28 +55,21 @@ const urlMark = Decoration.mark({ class: "cm-url" });
 const boxOpen = Decoration.mark({ class: "cm-checkbox" });
 const boxDone = Decoration.mark({ class: "cm-checkbox cm-checkbox-done" });
 const doneLine = Decoration.line({ class: "cm-done-line" });
-const frontMatterLine = Decoration.line({ class: "cm-frontmatter" });
-
-/** Last line number of a leading `---` front matter block, or 0. */
-function frontMatterEnd(view: EditorView): number {
-  const doc = view.state.doc;
-  if (doc.lines < 2 || doc.line(1).text.trimEnd() !== "---") return 0;
-  for (let n = 2; n <= Math.min(doc.lines, 200); n++) {
-    const t = doc.line(n).text.trimEnd();
-    if (t === "---" || t === "...") return n;
-  }
-  return 0;
-}
 
 function buildDecorations(view: EditorView): DecorationSet {
-  const out: Range<Decoration>[] = [];
   const doc = view.state.doc;
-  const fmEnd = frontMatterEnd(view);
+  const live = liveConfig.enabled ? liveDecorations(view) : null;
+  const out: Range<Decoration>[] = live ? live.decos : [];
   for (const { from, to } of view.visibleRanges) {
     let line = doc.lineAt(from);
     while (true) {
       const text = line.text;
-      if (line.number <= fmEnd) out.push(frontMatterLine.range(line.from));
+      if (live?.codeLines.has(line.from)) {
+        if (line.to >= to || line.number >= doc.lines) break;
+        line = doc.line(line.number + 1);
+        continue;
+      }
+      if (live) liveWikiLinks(view.state, line.from, text, out);
       const taken: [number, number][] = [];
       const free = (a: number, b: number) => !taken.some(([x, y]) => a < y && b > x);
 
@@ -120,7 +115,12 @@ const decorations = ViewPlugin.fromClass(
       this.decorations = buildDecorations(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh)))) {
+      if (
+        u.docChanged ||
+        u.viewportChanged ||
+        (liveConfig.enabled && u.selectionSet) ||
+        u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh)))
+      ) {
         this.decorations = buildDecorations(u.view);
       }
     }
@@ -128,10 +128,9 @@ const decorations = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+// Headings are only bolded here; live mode sizes them per line (live.ts).
 const highlight = HighlightStyle.define([
-  { tag: t.heading1, class: "cm-h cm-h1" },
-  { tag: t.heading2, class: "cm-h cm-h2" },
-  { tag: [t.heading3, t.heading4, t.heading5, t.heading6], class: "cm-h cm-h3" },
+  { tag: [t.heading1, t.heading2, t.heading3, t.heading4, t.heading5, t.heading6], class: "cm-h" },
   { tag: t.strong, fontWeight: "600" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },
@@ -174,26 +173,77 @@ function linkCompletions(hooks: EditorHooks) {
 
 const layout = EditorView.theme({
   "&": { height: "100%", fontSize: "var(--font-size)" },
-  ".cm-scroller": { fontFamily: "inherit", lineHeight: "1.65", padding: "10px 0 40px" },
+  ".cm-scroller": { fontFamily: "var(--editor-font)", lineHeight: "var(--line-height)", padding: "10px 0 40px" },
   ".cm-content": { padding: "0 20px", maxWidth: "980px" },
 });
+
+/**
+ * Caret and selection colors come from theme variables, and the theme is
+ * flagged dark when dark so CodeMirror's own defaults flip too. (Without
+ * this, the default caret is black, which vanishes on a dark background.)
+ */
+function colorTheme(dark: boolean) {
+  return EditorView.theme(
+    {
+      ".cm-content": { caretColor: "var(--fg)" },
+      ".cm-cursor, .cm-dropCursor": { borderLeft: "2px solid var(--fg)" },
+      "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+        { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent) !important" },
+    },
+    { dark },
+  );
+}
+
+const colors = new Compartment();
+const spell = new Compartment();
+
+/** Switch the editor between light and dark. */
+export function setEditorDark(view: EditorView, dark: boolean) {
+  view.dispatch({ effects: colors.reconfigure(colorTheme(dark)) });
+}
+
+/** Turn live formatting on or off. */
+export function setLiveFormatting(view: EditorView, on: boolean) {
+  liveConfig.enabled = on;
+  refreshDecorations(view);
+}
+
+/** Turn the browser spell checker on or off. */
+export function setSpellCheck(view: EditorView, on: boolean) {
+  view.dispatch({ effects: spell.reconfigure(spellAttrs(on)) });
+}
+
+function spellAttrs(on: boolean) {
+  return EditorView.contentAttributes.of({ spellcheck: String(on), autocorrect: "off", autocapitalize: "off" });
+}
+
+export const editorState = { dark: false, spellCheck: false };
 
 export function editorExtensions(hooks: EditorHooks): Extension[] {
   return [
     layout,
+    colors.of(colorTheme(editorState.dark)),
     history(),
     drawSelection(),
     EditorView.lineWrapping,
-    markdown(),
+    markdown({ base: markdownLanguage, extensions: [frontMatterSyntax] }),
     syntaxHighlighting(highlight),
     decorations,
+    frontMatterField,
     autocompletion({
       override: [linkCompletions(hooks)],
       icons: false,
       activateOnTyping: true,
       maxRenderedOptions: 30,
     }),
-    keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([
+      ...completionKeymap,
+      { key: "Mod-b", run: toggleWrap("**") },
+      { key: "Mod-i", run: toggleWrap("*") },
+      ...defaultKeymap,
+      ...historyKeymap,
+      indentWithTab,
+    ]),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) hooks.onChange();
     }),
@@ -221,6 +271,6 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
         return false;
       },
     }),
-    EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off" }),
+    spell.of(spellAttrs(editorState.spellCheck)),
   ];
 }

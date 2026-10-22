@@ -26,6 +26,9 @@ describe("refAt", () => {
   it("prefers the link over a key inside it", () => {
     expect(refAt("[[PROJ-1]]", 4, T)).toMatchObject({ kind: "wiki", target: "PROJ-1" });
   });
+  it("follows markdown links by their URL", () => {
+    expect(refAt("see [the docs](https://d.io/x) ok", 7, T)).toMatchObject({ kind: "url", target: "https://d.io/x" });
+  });
   it("returns null elsewhere", () => {
     expect(refAt(line, 1, T)).toBeNull();
   });

@@ -8,6 +8,8 @@ export type Ref =
 
 export const WIKI_RE = /\[\[([^\[\]\n]+?)\]\]/g;
 export const URL_RE = /https?:\/\/[^\s<>()\[\]"'`]+/g;
+/** `[text](https://...)` */
+export const MDLINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)[^)\n]*\)/g;
 
 /** Build the in-text ticket regex from the settings pattern. */
 export function ticketRegex(pattern: string): RegExp {
@@ -40,6 +42,10 @@ export function refAt(line: string, pos: number, tickets: RegExp): Ref | null {
       const target = wikiTarget(m[1]);
       if (target) return { kind: "wiki", target, from, to };
     }
+  }
+  for (const m of line.matchAll(MDLINK_RE)) {
+    const from = m.index!;
+    if (hit(from, from + m[0].length)) return { kind: "url", target: m[2], from, to: from + m[0].length };
   }
   for (const m of line.matchAll(URL_RE)) {
     const url = trimUrl(m[0]);

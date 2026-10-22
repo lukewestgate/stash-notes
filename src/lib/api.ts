@@ -91,6 +91,7 @@ export interface Settings {
   gerrit: { urlTemplate: string };
   theme: "system" | "light" | "dark";
   fontSize: number;
+  liveFormatting: boolean;
   statuses: StatusDef[];
   defaultStatus: string;
   keys: Keys;
