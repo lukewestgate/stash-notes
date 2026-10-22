@@ -77,17 +77,36 @@ jobs:
 
   release:
     name: GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tags publish that tag; pushes to the default branch publish (or refresh)
+    # the release for the version in tauri.conf.json.
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     needs: [test, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Work out the tag
+        id: tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v$(jq -r .version src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: stash-notes-windows
           path: installers
+      - uses: actions/download-artifact@v4
+        with:
+          name: stash-notes-portable-exe
+          path: installers
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Stash Notes ${{ steps.tag.outputs.name }}
+          target_commitish: ${{ github.sha }}
           files: installers/**/*
+          make_latest: true
           generate_release_notes: true

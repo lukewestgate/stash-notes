@@ -50,7 +50,7 @@ Every push to this repository builds the Windows installers with GitHub Actions.
    - **`stash-notes-portable-exe`** is a single `stash-notes.exe` you can run without installing.
 4. Unzip the download and run the installer (or the exe).
 
-If a version tag such as `v0.1.0` is pushed, the same files are also attached to a **GitHub Release** on the **Releases** page.
+**No GitHub login?** Artifacts need a login, but releases don't. Every build of the default branch also publishes the installers and the portable exe to the [**Releases**](https://github.com/lukewestgate/stash-notes/releases/latest) page, under the version in `src-tauri/tauri.conf.json` (for example `v0.1.0`). Pushing a tag such as `v0.2.0` publishes that tag too.
 
 > **Windows SmartScreen.** The builds are not code-signed, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**. Code signing needs a certificate, which this project doesn't have yet.
 
@@ -401,9 +401,9 @@ cd src-tauri && cargo test --release -p stash-core --test perf -- --ignored --no
 
 - **Tests (Linux):** type check, UI tests, UI build, Rust tests, and the performance check (informational).
 - **Windows installer:** `npm run tauri build`, then uploads the installers and the portable exe as artifacts.
-- **Release:** for tags matching `v*`, attaches the installers to a GitHub Release.
+- **Release:** on pushes to the default branch, and on tags matching `v*`, attaches the installers and the portable exe to a GitHub Release. Branch builds publish to `v<version>` from `tauri.conf.json`, and later builds of the same version replace its files.
 
-To publish a release, bump `version` in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then run `git tag v0.2.0 && git push origin v0.2.0`.
+To publish a new version, bump `version` in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` and push (or push a tag such as `v0.2.0`).
 
 ---
 
