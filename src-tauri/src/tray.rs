@@ -88,7 +88,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 if let Some(label) = id.strip_prefix("pin-focus:") {
                     crate::pins::focus(app, label);
                 } else if let Some(label) = id.strip_prefix("pin-close:") {
-                    crate::pins::close(app, label);
+                    crate::pins::close_later(app, label);
                 }
             }
         })

@@ -82,7 +82,7 @@ pub fn run() {
                 match event {
                     WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        pins::close(window.app_handle(), window.label());
+                        pins::close_later(window.app_handle(), window.label());
                     }
                     WindowEvent::Moved(_) | WindowEvent::Resized(_) => pins::remember_geometry(window.app_handle(), window.label()),
                     _ => {}

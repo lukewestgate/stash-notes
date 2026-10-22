@@ -150,8 +150,11 @@ pub fn buffer_pull(app: AppHandle, path: String, version: u64) -> Option<Vec<buf
 }
 
 /// Pop a note out into its own window, or close its pinned window.
+// Window creation and destruction must not run in a synchronous command: on
+// Windows that deadlocks against WebView2 (the new window stays blank and the
+// app stops responding). Async commands run off the main thread.
 #[tauri::command]
-pub fn pin_toggle(app: AppHandle, path: String) -> Res<bool> {
+pub async fn pin_toggle(app: AppHandle, path: String) -> Res<bool> {
     crate::pins::toggle(&app, &Vault::clean(&path).map_err(err)?)
 }
 
@@ -173,12 +176,12 @@ pub fn pin_path(app: AppHandle, window: tauri::Window) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn pin_close(app: AppHandle, window: tauri::Window) {
+pub async fn pin_close(app: AppHandle, window: tauri::Window) {
     crate::pins::close(&app, window.label());
 }
 
 #[tauri::command]
-pub fn pin_set_on_top(app: AppHandle, window: tauri::Window, on: bool) {
+pub async fn pin_set_on_top(app: AppHandle, window: tauri::Window, on: bool) {
     crate::pins::set_on_top(&app, window.label(), on);
 }
 

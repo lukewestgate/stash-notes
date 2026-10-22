@@ -124,6 +124,14 @@ pub fn close(app: &AppHandle, label: &str) {
     crate::smoke::pin_closed(app);
 }
 
+/// `close`, from an event handler: destroying a window inside one can
+/// deadlock on Windows, so it happens on another thread.
+pub fn close_later(app: &AppHandle, label: &str) {
+    let app = app.clone();
+    let label = label.to_string();
+    std::thread::spawn(move || close(&app, &label));
+}
+
 pub fn focus(app: &AppHandle, label: &str) {
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.show();
