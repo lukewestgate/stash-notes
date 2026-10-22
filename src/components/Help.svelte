@@ -41,6 +41,7 @@
   const extra = $derived<[string, string][]>([
     ["[[", "Link picker"],
     ["Ctrl+Click", "Follow link"],
+    ["Ctrl+V", "Paste an image (or drop files / use Insert image)"],
     [keys.rename, "Rename note (updates links)"],
     [keys.openSettings, "Settings"],
     ["Ctrl+Shift+V", "Paste without converting ticket or link URLs"],

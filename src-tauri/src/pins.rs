@@ -58,6 +58,7 @@ fn build(app: &AppHandle, pin: &Pin) -> tauri::Result<WebviewWindow> {
         .inner_size(pin.width, pin.height)
         .min_inner_size(220.0, 140.0)
         .decorations(false)
+        .disable_drag_drop_handler()
         .always_on_top(pin.on_top)
         .skip_taskbar(true)
         .resizable(true)

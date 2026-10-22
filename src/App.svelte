@@ -19,6 +19,7 @@
   import { applyAppearance } from "./lib/appearance";
   import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
+  import { pickImages } from "./lib/images";
   import {
     decoConfig,
     editorExtensions,
@@ -1082,6 +1083,7 @@
       vault: () => meta?.vault ?? null,
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
       paste: smartPaste,
+      imageError: (message) => toaster.show(message, "error"),
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     darkQuery.addEventListener("change", applyDark);
@@ -1241,6 +1243,7 @@
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}
       onArchive={toggleArchive}
+      onImage={() => pickImages(view, { path: () => currentPath, imageError: (message) => toaster.show(message, "error") })}
     />
   {/if}
 

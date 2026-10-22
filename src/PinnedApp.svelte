@@ -11,6 +11,7 @@
   import Picker from "./components/Picker.svelte";
   import { api, on, type NoteMeta, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
+  import { pickImages } from "./lib/images";
   import { decoConfig, editorExtensions, editorState, setEditorDark, setSpellCheck } from "./lib/editor";
   import { applyAppearance } from "./lib/appearance";
   import Icon from "./components/Icon.svelte";
@@ -227,6 +228,7 @@
       vault: () => meta?.vault ?? null,
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
       paste: () => false,
+      imageError: say,
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     propertiesHooks.current = {
@@ -296,6 +298,9 @@
         <b data-tauri-drag-region>{meta.title}</b>{#if meta.label}<span class="label" data-tauri-drag-region> {meta.label}</span>{/if}
       {/if}
     </span>
+    <button class="icon" onclick={() => pickImages(view, { path: () => path, imageError: say })} title="Insert image (or paste / drop an image)" aria-label="Insert image" disabled={!path}>
+      <Icon name="image-plus" size={14} />
+    </button>
     <button class="icon" class:off={!onTop} onclick={toggleOnTop} title={onTop ? "Always on top (click to release)" : "Keep on top"} aria-label="Pin on top">
       <Icon name="pin" size={14} />
     </button>

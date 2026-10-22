@@ -6,11 +6,12 @@ import {
   Archive, ArrowDown, ArrowUp, Bookmark, Bug, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleHelp, CirclePause, CirclePlay, CircleSlash,
   CircleX, Clock, Diamond, ExternalLink, Eye, FilePlus, FileText, Flag, Flame, GitPullRequest, Hourglass,
-  Inbox, Info, Keyboard, List, Menu, Pin, PinOff, Plus, Search, SearchX, Settings, Square, Star, Ticket,
+  ImagePlus, Inbox, Info, Keyboard, List, Menu, Pin, PinOff, Plus, Search, SearchX, Settings, Square, Star, Ticket,
   Tag, Tags, Trash2, Triangle, TriangleAlert, X, Zap, type IconNode,
 } from "lucide";
 
 const ICONS = {
+  "image-plus": ImagePlus,
   archive: Archive,
   "arrow-down": ArrowDown,
   "arrow-up": ArrowUp,

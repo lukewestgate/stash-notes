@@ -28,6 +28,7 @@ import { frontMatterField, frontMatterSyntax, liveConfig, liveDecorations, liveW
 import { isPageLink, pageEmbeds, pageLinkSyntax } from "./page-links";
 import { checkboxToggle, refAt, URL_RE, WIKI_RE, wikiTarget } from "./text";
 import "./page-links.css";
+import { imageEmbeds, imageInput } from "./images";
 
 export interface EditorHooks {
   onChange(): void;
@@ -42,6 +43,7 @@ export interface EditorHooks {
   vaultName?(id: string): string;
   /** Handle pasted text specially; return true if it was handled. */
   paste(text: string): boolean;
+  imageError(message: string): void;
 }
 
 /** What the decorations need from settings and the index. */
@@ -257,6 +259,7 @@ function embeddedPages(path: () => string | null, open: (path: string) => void, 
         markdown({ base: markdownLanguage, extensions: [frontMatterSyntax, pageLinkSyntax] }),
         syntaxHighlighting(highlight),
         decorations,
+        imageEmbeds(() => notePath),
         embeddedPages(() => notePath, open, parents),
         EditorView.domEventHandlers({
           mousedown(event, view) {
@@ -288,6 +291,8 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
     syntaxHighlighting(highlight),
     decorations,
     embeddedPages(hooks.path, hooks.openNote),
+    imageEmbeds(hooks.path),
+    imageInput(hooks),
     frontMatterField,
     autocompletion({
       override: [linkCompletions(hooks)],

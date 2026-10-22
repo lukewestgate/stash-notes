@@ -6,6 +6,7 @@ pub mod changes;
 pub mod dates;
 pub mod frontmatter;
 pub mod index;
+pub mod images;
 pub mod note;
 pub mod query;
 pub mod settings;

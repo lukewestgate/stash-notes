@@ -275,9 +275,29 @@ function changed(path: string) {
 }
 
 type A = Record<string, any>;
+const images = new Map<string, Uint8Array>();
 
 export function handle(cmd: string, a: A): unknown {
   switch (cmd) {
+    case "import_image": {
+      const bytes = new Uint8Array(a.bytes);
+      if (!bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error("Images must be between 1 byte and 20 MB.");
+      const format = bytes[0] === 0x89 && bytes[1] === 0x50 ? "png"
+        : bytes[0] === 0xff && bytes[1] === 0xd8 ? "jpg"
+        : bytes[0] === 0x47 && bytes[1] === 0x49 ? "gif"
+        : bytes[0] === 0x52 && bytes[8] === 0x57 ? "webp"
+        : bytes[0] === 0x42 && bytes[1] === 0x4d ? "bmp" : null;
+      if (!format) throw new Error("Unsupported image. Use PNG, JPEG, GIF, WebP or BMP.");
+      const source = `/assets/image-${crypto.randomUUID()}.${format}`;
+      images.set(`${vaultOf(a.path)}:${source}`, bytes);
+      return source;
+    }
+    case "read_image": {
+      const source = new URL(a.source, `https://vault/${rel(a.path)}`).pathname;
+      const bytes = images.get(`${vaultOf(a.path)}:${source}`);
+      if (!bytes) throw new Error("Image file not found.");
+      return bytes.slice().buffer;
+    }
     case "get_startup":
       return {
         settings,

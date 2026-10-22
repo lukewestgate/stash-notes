@@ -14,6 +14,19 @@ use tauri_plugin_opener::OpenerExt;
 
 type Res<T> = Result<T, String>;
 
+#[tauri::command]
+pub async fn import_image(state: State<'_, AppState>, path: String, bytes: Vec<u8>) -> Res<String> {
+    let (vault, _) = state.locate(&path)?;
+    tauri::async_runtime::spawn_blocking(move || vault.import_image(&bytes)).await.map_err(err)?
+}
+
+#[tauri::command]
+pub async fn read_image(state: State<'_, AppState>, path: String, source: String) -> Res<tauri::ipc::Response> {
+    let (vault, rel) = state.locate(&path)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || vault.read_image(&rel, &source)).await.map_err(err)??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }

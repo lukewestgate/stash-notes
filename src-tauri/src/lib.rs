@@ -146,6 +146,8 @@ pub fn run() {
             commands::open_in_main,
             commands::resolve_link,
             commands::note_preview,
+            commands::import_image,
+            commands::read_image,
             commands::create_note,
             commands::daily_note,
             commands::archive_note,

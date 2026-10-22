@@ -9,6 +9,7 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 - **Ticket notes when you want them.** A vault can follow Jira, GitHub or GitLab issues: one note per key (`PROJ-123`), and Gerrit changes, pull requests or wiki pages attached to notes. A personal vault can stay plain notes.
 - **Statuses and tags.** Mark notes todo, open, blocked, backlog or closed, and tag them `#bug`, `#research` or anything else.
 - **Live markdown.** Headings, bold, lists and checkboxes are styled as you type, and the file stays plain markdown.
+- **Embedded images.** Paste a screenshot, drop image files into a note, or use the header's **Insert image** button. Images display inline, including in pinned notes and expanded note previews.
 - **Sidebar and Notes view.** See what you're working on at a glance, and scan, sort and filter every note.
 - **Quick switcher pop-up** (`Alt+J`). Search, open or create a note from any app without bringing up the full window first.
 - **Pinned notes.** Pop any note out into a small always-on-top window beside your code.
@@ -29,6 +30,7 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
   - [Statuses](#statuses)
   - [Tags](#tags)
   - [The editor](#the-editor)
+  - [Images](#images)
   - [Keyboard shortcuts](#keyboard-shortcuts)
   - [Quick switcher and search](#quick-switcher-and-search)
   - [Sidebar](#sidebar)
@@ -290,8 +292,17 @@ The editor styles markdown as you type, like Obsidian's live preview. Syntax mar
 | `---` | A horizontal rule |
 | `[[link]]`, `[text](url)`, ticket keys | Link-colored text with brackets and URL hidden. `Ctrl+Enter` follows |
 | Front matter | A compact properties row (status, ticket, attached links, tags). Move the caret into it to edit the YAML |
+| `![description](path)` | An inline image preview. Click it to edit the Markdown |
 
-Tables, images, math and footnotes stay as plain text. To see raw markdown everywhere, turn off **Live formatting** in Settings → Editor.
+Tables, math and footnotes stay as plain text. To see raw markdown everywhere, turn off **Live formatting** in Settings → Editor.
+
+### Images
+
+Paste an image with `Ctrl+V`, drop files into the editor, or click **Insert image** in the note header. PNG, JPEG, GIF, WebP and BMP are supported, up to 20 MB each. Images also work in pinned notes and expanded note previews. Click an image to edit its `![description](path)` Markdown; move the caret away to see it again.
+
+Imported images are copied into the note's vault under `assets/`, with unique names and vault-root links (`/assets/image-….png`) so renaming or archiving the note keeps them working. Include `assets/` when backing up or sharing a vault. Deleting an image from a note or undoing insertion leaves the file on disk, so other notes and redo can still use it. Markdown viewers outside Stash Notes need to resolve these paths from the vault root.
+
+Existing Markdown images can use a note-relative path, a vault-root path, an HTTP(S) URL, or a raster image data URL. Local images must be inside the vault. Remote images require a connection. Turning off **Live formatting** shows the image Markdown. Browser development mode keeps imported images in memory for that session.
 
 ### Keyboard shortcuts
 

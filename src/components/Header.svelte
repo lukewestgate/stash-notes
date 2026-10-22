@@ -28,6 +28,7 @@
     pinned: boolean;
     onPin: () => void;
     onArchive: () => void;
+    onImage: () => void;
   }
   let {
     meta,
@@ -49,6 +50,7 @@
     pinned,
     onPin,
     onArchive,
+    onImage,
   }: Props = $props();
 
   const pinKeys = $derived(keys.pinNote.split(/\s+/).map(formatKey).join(" then "));
@@ -122,6 +124,9 @@
       </button>
     {/if}
     {#if meta}
+      <button class="action icon" onclick={onImage} title="Insert image (or paste / drop an image)" aria-label="Insert image">
+        <Icon name="image-plus" size={15} />
+      </button>
       <span class="divider"></span>
       <button
         class="action icon"
