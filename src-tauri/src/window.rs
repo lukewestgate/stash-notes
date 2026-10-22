@@ -16,12 +16,18 @@ pub fn state_flags() -> StateFlags {
 
 /// Show, unminimize and focus, then tell the UI to put the cursor in the editor.
 pub fn show(app: &AppHandle) {
+    bring_up(app);
+    let _ = app.emit_to(MAIN, "summoned", ());
+}
+
+/// Show and focus the main window without the summon behavior (which may
+/// switch to today's note), for callers that open a specific note.
+pub fn bring_up(app: &AppHandle) {
     let Some(w) = main_window(app) else { return };
     let _ = w.show();
     let _ = w.unminimize();
     let _ = w.set_focus();
     focus_hard(&w);
-    let _ = app.emit_to(MAIN, "summoned", ());
 }
 
 /// Hide to the tray. Windows hands focus back to the previously active window.

@@ -11,7 +11,7 @@ pub enum OnSummon {
 }
 
 /// Bumped when a stored setting changes meaning; see `migrate`.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -21,9 +21,9 @@ pub struct Settings {
     pub vault_path: String,
     /// Global show/hide hotkey.
     pub hotkey: String,
-    /// Global quick capture hotkey.
-    pub capture_hotkey: String,
-    /// How Ctrl+; and quick capture write timestamps (yyyy MM dd HH mm ss).
+    /// Global hotkey that opens the quick switcher from anywhere.
+    pub switcher_hotkey: String,
+    /// How Ctrl+; writes timestamps (yyyy MM dd HH mm ss).
     pub timestamp_format: String,
     pub on_summon: OnSummon,
     /// When launched at login, stay in the tray instead of showing the window.
@@ -123,7 +123,7 @@ impl Default for Settings {
             schema_version: SCHEMA_VERSION,
             vault_path: String::new(),
             hotkey: "Alt+N".into(),
-            capture_hotkey: "Alt+J".into(),
+            switcher_hotkey: "Alt+J".into(),
             timestamp_format: "yyyy-MM-dd HH:mm".into(),
             on_summon: OnSummon::Last,
             start_hidden: true,
@@ -212,6 +212,12 @@ pub fn migrate(text: &str) -> Option<String> {
             obj.insert("hideAfterExternalLink".into(), false.into());
         }
     }
+    if version < 3 {
+        // 0.2's quick capture hotkey now opens the quick switcher.
+        if let Some(v) = obj.remove("captureHotkey") {
+            obj.insert("switcherHotkey".into(), v);
+        }
+    }
     obj.insert("schemaVersion".into(), SCHEMA_VERSION.into());
     let (settings, _) = Settings::from_json(&v.to_string());
     Some(merge_json(&v.to_string(), &settings))
@@ -253,54 +259,21 @@ impl Settings {
     }
 }
 
-/// Convert a `yyyy-MM-dd HH:mm` style format into a chrono format string.
-/// Supported: yyyy, yy, MM, dd, HH, hh, mm, ss, a (am/pm); other text is kept.
-pub fn chrono_format(f: &str) -> String {
-    let mut out = String::new();
-    let mut rest = f;
-    const TOKENS: [(&str, &str); 9] = [
-        ("yyyy", "%Y"),
-        ("yy", "%y"),
-        ("MM", "%m"),
-        ("dd", "%d"),
-        ("HH", "%H"),
-        ("hh", "%I"),
-        ("mm", "%M"),
-        ("ss", "%S"),
-        ("a", "%P"),
-    ];
-    'outer: while !rest.is_empty() {
-        for (t, c) in TOKENS {
-            if let Some(r) = rest.strip_prefix(t) {
-                out.push_str(c);
-                rest = r;
-                continue 'outer;
-            }
-        }
-        let ch = rest.chars().next().unwrap();
-        if ch == '%' {
-            out.push_str("%%");
-        } else {
-            out.push(ch);
-        }
-        rest = &rest[ch.len_utf8()..];
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn migration_and_unknown_keys() {
-        let v1 = r#"{"hotkey":"Alt+Q","hideAfterExternalLink":true,"futureKey":{"a":1}}"#;
+        let v1 = r#"{"hotkey":"Alt+Q","hideAfterExternalLink":true,"captureHotkey":"Alt+K","futureKey":{"a":1}}"#;
         let out = migrate(v1).unwrap();
         let (s, err) = Settings::from_json(&out);
         assert!(err.is_none());
         assert_eq!(s.schema_version, SCHEMA_VERSION);
         assert!(!s.hide_after_external_link);
         assert_eq!(s.hotkey, "Alt+Q");
+        assert_eq!(s.switcher_hotkey, "Alt+K");
+        assert!(!out.contains("captureHotkey"));
         assert!(out.contains("futureKey"));
         assert_eq!(migrate(&out), None);
         let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
@@ -308,12 +281,6 @@ mod tests {
         assert!(merged.contains("\"hotkey\": \"Alt+N\""));
     }
 
-    #[test]
-    fn timestamp_formats() {
-        assert_eq!(chrono_format("yyyy-MM-dd HH:mm"), "%Y-%m-%d %H:%M");
-        assert_eq!(chrono_format("dd/MM/yy hh:mm a"), "%d/%m/%y %I:%M %P");
-        assert_eq!(chrono_format("[100%]"), "[100%%]");
-    }
 
     #[test]
     fn partial_json_fills_defaults() {

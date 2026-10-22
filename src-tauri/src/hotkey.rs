@@ -1,12 +1,12 @@
-//! The global hotkeys: show/hide the app (default `Alt+N`) and quick capture
-//! (default `Alt+J`).
+//! The global hotkeys: show/hide the app (default `Alt+N`) and the quick
+//! switcher from anywhere (default `Alt+J`).
 
-use crate::{capture, window};
+use crate::{quick, window};
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-/// Ids of the registered (show/hide, capture) shortcuts.
+/// Ids of the registered (show/hide, switcher) shortcuts.
 static IDS: Mutex<(Option<u32>, Option<u32>)> = Mutex::new((None, None));
 
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
@@ -15,11 +15,11 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             if event.state() != ShortcutState::Pressed {
                 return;
             }
-            let (main, cap) = *IDS.lock().unwrap();
+            let (main, switcher) = *IDS.lock().unwrap();
             if Some(shortcut.id()) == main {
                 window::toggle(app);
-            } else if Some(shortcut.id()) == cap {
-                capture::toggle(app);
+            } else if Some(shortcut.id()) == switcher {
+                quick::toggle(app);
             }
         })
         .build()
@@ -51,14 +51,14 @@ pub fn test(app: &AppHandle, spec: &str, current: &str, other: &str) -> Result<(
 
 /// Register both hotkeys, replacing the previous ones. Returns one message
 /// per hotkey that could not be registered.
-pub fn register(app: &AppHandle, main: &str, capture: &str) -> Vec<String> {
+pub fn register(app: &AppHandle, main: &str, switcher: &str) -> Vec<String> {
     let gs = app.global_shortcut();
     let mut errors = Vec::new();
     let main_sc = parse(main, "Show/hide").unwrap_or_else(|e| {
         errors.push(e);
         None
     });
-    let cap_sc = parse(capture, "Quick capture").unwrap_or_else(|e| {
+    let switcher_sc = parse(switcher, "Quick switcher").unwrap_or_else(|e| {
         errors.push(e);
         None
     });
@@ -72,11 +72,11 @@ pub fn register(app: &AppHandle, main: &str, capture: &str) -> Vec<String> {
             )),
         }
     }
-    if let Some(sc) = cap_sc {
+    if let Some(sc) = switcher_sc {
         match gs.register(sc) {
             Ok(()) => ids.1 = Some(sc.id()),
             Err(e) => errors.push(format!(
-                "could not register quick capture hotkey `{capture}` ({e}); another app may be using it. Change it in Settings"
+                "could not register quick switcher hotkey `{switcher}` ({e}); another app may be using it. Change it in Settings"
             )),
         }
     }

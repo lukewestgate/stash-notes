@@ -105,7 +105,7 @@ export interface Settings {
   schemaVersion: number;
   vaultPath: string;
   hotkey: string;
-  captureHotkey: string;
+  switcherHotkey: string;
   timestampFormat: string;
   onSummon: "last" | "daily";
   startHidden: boolean;
@@ -171,7 +171,7 @@ export const api = {
   getSettings: () => call<Settings>("get_settings"),
   setSettings: (settings: Settings) => call<void>("set_settings", { settings }),
   defaultSettings: () => call<Settings>("default_settings"),
-  testHotkey: (spec: string, which: "main" | "capture") => call<void>("test_hotkey", { spec, which }),
+  testHotkey: (spec: string, which: "main" | "switcher") => call<void>("test_hotkey", { spec, which }),
   testTicketPattern: (pattern: string, sample: string) => call<string[]>("test_ticket_pattern", { pattern, sample }),
   pickFolder: () => call<string | null>("pick_folder"),
   getDailyTemplate: () => call<string>("get_daily_template"),
@@ -190,9 +190,10 @@ export const api = {
   openInMain: (path: string) => call<void>("open_in_main", { path }),
   smokeEnabled: () => call<boolean>("smoke_enabled"),
   smokeStep: (step: string) => call<void>("smoke_step", { step }),
-  captureSubmit: (text: string) => call<{ path: string; target: string }>("capture_submit", { text }),
-  captureHide: () => call<void>("capture_hide"),
-  captureResize: (height: number) => call<void>("capture_resize", { height }),
+  quickHide: () => call<void>("quick_hide"),
+  quickResize: (height: number) => call<void>("quick_resize", { height }),
+  quickOpen: (path: string) => call<void>("quick_open", { path }),
+  quickCreate: (title: string) => call<string>("quick_create", { title }),
   resolveLink: (target: string) => call<string>("resolve_link", { target }),
   createNote: (title: string) => call<string>("create_note", { title }),
   dailyNote: (date: string) => call<string>("daily_note", { date }),

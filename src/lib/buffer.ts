@@ -1,6 +1,6 @@
 // Keeps an editor in sync with the note's buffer in Rust (see buffers.rs),
 // using CodeMirror's collab protocol. Local edits are pushed as change sets;
-// edits from other windows (or from Rust: status changes, quick capture,
+// edits from other windows (or from Rust: status changes,
 // reloads from disk) arrive as `buffer-updates` events.
 
 import { collab, getSyncedVersion, receiveUpdates, sendableUpdates, type Update } from "@codemirror/collab";

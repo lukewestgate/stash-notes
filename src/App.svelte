@@ -1134,7 +1134,7 @@
       onCreate={switcherCreate}
     />
   {:else if overlay?.type === "help" && settings}
-    <Help keys={settings.keys} hotkey={settings.hotkey} captureHotkey={settings.captureHotkey} {settingsPath} {vaultPath} />
+    <Help keys={settings.keys} hotkey={settings.hotkey} switcherHotkey={settings.switcherHotkey} {settingsPath} {vaultPath} />
   {:else if overlay?.type === "prompt"}
     <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} onSubmit={overlay.submit} />
   {:else if overlay?.type === "status" && settings}

@@ -13,7 +13,7 @@ const settings: Settings = {
   schemaVersion: 2,
   vaultPath: "(browser demo – nothing is saved)",
   hotkey: "Alt+N",
-  captureHotkey: "Alt+J",
+  switcherHotkey: "Alt+J",
   timestampFormat: "yyyy-MM-dd HH:mm",
   onSummon: "last",
   startHidden: true,
@@ -287,20 +287,17 @@ export function handle(cmd: string, a: A): unknown {
       return;
     case "pin_set_on_top":
       return;
-    case "capture_submit": {
-      const t = String(a.text).trim();
-      const key = /^([A-Z][A-Z0-9]+-\d+)\s+(.*)$/s.exec(t);
-      const path = key ? ensure(key[1]) : ensure(today);
-      serverEdit(path, `${notes.get(path)!.trimEnd()}\n- ${today} 12:00 ${key ? key[2] : t}\n`);
-      changed(path);
-      return { path, target: key ? key[1] : "Today" };
-    }
-    case "smoke_enabled":
-      return false;
-    case "smoke_step":
-    case "capture_hide":
-    case "capture_resize":
+    case "quick_hide":
+    case "quick_resize":
       return;
+    case "quick_open":
+      mockEmit("open-note", a.path);
+      return;
+    case "quick_create": {
+      const path = ensure(a.title);
+      mockEmit("open-note", path);
+      return path;
+    }
     case "open_in_main":
       mockEmit("open-note", a.path);
       return;

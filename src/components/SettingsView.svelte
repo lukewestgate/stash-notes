@@ -35,7 +35,7 @@
 
   /** Which settings each category's Reset button restores. */
   const FIELDS: Record<Category, (keyof Settings)[]> = {
-    General: ["autostart", "startHidden", "hotkey", "captureHotkey", "restorePinned", "onSummon", "hideAfterExternalLink"],
+    General: ["autostart", "startHidden", "hotkey", "switcherHotkey", "restorePinned", "onSummon", "hideAfterExternalLink"],
     Window: ["showInTaskbar", "alwaysOnTop"],
     Editor: ["liveFormatting", "fontFamily", "fontSize", "lineHeight", "spellCheck", "smartPaste", "timestampFormat"],
     Notes: ["vaultPath", "defaultStatus", "ticketPattern"],
@@ -171,9 +171,9 @@
     });
   }
 
-  async function setHotkey(which: "hotkey" | "captureHotkey", spec: string): Promise<string | null> {
+  async function setHotkey(which: "hotkey" | "switcherHotkey", spec: string): Promise<string | null> {
     try {
-      await api.testHotkey(spec, which === "hotkey" ? "main" : "capture");
+      await api.testHotkey(spec, which === "hotkey" ? "main" : "switcher");
     } catch (e) {
       return String(e instanceof Error ? e.message : e);
     }
@@ -299,8 +299,8 @@
           <KeyRecorder value={draft.hotkey} onChange={(k) => setHotkey("hotkey", k)} />
         </div>
         <div class="row">
-          <span class="text">Quick capture hotkey<span class="hint">global</span></span>
-          <KeyRecorder value={draft.captureHotkey} onChange={(k) => setHotkey("captureHotkey", k)} />
+          <span class="text">Quick switcher hotkey<span class="hint">global — search and open notes from any app</span></span>
+          <KeyRecorder value={draft.switcherHotkey} onChange={(k) => setHotkey("switcherHotkey", k)} />
         </div>
         {@render toggle("Hide the window after opening a Jira or Gerrit link", draft.hideAfterExternalLink, (v) => set("hideAfterExternalLink", v))}
         <p class="note">New versions install by running the newer installer; your notes and settings are kept.</p>

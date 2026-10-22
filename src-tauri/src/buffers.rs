@@ -217,7 +217,7 @@ pub fn pull(app: &AppHandle, path: &str, version: u64) -> Option<Vec<Update>> {
     Some(b.updates[(version - b.base) as usize..].to_vec())
 }
 
-/// Make a change from Rust (status edit, capture, reload from disk) and
+/// Make a change from Rust (status edit, reload from disk) and
 /// broadcast it as an update. Returns false if the note isn't open.
 pub fn apply_server_change(app: &AppHandle, path: &str, new_text: &str, save_now: bool) -> bool {
     let bufs = app.state::<Buffers>();

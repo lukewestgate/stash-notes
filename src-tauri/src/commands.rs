@@ -57,8 +57,8 @@ pub fn get_settings(state: State<AppState>) -> Settings {
 #[tauri::command]
 pub fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> Res<()> {
     let old = state.settings();
-    crate::hotkey::test(&app, &settings.hotkey, &old.hotkey, &settings.capture_hotkey)?;
-    crate::hotkey::test(&app, &settings.capture_hotkey, &old.capture_hotkey, &settings.hotkey)?;
+    crate::hotkey::test(&app, &settings.hotkey, &old.hotkey, &settings.switcher_hotkey)?;
+    crate::hotkey::test(&app, &settings.switcher_hotkey, &old.switcher_hotkey, &settings.hotkey)?;
     let existing = std::fs::read_to_string(&state.settings_path).unwrap_or_default();
     std::fs::write(&state.settings_path, stash_core::settings::merge_json(&existing, &settings)).map_err(err)?;
     crate::config::reload_settings(&app);
@@ -71,11 +71,11 @@ pub fn default_settings(app: AppHandle) -> Settings {
     Settings { vault_path: crate::config::default_vault(&app).display().to_string(), ..Settings::default() }
 }
 
-/// Can `spec` be used as a global hotkey? `which` is "main" or "capture".
+/// Can `spec` be used as a global hotkey? `which` is "main" or "switcher".
 #[tauri::command]
 pub fn test_hotkey(app: AppHandle, state: State<AppState>, spec: String, which: String) -> Res<()> {
     let s = state.settings();
-    let (current, other) = if which == "capture" { (&s.capture_hotkey, &s.hotkey) } else { (&s.hotkey, &s.capture_hotkey) };
+    let (current, other) = if which == "switcher" { (&s.switcher_hotkey, &s.hotkey) } else { (&s.hotkey, &s.switcher_hotkey) };
     crate::hotkey::test(&app, &spec, current, other)
 }
 
@@ -158,6 +158,33 @@ pub async fn pin_toggle(app: AppHandle, path: String) -> Res<bool> {
     crate::pins::toggle(&app, &Vault::clean(&path).map_err(err)?)
 }
 
+/// The quick switcher pop-up (see quick.rs). Async: they show and hide windows.
+#[tauri::command]
+pub async fn quick_hide(app: AppHandle) {
+    crate::quick::hide(&app);
+}
+
+#[tauri::command]
+pub async fn quick_resize(app: AppHandle, height: f64) {
+    crate::quick::resize(&app, height);
+}
+
+/// Open a note chosen in the pop-up in the main window.
+#[tauri::command]
+pub async fn quick_open(app: AppHandle, path: String) -> Res<()> {
+    let path = Vault::clean(&path).map_err(err)?;
+    crate::quick::open_in_main(&app, &path);
+    Ok(())
+}
+
+/// Create a note from the pop-up's query and open it in the main window.
+#[tauri::command]
+pub async fn quick_create(app: AppHandle, title: String) -> Res<String> {
+    let path = create_note(app.state(), title)?;
+    crate::quick::open_in_main(&app, &path);
+    Ok(path)
+}
+
 /// CI self-test hooks (see smoke.rs).
 #[tauri::command]
 pub fn smoke_enabled() -> bool {
@@ -190,22 +217,6 @@ pub async fn pin_set_on_top(app: AppHandle, window: tauri::Window, on: bool) {
 pub fn open_in_main(app: AppHandle, path: String) {
     window::show(&app);
     let _ = app.emit_to(window::MAIN, "open-note", path);
-}
-
-/// Quick capture: append the text to its note (see capture.rs).
-#[tauri::command]
-pub fn capture_submit(app: AppHandle, text: String) -> Res<crate::capture::Captured> {
-    crate::capture::submit(&app, &text)
-}
-
-#[tauri::command]
-pub fn capture_hide(app: AppHandle) {
-    crate::capture::hide(&app);
-}
-
-#[tauri::command]
-pub fn capture_resize(app: AppHandle, height: f64) {
-    crate::capture::resize(&app, height);
 }
 
 /// After a conflict: reload from disk, or keep the buffer and save it.

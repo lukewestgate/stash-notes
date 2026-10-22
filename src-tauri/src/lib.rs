@@ -2,11 +2,11 @@
 //! window; the web UI only draws and sends commands.
 
 mod buffers;
-mod capture;
 mod commands;
 mod config;
 mod hotkey;
 mod pins;
+mod quick;
 mod smoke;
 mod state;
 mod tray;
@@ -67,14 +67,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == capture::LABEL {
-                // Clicking elsewhere puts the box away (its text is kept for next time).
-                if let WindowEvent::Focused(false) = event {
-                    capture::hide(window.app_handle());
-                }
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    capture::hide(window.app_handle());
+            if window.label() == quick::LABEL {
+                match event {
+                    // Clicking elsewhere puts the pop-up away.
+                    WindowEvent::Focused(false) => quick::hide(window.app_handle()),
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        quick::hide(window.app_handle());
+                    }
+                    _ => {}
                 }
                 return;
             }
@@ -124,10 +125,11 @@ pub fn run() {
             commands::buffer_pull,
             commands::buffer_resolve,
             commands::buffer_flush,
-            commands::capture_submit,
-            commands::capture_hide,
-            commands::capture_resize,
             commands::pin_toggle,
+            commands::quick_hide,
+            commands::quick_resize,
+            commands::quick_open,
+            commands::quick_create,
             commands::smoke_enabled,
             commands::smoke_step,
             commands::pin_path,

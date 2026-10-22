@@ -13,8 +13,23 @@
     pasteKey: (text: string) => string | null;
     onChoose: (hit: SearchHit, peek: boolean) => void;
     onCreate: (query: string) => void;
+    /** Fill a window of its own (the Alt+J pop-up) instead of floating over the app. */
+    embedded?: boolean;
+    /** Embedded only: Esc was pressed. */
+    onClose?: () => void;
+    /** Embedded only: the content's height changed. */
+    onSize?: (height: number) => void;
   }
-  let { mode, current, isTicket, statuses, pasteKey, onChoose, onCreate }: Props = $props();
+  let { mode, current, isTicket, statuses, pasteKey, onChoose, onCreate, embedded = false, onClose, onSize }: Props =
+    $props();
+  let box: HTMLDivElement;
+
+  $effect(() => {
+    if (!embedded || !onSize || !box) return;
+    const ro = new ResizeObserver(() => onSize(Math.ceil(box.getBoundingClientRect().height)));
+    ro.observe(box);
+    return () => ro.disconnect();
+  });
 
   function paste(e: ClipboardEvent) {
     const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
@@ -65,7 +80,10 @@
   }
 
   function keydown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" || (e.key === "n" && e.ctrlKey)) {
+    if (e.key === "Escape" && embedded) {
+      e.preventDefault();
+      onClose?.();
+    } else if (e.key === "ArrowDown" || (e.key === "n" && e.ctrlKey)) {
       e.preventDefault();
       sel = rowCount ? (sel + 1) % rowCount : 0;
     } else if (e.key === "ArrowUp" || (e.key === "p" && e.ctrlKey)) {
@@ -81,8 +99,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation">
-  <div class="switcher" role="dialog" aria-label={mode === "link" ? "Link to note" : "Quick switcher"}>
+<div class="backdrop" class:embedded role="presentation">
+  <div class="switcher" bind:this={box} role="dialog" aria-label={mode === "link" ? "Link to note" : "Quick switcher"}>
     <div class="inputrow">
       <input
         bind:this={input}
@@ -155,6 +173,22 @@
     padding-top: 9vh;
     background: var(--scrim);
     z-index: 20;
+  }
+  .backdrop.embedded {
+    position: static;
+    padding: 0;
+    background: none;
+    display: block;
+  }
+  .embedded .switcher {
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+  .embedded .results {
+    max-height: 380px;
   }
   .switcher {
     width: min(640px, calc(100vw - 32px));
