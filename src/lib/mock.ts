@@ -16,7 +16,7 @@ const settings: Settings = {
   autostart: true,
   showInTaskbar: false,
   alwaysOnTop: false,
-  hideAfterExternalLink: true,
+  hideAfterExternalLink: false,
   ticketPattern: "[A-Z][A-Z0-9]+-\\d+",
   jira: { urlTemplate: "https://yourco.atlassian.net/browse/{key}" },
   gerrit: { urlTemplate: "https://gerrit.example.com/c/{n}" },

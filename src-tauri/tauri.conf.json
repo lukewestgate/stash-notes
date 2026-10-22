@@ -30,7 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
     "category": "Productivity",
     "shortDescription": "Keyboard-first, always-resident notepad for work",
     "icon": [

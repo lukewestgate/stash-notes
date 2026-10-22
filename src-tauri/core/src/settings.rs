@@ -78,7 +78,7 @@ impl Default for Settings {
             autostart: true,
             show_in_taskbar: false,
             always_on_top: false,
-            hide_after_external_link: true,
+            hide_after_external_link: false,
             ticket_pattern: r"[A-Z][A-Z0-9]+-\d+".into(),
             jira: JiraSettings::default(),
             gerrit: GerritSettings::default(),
