@@ -10,9 +10,13 @@ pub enum OnSummon {
     Daily,
 }
 
+/// Bumped when a stored setting changes meaning; see `migrate`.
+pub const SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    pub schema_version: u32,
     /// Folder holding the notes. Empty means `Documents/StashNotes`.
     pub vault_path: String,
     /// Global show/hide hotkey.
@@ -36,6 +40,12 @@ pub struct Settings {
     /// `system`, `light` or `dark`.
     pub theme: String,
     pub font_size: u32,
+    /// Editor font; empty for the system UI font.
+    pub font_family: String,
+    pub line_height: f32,
+    pub spell_check: bool,
+    /// Accent color: blue, green, red, orange, purple, teal, pink or gray.
+    pub accent: String,
     /// Style markdown as you type (markers hide off the caret line).
     pub live_formatting: bool,
     /// Turn pasted Jira links into keys and Gerrit links into front matter.
@@ -110,6 +120,7 @@ pub struct Keys {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            schema_version: SCHEMA_VERSION,
             vault_path: String::new(),
             hotkey: "Alt+N".into(),
             capture_hotkey: "Alt+J".into(),
@@ -125,6 +136,10 @@ impl Default for Settings {
             gerrit: GerritSettings::default(),
             theme: "system".into(),
             font_size: 14,
+            font_family: String::new(),
+            line_height: 1.6,
+            spell_check: false,
+            accent: "blue".into(),
             live_formatting: true,
             smart_paste: true,
             restore_pinned: true,
@@ -178,6 +193,40 @@ impl Default for Keys {
             pin_note: "Ctrl+E P".into(),
         }
     }
+}
+
+/// Bring stored settings JSON up to the current schema. Returns the new JSON
+/// text if anything changed (the caller backs up the old file first).
+/// Unknown keys are kept.
+pub fn migrate(text: &str) -> Option<String> {
+    let mut v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let obj = v.as_object_mut()?;
+    let version = obj.get("schemaVersion").and_then(|x| x.as_u64()).unwrap_or(1) as u32;
+    if version >= SCHEMA_VERSION {
+        return None;
+    }
+    if version < 2 {
+        // v0.1 wrote hideAfterExternalLink: true as its default; the app now
+        // stays open after opening Jira or Gerrit (spec section 6).
+        if obj.get("hideAfterExternalLink") == Some(&serde_json::Value::Bool(true)) {
+            obj.insert("hideAfterExternalLink".into(), false.into());
+        }
+    }
+    obj.insert("schemaVersion".into(), SCHEMA_VERSION.into());
+    let (settings, _) = Settings::from_json(&v.to_string());
+    Some(merge_json(&v.to_string(), &settings))
+}
+
+/// `settings` as pretty JSON, keeping keys from `existing` it doesn't know
+/// (written by a newer version, or by hand).
+pub fn merge_json(existing: &str, settings: &Settings) -> String {
+    let mut out = serde_json::to_value(settings).unwrap_or_default();
+    if let (Some(out_obj), Ok(serde_json::Value::Object(old))) = (out.as_object_mut(), serde_json::from_str(existing)) {
+        for (k, val) in old {
+            out_obj.entry(k).or_insert(val);
+        }
+    }
+    serde_json::to_string_pretty(&out).unwrap_or_default()
 }
 
 impl Settings {
@@ -242,6 +291,22 @@ pub fn chrono_format(f: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_and_unknown_keys() {
+        let v1 = r#"{"hotkey":"Alt+Q","hideAfterExternalLink":true,"futureKey":{"a":1}}"#;
+        let out = migrate(v1).unwrap();
+        let (s, err) = Settings::from_json(&out);
+        assert!(err.is_none());
+        assert_eq!(s.schema_version, SCHEMA_VERSION);
+        assert!(!s.hide_after_external_link);
+        assert_eq!(s.hotkey, "Alt+Q");
+        assert!(out.contains("futureKey"));
+        assert_eq!(migrate(&out), None);
+        let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
+        assert!(merged.contains("\"futureKey\": 1"));
+        assert!(merged.contains("\"hotkey\": \"Alt+N\""));
+    }
 
     #[test]
     fn timestamp_formats() {

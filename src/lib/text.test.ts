@@ -74,6 +74,7 @@ describe("urls", () => {
 
 it("formats timestamps", () => {
   expect(timestamp(new Date(2026, 9, 2, 9, 5))).toBe("2026-10-02 09:05 ");
+  expect(timestamp(new Date(2026, 9, 2, 14, 5), "dd/MM/yy hh:mm a")).toBe("02/10/26 02:05 pm ");
 });
 
 it("finds the first ticket", () => {

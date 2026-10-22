@@ -94,3 +94,31 @@ export function matchesChordTail(e: KeyboardEvent, chord: KeySpec[]): boolean {
   if (!second) return false;
   return matches(e, second) || matches(e, { ...second, ctrl: second.ctrl || first.ctrl, alt: second.alt || first.alt });
 }
+
+/** Set while a shortcut recorder is listening, so app shortcuts don't fire. */
+export const keyCapture = { active: false };
+
+const NAMED: Record<string, string> = {
+  " ": "Space",
+  Escape: "Esc",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+};
+
+/** The shortcut string for a key press ("Ctrl+Shift+G"), or null for a lone modifier. */
+export function specFromEvent(e: KeyboardEvent): string | null {
+  if (["Control", "Shift", "Alt", "Meta", "OS"].includes(e.key)) return null;
+  let key = NAMED[e.key] ?? codeKey(e.code) ?? e.key;
+  if (key.length === 1) key = key.toUpperCase();
+  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+  return [...mods, key].join("+");
+}
+
+/** Do two shortcut strings mean the same keys? */
+export function sameKeys(a: string, b: string): boolean {
+  const x = parseKey(a);
+  const y = parseKey(b);
+  return !!x && !!y && x.ctrl === y.ctrl && x.alt === y.alt && x.shift === y.shift && x.meta === y.meta && x.key === y.key;
+}

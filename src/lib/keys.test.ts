@@ -35,3 +35,15 @@ describe("chords", () => {
     expect(matchesChordTail(ev({ key: "x", code: "KeyX" }), c)).toBe(false);
   });
 });
+
+describe("recording", () => {
+  it("turns key presses into specs", async () => {
+    const { specFromEvent, sameKeys } = await import("./keys");
+    expect(specFromEvent(ev({ ctrlKey: true, shiftKey: true, key: "G", code: "KeyG" }))).toBe("Ctrl+Shift+G");
+    expect(specFromEvent(ev({ altKey: true, key: "ArrowLeft", code: "ArrowLeft" }))).toBe("Alt+Left");
+    expect(specFromEvent(ev({ ctrlKey: true, key: "ö", code: "Semicolon" }))).toBe("Ctrl+;");
+    expect(specFromEvent(ev({ key: "Control", code: "ControlLeft", ctrlKey: true }))).toBeNull();
+    expect(sameKeys("ctrl+k", "Ctrl+K")).toBe(true);
+    expect(sameKeys("Ctrl+K", "Ctrl+Shift+K")).toBe(false);
+  });
+});

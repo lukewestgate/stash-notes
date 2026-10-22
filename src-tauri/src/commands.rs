@@ -51,12 +51,66 @@ pub fn get_settings(state: State<AppState>) -> Settings {
     state.settings()
 }
 
-/// Write settings.json. The file watcher picks the change up and applies it.
+/// Save settings from the settings screen and apply them right away. A new
+/// global hotkey is tried first; if another app owns it, nothing is saved.
+/// Keys this version doesn't know are kept in the file.
 #[tauri::command]
 pub fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> Res<()> {
-    std::fs::write(&state.settings_path, settings.to_json()).map_err(err)?;
+    let old = state.settings();
+    crate::hotkey::test(&app, &settings.hotkey, &old.hotkey, &settings.capture_hotkey)?;
+    crate::hotkey::test(&app, &settings.capture_hotkey, &old.capture_hotkey, &settings.hotkey)?;
+    let existing = std::fs::read_to_string(&state.settings_path).unwrap_or_default();
+    std::fs::write(&state.settings_path, stash_core::settings::merge_json(&existing, &settings)).map_err(err)?;
     crate::config::reload_settings(&app);
     Ok(())
+}
+
+/// Defaults, for "reset" buttons (with the default notes folder filled in).
+#[tauri::command]
+pub fn default_settings(app: AppHandle) -> Settings {
+    Settings { vault_path: crate::config::default_vault(&app).display().to_string(), ..Settings::default() }
+}
+
+/// Can `spec` be used as a global hotkey? `which` is "main" or "capture".
+#[tauri::command]
+pub fn test_hotkey(app: AppHandle, state: State<AppState>, spec: String, which: String) -> Res<()> {
+    let s = state.settings();
+    let (current, other) = if which == "capture" { (&s.capture_hotkey, &s.hotkey) } else { (&s.hotkey, &s.capture_hotkey) };
+    crate::hotkey::test(&app, &spec, current, other)
+}
+
+/// Check a ticket pattern and list the keys it finds in `sample`.
+#[tauri::command]
+pub fn test_ticket_pattern(pattern: String, sample: String) -> Res<Vec<String>> {
+    let re = regex::Regex::new(&pattern).map_err(|e| e.to_string())?;
+    Ok(note::TicketMatcher::new(&re).keys_in(&sample))
+}
+
+/// Choose a folder (for the notes folder setting).
+#[tauri::command]
+pub async fn pick_folder(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog().file().blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string())
+}
+
+/// The daily note template: `templates/daily.md` in the notes folder, or the built-in one.
+#[tauri::command]
+pub fn get_daily_template(state: State<AppState>) -> String {
+    let root = state.vault.read().unwrap().root().to_path_buf();
+    std::fs::read_to_string(root.join("templates").join("daily.md")).unwrap_or_else(|_| stash_core::vault::DEFAULT_DAILY_TEMPLATE.to_string())
+}
+
+/// Save the daily template (back to the built-in one when it matches it).
+#[tauri::command]
+pub fn set_daily_template(state: State<AppState>, text: String) -> Res<()> {
+    let dir = state.vault.read().unwrap().root().join("templates");
+    let file = dir.join("daily.md");
+    if text == stash_core::vault::DEFAULT_DAILY_TEMPLATE {
+        let _ = std::fs::remove_file(&file);
+        return Ok(());
+    }
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    std::fs::write(&file, text).map_err(err)
 }
 
 fn meta_for(state: &AppState, path: &str, content: &str) -> NoteMeta {

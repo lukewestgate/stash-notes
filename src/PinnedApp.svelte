@@ -10,7 +10,8 @@
   import Picker from "./components/Picker.svelte";
   import { api, on, type NoteMeta, type Settings } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
-  import { decoConfig, editorExtensions, editorState, setEditorDark } from "./lib/editor";
+  import { decoConfig, editorExtensions, editorState, setEditorDark, setSpellCheck } from "./lib/editor";
+  import { applyAppearance } from "./lib/appearance";
   import { liveConfig, propertiesHooks } from "./lib/live";
   import { matches, matchesChordTail, parseChord, parseKey } from "./lib/keys";
   import { statusInfo } from "./lib/status";
@@ -47,10 +48,9 @@
     tickets = ticketRegex(s.ticketPattern);
     decoConfig.tickets = tickets;
     liveConfig.enabled = s.liveFormatting;
-    const root = document.documentElement;
-    if (s.theme === "light" || s.theme === "dark") root.dataset.theme = s.theme;
-    else delete root.dataset.theme;
-    root.style.setProperty("--font-size", `${s.fontSize || 14}px`);
+    applyAppearance(s);
+    editorState.spellCheck = s.spellCheck;
+    if (view) setSpellCheck(view, s.spellCheck);
     applyDark();
   }
 
@@ -150,7 +150,7 @@
     const is = (spec: string) => matches(e, parseKey(spec));
     if (is(k.timestamp)) {
       stop();
-      view.dispatch(view.state.replaceSelection(timestamp()));
+      view.dispatch(view.state.replaceSelection(timestamp(new Date(), settings.timestampFormat)));
     } else if (is(k.openJira)) {
       stop();
       openJira();

@@ -32,6 +32,23 @@ fn parse(spec: &str, what: &str) -> Result<Option<Shortcut>, String> {
     spec.parse().map(Some).map_err(|e| format!("{what} hotkey `{spec}` is not valid ({e})"))
 }
 
+/// Check that `spec` can be registered right now (another app doesn't own
+/// it), without changing what is registered. `current` is the binding it
+/// would replace, which is fine to keep.
+pub fn test(app: &AppHandle, spec: &str, current: &str, other: &str) -> Result<(), String> {
+    let Some(sc) = parse(spec, "The")? else { return Ok(()) };
+    if spec.trim().eq_ignore_ascii_case(current.trim()) {
+        return Ok(());
+    }
+    if spec.trim().eq_ignore_ascii_case(other.trim()) {
+        return Err(format!("`{spec}` is already the other Stash Notes hotkey"));
+    }
+    let gs = app.global_shortcut();
+    gs.register(sc).map_err(|e| format!("`{spec}` is taken by another app ({e})"))?;
+    let _ = gs.unregister(sc);
+    Ok(())
+}
+
 /// Register both hotkeys, replacing the previous ones. Returns one message
 /// per hotkey that could not be registered.
 pub fn register(app: &AppHandle, main: &str, capture: &str) -> Vec<String> {

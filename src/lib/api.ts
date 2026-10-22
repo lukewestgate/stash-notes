@@ -102,6 +102,7 @@ export interface NotesViewSettings {
 }
 
 export interface Settings {
+  schemaVersion: number;
   vaultPath: string;
   hotkey: string;
   captureHotkey: string;
@@ -117,6 +118,10 @@ export interface Settings {
   gerrit: { urlTemplate: string };
   theme: "system" | "light" | "dark";
   fontSize: number;
+  fontFamily: string;
+  lineHeight: number;
+  spellCheck: boolean;
+  accent: string;
   liveFormatting: boolean;
   smartPaste: boolean;
   restorePinned: boolean;
@@ -164,6 +169,13 @@ async function call<T>(cmd: string, args: Args = {}): Promise<T> {
 export const api = {
   startup: () => call<Startup>("get_startup"),
   getSettings: () => call<Settings>("get_settings"),
+  setSettings: (settings: Settings) => call<void>("set_settings", { settings }),
+  defaultSettings: () => call<Settings>("default_settings"),
+  testHotkey: (spec: string, which: "main" | "capture") => call<void>("test_hotkey", { spec, which }),
+  testTicketPattern: (pattern: string, sample: string) => call<string[]>("test_ticket_pattern", { pattern, sample }),
+  pickFolder: () => call<string | null>("pick_folder"),
+  getDailyTemplate: () => call<string>("get_daily_template"),
+  setDailyTemplate: (text: string) => call<void>("set_daily_template", { text }),
   bufferOpen: (path: string) => call<Opened>("buffer_open", { path }),
   bufferClose: (path: string) => call<void>("buffer_close", { path }),
   bufferPush: (path: string, version: number, updates: BufferUpdate[]) =>

@@ -12,6 +12,8 @@
   import StatusPicker from "./components/StatusPicker.svelte";
   import NotesView, { type NotesViewState } from "./components/NotesView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
+  import SettingsView from "./components/SettingsView.svelte";
+  import { applyAppearance } from "./lib/appearance";
   import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import {
@@ -21,11 +23,12 @@
     refreshDecorations,
     setEditorDark,
     setLiveFormatting,
+    setSpellCheck,
   } from "./lib/editor";
   import { liveConfig, propertiesHooks } from "./lib/live";
   import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
-  import { formatKey, matches, matchesChordTail, parseChord, parseKey, type KeySpec } from "./lib/keys";
+  import { formatKey, keyCapture, matches, matchesChordTail, parseChord, parseKey, type KeySpec } from "./lib/keys";
   import {
     checkboxToggle,
     firstTicket,
@@ -68,7 +71,11 @@
   let conflict = $state<{ deleted: boolean } | null>(null);
   let nav = $state({ canBack: false, canForward: false });
   /** What fills the main area. The editor stays mounted underneath full-window views. */
-  let screen = $state<"editor" | "notes">("editor");
+  let screen = $state<"editor" | "notes" | "settings">("editor");
+  /** Where Esc returns to from the settings screen. */
+  let beforeSettings: "editor" | "notes" = "editor";
+  /** The notes folder is being indexed (after changing it). */
+  let indexing = $state(false);
   let notesState = $state<NotesViewState>({ query: "", sort: "edited", grouped: false, showDaily: false, showPutAway: false });
   /** Bumped when notes change, so lists reload. */
   let listVersion = $state(0);
@@ -141,14 +148,13 @@
     keySpecs.pinNote = null; // a chord, handled separately
     tickets = ticketRegex(s.ticketPattern);
     decoConfig.tickets = tickets;
-    const root = document.documentElement;
-    if (s.theme === "light" || s.theme === "dark") root.dataset.theme = s.theme;
-    else delete root.dataset.theme;
-    root.style.setProperty("--font-size", `${s.fontSize || 14}px`);
+    applyAppearance(s);
     liveConfig.enabled = s.liveFormatting;
+    editorState.spellCheck = s.spellCheck;
     applyDark();
     if (view) {
       setLiveFormatting(view, s.liveFormatting);
+      setSpellCheck(view, s.spellCheck);
       hasKey = computeHasKey();
     }
   }
@@ -323,6 +329,20 @@
     await navigate(NOTES);
   }
 
+  /** Show the settings screen (or leave it). It isn't a history entry. */
+  async function toggleSettings(open = screen !== "settings") {
+    if (!open) {
+      screen = beforeSettings;
+      requestAnimationFrame(focusMain);
+      return;
+    }
+    if (screen === "settings") return;
+    await flush();
+    remember();
+    beforeSettings = screen;
+    screen = "settings";
+  }
+
   /** Leave the Notes view: back to where you came from, else today's note. */
   async function leaveNotesView() {
     if (hist.canBack) await back();
@@ -475,7 +495,7 @@
   }
 
   function insertTimestamp() {
-    view.dispatch(view.state.replaceSelection(timestamp()));
+    view.dispatch(view.state.replaceSelection(timestamp(new Date(), settings?.timestampFormat)));
     view.focus();
   }
 
@@ -765,7 +785,7 @@
     help: () => (overlay = { type: "help" }),
     quit,
     rename: startRename,
-    openSettings: () => api.openSettingsFile().catch(fail),
+    openSettings: () => toggleSettings(),
     setStatus: () => {
       const sideHit = sidebarHasFocus() ? sidebar?.focusedHit() : null;
       if (sideHit) pickStatus(sideHit.path, sideHit.status, sideHit.key ?? sideHit.title);
@@ -796,7 +816,7 @@
   ]);
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.isComposing || !settings) return;
+    if (e.isComposing || !settings || keyCapture.active) return;
     if (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "V" || e.key === "v" || e.code === "KeyV")) {
       // Paste as typed; the browser still performs the paste.
       rawPaste = true;
@@ -840,6 +860,10 @@
       if (sidebarHasFocus()) {
         if (sideOverlay) sideExpanded = false;
         focusMain();
+        return;
+      }
+      if (screen === "settings") {
+        toggleSettings(false);
         return;
       }
       if (screen === "notes") {
@@ -915,14 +939,20 @@
       on<{ path: string; deleted: boolean }>("buffer-conflict", onBufferConflict),
       on<{ from: string; to: string }>("note-moved", (m) => moved(m.from, m.to)),
       on<string>("open-note", (p) => navigate(p)),
-      on<null>("open-settings", () => actions.openSettings()),
-      on<null>("index-ready", refreshSide),
+      on<null>("open-settings", () => toggleSettings(true)),
+      on<null>("index-ready", () => {
+        indexing = false;
+        refreshSide();
+        listVersion++;
+      }),
       on<null>("open-daily", openDaily),
       on<null>("quit-requested", quit),
       on<string>("toast", (t) => toast(t)),
       on<Settings>("settings-changed", (s) => {
+        if (settings && s.vaultPath !== settings.vaultPath) indexing = true;
+        const fromScreen = screen === "settings";
         applySettings(s);
-        toast("Settings reloaded");
+        if (!fromScreen) toast("Settings reloaded");
       }),
       onWindowFocus((focused) => {
         if (!focused) onBlur();
@@ -996,7 +1026,7 @@
       onResize={setSideWidth}
       onToday={openDaily}
       onNotes={(q) => openNotesView(q)}
-      onSettings={() => actions.openSettings()}
+      onSettings={() => toggleSettings()}
       onOpen={(p) => navigate(p)}
       onStatus={(h) => pickStatus(h.path, h.status, h.key ?? h.title)}
       onLeave={focusMain}
@@ -1052,6 +1082,16 @@
     />
   {/if}
   </div>
+
+  {#if screen === "settings" && settings}
+    <SettingsView
+      {settings}
+      {settingsPath}
+      {indexing}
+      sidebarExpanded={sideExpanded}
+      onSidebar={setSideExpanded}
+    />
+  {/if}
 
   {#if screen === "notes" && settings}
     <NotesView

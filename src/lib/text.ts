@@ -81,9 +81,24 @@ export function isoDate(d = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** `2026-10-22 14:05 ` */
-export function timestamp(d = new Date()): string {
-  return `${isoDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())} `;
+/**
+ * A timestamp in `format` (default `yyyy-MM-dd HH:mm`), plus a trailing
+ * space. Tokens: yyyy yy MM dd HH hh mm ss a; other text is kept.
+ */
+export function timestamp(d = new Date(), format = "yyyy-MM-dd HH:mm"): string {
+  const h12 = d.getHours() % 12 || 12;
+  const tokens: Record<string, string> = {
+    yyyy: String(d.getFullYear()),
+    yy: String(d.getFullYear()).slice(2),
+    MM: pad(d.getMonth() + 1),
+    dd: pad(d.getDate()),
+    HH: pad(d.getHours()),
+    hh: pad(h12),
+    mm: pad(d.getMinutes()),
+    ss: pad(d.getSeconds()),
+    a: d.getHours() < 12 ? "am" : "pm",
+  };
+  return `${format.replace(/yyyy|yy|MM|dd|HH|hh|mm|ss|a/g, (t) => tokens[t])} `;
 }
 
 /** Offset at the end of the `## Todo` section's last non-blank line (or of the heading). */

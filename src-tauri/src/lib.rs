@@ -28,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(window::state_flags()).build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(hotkey::plugin())
         .setup(|app| {
             let handle = app.handle().clone();
@@ -107,6 +108,12 @@ pub fn run() {
             commands::get_startup,
             commands::get_settings,
             commands::set_settings,
+            commands::default_settings,
+            commands::test_hotkey,
+            commands::test_ticket_pattern,
+            commands::pick_folder,
+            commands::get_daily_template,
+            commands::set_daily_template,
             commands::buffer_open,
             commands::buffer_close,
             commands::buffer_push,

@@ -37,7 +37,7 @@
     ["[[", "Link picker"],
     ["Ctrl+Click", "Follow link"],
     [keys.rename, "Rename note (updates links)"],
-    [keys.openSettings, "Open settings.json"],
+    [keys.openSettings, "Settings"],
     ["Ctrl+Shift+V", "Paste without converting Jira/Gerrit links"],
     [keys.quit, "Quit"],
   ]);

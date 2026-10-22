@@ -4,6 +4,7 @@
   import { onMount, tick } from "svelte";
   import { api, on, type Settings } from "./lib/api";
   import { jiraKeyFromUrl, ticketRegex } from "./lib/text";
+  import { applyAppearance } from "./lib/appearance";
 
   let settings = $state<Settings | null>(null);
   let text = $state("");
@@ -87,12 +88,14 @@
         box?.focus();
         box?.select();
       }),
-      on<Settings>("settings-changed", (s) => (settings = s)),
+      on<Settings>("settings-changed", (s) => {
+        settings = s;
+        applyAppearance(s);
+      }),
     ];
     api.getSettings().then((s) => {
       settings = s;
-      const root = document.documentElement;
-      if (s.theme === "light" || s.theme === "dark") root.dataset.theme = s.theme;
+      applyAppearance(s);
     });
     box.focus();
     fit();

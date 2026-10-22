@@ -10,6 +10,7 @@ import { isoDate } from "./text";
 const today = isoDate();
 
 const settings: Settings = {
+  schemaVersion: 2,
   vaultPath: "(browser demo – nothing is saved)",
   hotkey: "Alt+N",
   captureHotkey: "Alt+J",
@@ -25,6 +26,10 @@ const settings: Settings = {
   gerrit: { urlTemplate: "https://gerrit.example.com/c/{n}" },
   theme: "system",
   fontSize: 14,
+  fontFamily: "",
+  lineHeight: 1.6,
+  spellCheck: false,
+  accent: "blue",
   liveFormatting: true,
   smartPaste: true,
   restorePinned: true,
@@ -78,6 +83,7 @@ const notes = new Map<string, string>([
 const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.now() - i * 60_000]));
 const recents = new Map<string, number>();
 const versions = new Map<string, number>();
+let dailyTemplate = "# {{date}}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n";
 let clients = 0;
 
 /** Replace a note's text from the "backend", as a buffer update open views receive. */
@@ -218,6 +224,26 @@ export function handle(cmd: string, a: A): unknown {
       } satisfies Startup;
     case "get_settings":
       return settings;
+    case "set_settings":
+      Object.assign(settings, a.settings);
+      setTimeout(() => mockEmit("settings-changed", structuredClone(settings)), 0);
+      return;
+    case "default_settings":
+      return { ...structuredClone(settings), hotkey: "Alt+N", theme: "system", accent: "blue" };
+    case "test_hotkey":
+      if (/^(Ctrl\+Alt\+Del)$/i.test(a.spec)) throw new Error(`\`${a.spec}\` is taken by another app`);
+      return;
+    case "test_ticket_pattern": {
+      const re = new RegExp(`\\b(?:${a.pattern})\\b`, "g");
+      return [...String(a.sample).matchAll(re)].map((m) => m[0]);
+    }
+    case "pick_folder":
+      return "C:\\Users\\me\\Notes";
+    case "get_daily_template":
+      return dailyTemplate;
+    case "set_daily_template":
+      dailyTemplate = a.text;
+      return;
     case "buffer_open": {
       const text = notes.get(a.path);
       if (text === undefined) throw new Error(`no such note ${a.path}`);
@@ -407,7 +433,6 @@ export function handle(cmd: string, a: A): unknown {
     case "save_session":
     case "open_settings_file":
     case "open_vault_folder":
-    case "set_settings":
       return;
   }
   throw new Error(`mock: unknown command ${cmd}`);

@@ -17,7 +17,15 @@ pub const DEFAULT_VAULT_DIR: &str = "StashNotes";
 /// Read settings.json, creating it with defaults on first run.
 pub fn load_settings(path: &Path, default_vault: &Path) -> (Settings, Option<String>) {
     match std::fs::read_to_string(path) {
-        Ok(text) => Settings::from_json(&text),
+        Ok(text) => match stash_core::settings::migrate(&text) {
+            Some(migrated) => {
+                // Keep the old file next to it before rewriting.
+                let _ = std::fs::write(path.with_extension("json.bak"), &text);
+                let _ = std::fs::write(path, &migrated);
+                Settings::from_json(&migrated)
+            }
+            None => Settings::from_json(&text),
+        },
         Err(_) => {
             let mut s = Settings::default();
             s.vault_path = default_vault.display().to_string();
