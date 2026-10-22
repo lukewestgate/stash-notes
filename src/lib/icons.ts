@@ -105,5 +105,5 @@ export function svgAttrs(size: number) {
     "stroke-linecap": "round",
     "stroke-linejoin": "round",
     "aria-hidden": "true",
-  };
+  } as const;
 }
