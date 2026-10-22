@@ -36,7 +36,10 @@ impl std::error::Error for VaultError {}
 pub type Result<T> = std::result::Result<T, VaultError>;
 
 pub const DEFAULT_DAILY_TEMPLATE: &str = "# {{date}}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n";
-pub const TICKET_STUB: &str = "---\ntitle:\ngerrit:\n---\n\n";
+/// A new ticket note: front matter, then a heading for the ticket name.
+pub fn ticket_stub(key: &str) -> String {
+    format!("---\ngerrit:\n---\n\n# {key} \n\n")
+}
 
 /// Everything needed to undo a rename.
 #[derive(Debug, Clone)]
@@ -272,7 +275,7 @@ impl Vault {
         if kind != NoteKind::Note {
             return Err(VaultError::NotRenamable(match kind {
                 NoteKind::Daily => "daily notes are named by their date and cannot be renamed".into(),
-                _ => "ticket notes are named by their key; set `title:` in the front matter instead".into(),
+                _ => "ticket notes are named by their key; edit the name after the key in the first heading instead".into(),
             }));
         }
         let content = self.read(rel)?;

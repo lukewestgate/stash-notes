@@ -49,9 +49,9 @@ const notes = new Map<string, string>([
   ],
   [
     "tickets/PROJ-123.md",
-    `---\ntitle: Rollout date question\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
+    `---\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n# PROJ-123 Rollout date question\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
   ],
-  ["tickets/OPS-4123.md", "---\ntitle: Disk alerts on build agents\ngerrit:\n---\n\n"],
+  ["tickets/OPS-4123.md", "---\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
   ["notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
   ["archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
 ]);
@@ -94,8 +94,9 @@ function meta(path: string, text: string): NoteMeta {
   const s = stem(p);
   const { fields, body } = frontMatter(text);
   const kind: NoteKind = p.startsWith("daily/") ? "daily" : p.startsWith("tickets/") && ticketFull.test(s) ? "ticket" : "note";
-  const label = typeof fields.title === "string" ? fields.title : null;
   const heading = /^# (.+)$/m.exec(body)?.[1]?.trim();
+  const named = heading?.startsWith(s) ? heading.slice(s.length).replace(/^[\s:–—-]+/, "") : heading;
+  const label = named || (typeof fields.title === "string" ? fields.title : null);
   const gerrit = fields.gerrit;
   return {
     path,
@@ -140,7 +141,7 @@ function ensure(target: string): string {
     body = `# ${t}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n`;
   } else if (ticketFull.test(t.toUpperCase())) {
     path = `tickets/${t.toUpperCase()}.md`;
-    body = "---\ntitle:\ngerrit:\n---\n\n";
+    body = `---\ngerrit:\n---\n\n# ${t.toUpperCase()} \n\n`;
   } else {
     path = `notes/${slug(t)}.md`;
     body = `# ${t}\n\n`;

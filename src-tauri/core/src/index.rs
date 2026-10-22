@@ -415,8 +415,8 @@ mod tests {
 
     fn idx() -> Index {
         let mut i = Index::new(TicketMatcher::default_pattern());
-        i.upsert("tickets/PROJ-123.md", "---\ntitle: Rollout date question\n---\n- asked about rollout, see [[Rollout plan]]\n", 1000);
-        i.upsert("tickets/OPS-4123.md", "---\ntitle:\n---\nops thing\n", 900);
+        i.upsert("tickets/PROJ-123.md", "---\ngerrit:\n---\n# PROJ-123 Rollout date question\n- asked about rollout, see [[Rollout plan]]\n", 1000);
+        i.upsert("tickets/OPS-4123.md", "# OPS-4123 \nops thing\n", 900);
         i.upsert("notes/rollout-plan.md", "# Rollout plan\nphase one\n", 800);
         i.upsert("daily/2026-10-22.md", "# 2026-10-22\n## Todo\n- [ ] look at PROJ-123\n", 700);
         i.upsert("archive/notes/old-idea.md", "# Old idea\nsomething archived\n", 600);

@@ -162,6 +162,11 @@
   /** Where the cursor goes when a note is opened fresh. */
   function defaultCursor(data: NoteData): number {
     if (data.meta.kind === "daily") return todoCursor(data.content) ?? data.content.length;
+    // A ticket with no name yet: put the caret after `# PROJ-123 ` so the name can be typed.
+    if (data.meta.kind === "ticket" && !data.meta.label) {
+      const m = /^# .*$/m.exec(data.content);
+      if (m) return m.index + m[0].length;
+    }
     return data.content.length;
   }
 
@@ -372,7 +377,7 @@
       toast(
         meta.kind === "daily"
           ? "Daily notes are named by their date"
-          : "Ticket notes are named by their key — set `title:` in the front matter instead",
+          : "Ticket notes are named by their key — edit the name after the key in the first heading instead",
       );
       return;
     }

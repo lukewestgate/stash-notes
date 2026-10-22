@@ -114,7 +114,7 @@ fn ensure_note(state: &AppState, target: &str) -> Res<String> {
     let (path, content) = if let Some(date) = dates::parse_iso(target) {
         (Vault::daily_path(date), vault.daily_content(date))
     } else if let Some(key) = tickets.as_key(target) {
-        (Vault::ticket_path(&key), stash_core::vault::TICKET_STUB.to_string())
+        (Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key))
     } else {
         (vault.new_note_path(target), Vault::note_stub(target))
     };

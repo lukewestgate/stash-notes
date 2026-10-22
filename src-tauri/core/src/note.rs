@@ -148,6 +148,19 @@ pub fn first_heading(body: &str) -> Option<&str> {
     body.lines().find_map(|l| l.strip_prefix("# ").map(str::trim).filter(|t| !t.is_empty()))
 }
 
+/// The ticket name from a heading like `# PROJ-123 Rollout date question`.
+/// A heading that doesn't start with the key counts as the name in full.
+pub fn ticket_name(body: &str, key: &str) -> Option<String> {
+    let h = first_heading(body)?;
+    let rest = match h.strip_prefix(key) {
+        Some(r) if r.is_empty() || r.starts_with([' ', ':', '-', '–', '—']) => r.trim_start_matches([' ', ':', '-', '–', '—']),
+        Some(_) => h,
+        None => h,
+    };
+    let rest = rest.trim();
+    (!rest.is_empty()).then(|| rest.to_string())
+}
+
 /// Everything the UI needs to know about a note besides its text.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,7 +170,9 @@ pub struct NoteMeta {
     pub archived: bool,
     /// Ticket key, date or note title.
     pub title: String,
-    /// The ticket's optional human label (front matter `title`).
+    /// The ticket's name: what follows the key in its first heading
+    /// (`# PROJ-123 Rollout date question`). Older notes may still carry a
+    /// front matter `title`, which is used when the heading has no name.
     pub label: Option<String>,
     pub key: Option<String>,
     pub date: Option<NaiveDate>,
@@ -177,7 +192,7 @@ pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMet
     let fm_title = fm.scalar("title").map(str::to_string);
     let (title, label, key, date) = match kind {
         NoteKind::Daily => (s.clone(), None, None, dates::parse_iso(&s)),
-        NoteKind::Ticket => (s.clone(), fm_title, Some(s.clone()), None),
+        NoteKind::Ticket => (s.clone(), ticket_name(body, &s).or(fm_title), Some(s.clone()), None),
         NoteKind::Note => {
             let t = first_heading(body).map(str::to_string).or(fm_title).unwrap_or(s.clone());
             (t, None, None, None)
@@ -241,11 +256,17 @@ mod tests {
     #[test]
     fn meta() {
         let t = TicketMatcher::default_pattern();
-        let m = parse_meta("tickets/PROJ-1.md", "---\ntitle: Hello\ngerrit:\n  - 5\n---\nbody", &t);
+        let m = parse_meta("tickets/PROJ-1.md", "---\ngerrit:\n  - 5\n---\n\n# PROJ-1 Rollout date\nbody", &t);
         assert_eq!(m.kind, NoteKind::Ticket);
         assert_eq!(m.title, "PROJ-1");
-        assert_eq!(m.label.as_deref(), Some("Hello"));
+        assert_eq!(m.label.as_deref(), Some("Rollout date"));
         assert_eq!(m.gerrit, vec!["5"]);
+        // Legacy front matter title, and a heading still being typed
+        let m = parse_meta("tickets/PROJ-1.md", "---\ntitle: Hello\n---\n# PROJ-1 \n", &t);
+        assert_eq!(m.label.as_deref(), Some("Hello"));
+        assert_eq!(ticket_name("# PROJ-1: Fix it", "PROJ-1").as_deref(), Some("Fix it"));
+        assert_eq!(ticket_name("# Some name", "PROJ-1").as_deref(), Some("Some name"));
+        assert_eq!(ticket_name("# PROJ-12 x", "PROJ-1").as_deref(), Some("PROJ-12 x"));
         let m = parse_meta("notes/x.md", "intro\n# Real Title\n", &t);
         assert_eq!(m.title, "Real Title");
         let m = parse_meta("notes/x.md", "no heading", &t);
