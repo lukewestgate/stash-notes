@@ -390,6 +390,11 @@ export function handle(cmd: string, a: A): unknown {
       return;
     case "resolve_link":
       return ensure(a.target, a.from ? vaultOf(a.from) : current);
+    case "note_preview": {
+      const path = resolve(a.target, a.from ? vaultOf(a.from) : current);
+      if (!path) throw new Error("Linked note not found");
+      return { path, text: notes.get(path)! };
+    }
     case "create_note": {
       const path = ensure(plain(a.title), a.vault);
       const tags = String(a.title).split(/\s+/).filter((w) => w.startsWith("#")).map((w) => normalizeTag(w)).filter((t): t is string => !!t);

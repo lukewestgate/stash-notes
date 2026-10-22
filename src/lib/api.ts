@@ -36,6 +36,12 @@ export interface Opened {
   clientID: string;
 }
 
+/** An existing note's current text, read without opening or creating a note. */
+export interface NotePreview {
+  path: string;
+  text: string;
+}
+
 /** A CodeMirror change set (as JSON) and the view that made it. */
 export interface BufferUpdate {
   changes: unknown;
@@ -251,6 +257,7 @@ export const api = {
   /** `vault`: where it goes (null: the current vault, or the one its ticket key belongs to). */
   quickCreate: (title: string, vault: string | null) => call<string>("quick_create", { title, vault }),
   resolveLink: (target: string, from: string | null) => call<string>("resolve_link", { target, from }),
+  notePreview: (target: string, from: string | null) => call<NotePreview>("note_preview", { target, from }),
   createNote: (title: string, vault: string) => call<string>("create_note", { title, vault }),
   dailyNote: (date: string, vault: string) => call<string>("daily_note", { date, vault }),
   archiveNote: (path: string) => call<string>("archive_note", { path }),

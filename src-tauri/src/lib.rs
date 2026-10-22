@@ -145,6 +145,7 @@ pub fn run() {
             commands::pin_set_on_top,
             commands::open_in_main,
             commands::resolve_link,
+            commands::note_preview,
             commands::create_note,
             commands::daily_note,
             commands::archive_note,

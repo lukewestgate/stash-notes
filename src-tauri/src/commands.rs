@@ -356,6 +356,34 @@ pub fn resolve_link(state: State<AppState>, target: String, from: Option<String>
     ensure_note(&state, &target, &current)
 }
 
+#[derive(Serialize)]
+pub struct NotePreview {
+    path: String,
+    text: String,
+}
+
+/// Read an existing linked note without creating it, joining its buffer,
+/// changing the current vault, or recording it in navigation history.
+#[tauri::command]
+pub fn note_preview(state: State<AppState>, buffers: State<buffers::Buffers>, target: String, from: Option<String>) -> Res<NotePreview> {
+    let current = state.current_vault();
+    let vault = from.as_deref().map(|p| note::split_path(p).0).unwrap_or(&current);
+    let path = state.index.read().unwrap().resolve(&target, vault).ok_or("Linked note not found")?;
+    let buffered = {
+        let map = buffers.map.lock().unwrap();
+        match map.get(&path) {
+            Some(b) if b.deleted => return Err("Linked note was deleted".into()),
+            Some(b) => Some(b.text.clone()),
+            None => None,
+        }
+    };
+    let text = match buffered {
+        Some(text) => text,
+        None => state.read_note(&path)?,
+    };
+    Ok(NotePreview { path, text })
+}
+
 /// Create a note from the switcher in vault `vault`: a ticket if `title` is a
 /// key (in the vault whose tickets it is), else a regular note. Filter words
 /// in the query are left out of the title, and its `#tags` go on the new note.
