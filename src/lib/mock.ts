@@ -295,6 +295,9 @@ export function handle(cmd: string, a: A): unknown {
       changed(path);
       return { path, target: key ? key[1] : "Today" };
     }
+    case "smoke_enabled":
+      return false;
+    case "smoke_step":
     case "capture_hide":
     case "capture_resize":
       return;

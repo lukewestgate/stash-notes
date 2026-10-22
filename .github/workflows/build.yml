@@ -65,6 +65,16 @@ jobs:
       - run: npm ci
       - name: Build app and installers
         run: npm run tauri build
+      - name: Smoke test (pin a note, close it)
+        shell: pwsh
+        run: |
+          Remove-Item "$env:TEMP\stash-smoke.log" -ErrorAction SilentlyContinue
+          $env:STASH_SMOKE_TEST = "1"
+          $p = Start-Process -FilePath "src-tauri\target\release\stash-notes.exe" -PassThru
+          $done = $p.WaitForExit(90000)
+          Get-Content "$env:TEMP\stash-smoke.log" -ErrorAction SilentlyContinue
+          if (-not $done) { $p.Kill(); throw "The app hung during the smoke test" }
+          if ($p.ExitCode -ne 0) { throw "Smoke test failed with exit code $($p.ExitCode)" }
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:

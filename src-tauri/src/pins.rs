@@ -121,6 +121,7 @@ pub fn close(app: &AppHandle, label: &str) {
     }
     crate::buffers::close_window(app, label);
     crate::tray::rebuild_menu(app);
+    crate::smoke::pin_closed(app);
 }
 
 pub fn focus(app: &AppHandle, label: &str) {

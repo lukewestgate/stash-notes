@@ -219,6 +219,11 @@
         path = await api.pinPath();
         if (!path) return say("This pinned window lost its note");
         await load();
+        if (await api.smokeEnabled()) {
+          // CI self-test: report that this window works, then close it like the × button.
+          await api.smokeStep("pin-loaded");
+          setTimeout(() => api.pinClose(), 300);
+        }
       } catch (e) {
         say(String(e));
       }

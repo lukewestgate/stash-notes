@@ -7,6 +7,7 @@ mod commands;
 mod config;
 mod hotkey;
 mod pins;
+mod smoke;
 mod state;
 mod tray;
 mod window;
@@ -32,6 +33,9 @@ pub fn run() {
         .plugin(hotkey::plugin())
         .setup(|app| {
             let handle = app.handle().clone();
+            if smoke::enabled() {
+                smoke::start_watchdog();
+            }
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let settings_path = config_dir.join("settings.json");
@@ -124,6 +128,8 @@ pub fn run() {
             commands::capture_hide,
             commands::capture_resize,
             commands::pin_toggle,
+            commands::smoke_enabled,
+            commands::smoke_step,
             commands::pin_path,
             commands::pin_close,
             commands::pin_set_on_top,

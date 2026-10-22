@@ -155,6 +155,17 @@ pub fn pin_toggle(app: AppHandle, path: String) -> Res<bool> {
     crate::pins::toggle(&app, &Vault::clean(&path).map_err(err)?)
 }
 
+/// CI self-test hooks (see smoke.rs).
+#[tauri::command]
+pub fn smoke_enabled() -> bool {
+    crate::smoke::enabled()
+}
+
+#[tauri::command]
+pub fn smoke_step(step: String) {
+    crate::smoke::step(&step);
+}
+
 /// The note a pinned window shows.
 #[tauri::command]
 pub fn pin_path(app: AppHandle, window: tauri::Window) -> Option<String> {

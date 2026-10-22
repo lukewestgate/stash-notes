@@ -909,6 +909,14 @@
     if (!t.closest(".cm-editor, input, textarea")) e.preventDefault();
   }
 
+  /** CI self-test (STASH_SMOKE_TEST=1, see smoke.rs): pin this note like Ctrl+E P does. */
+  async function runSmokeTest() {
+    await api.smokeStep("main-loaded");
+    if (!currentPath) return api.smokeStep("FAILED: no note open");
+    await api.pinToggle(currentPath).catch((e) => api.smokeStep(`FAILED: pin_toggle: ${e}`));
+    await api.smokeStep("pin-requested");
+  }
+
   // ---------- startup ----------
 
   onMount(() => {
@@ -991,6 +999,7 @@
           await openDaily();
         }
         refreshSide();
+        if (await api.smokeEnabled()) runSmokeTest();
       } catch (e) {
         fail(e);
       }
