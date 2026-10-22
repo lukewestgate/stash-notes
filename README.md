@@ -17,7 +17,7 @@ Notes are plain markdown files in a folder you own. There's no account, no sync 
 
 ## Contents
 
-- [What's new in 0.2](#whats-new-in-02)
+- [What's new in 0.4](#whats-new-in-04)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Using Stash Notes](#using-stash-notes)
@@ -44,6 +44,17 @@ Notes are plain markdown files in a folder you own. There's no account, no sync 
 - [Design notes and decisions](#design-notes-and-decisions)
 
 ---
+
+## What's new in 0.4
+
+- **Real icons throughout.** Statuses, the header, the sidebar, search and Settings use one crisp icon set ([Lucide](https://lucide.dev)) instead of text symbols, so they look the same on every machine. Each status now has an **icon** you pick from a grid in Settings → Statuses. Your existing statuses are converted automatically.
+- **Header action buttons** for status, Jira, Gerrit (or adding a Gerrit change), **pin** and **archive**. Each tooltip shows its shortcut, and the pin button shows when the note is pinned.
+- **Know where you are.** The sidebar highlights the current place (Today, Notes, Settings or the open note). A note that isn't listed in the sidebar appears under **Open** while you're in it.
+- **Highlighted search matches** in `Ctrl+K`, the `Alt+J` pop-up and the Notes view, so it's clear why each result appeared.
+- **Comfortable editor width.** On wide or maximised windows the text sits in a centred column of about 80 characters (Settings → Editor → *Comfortable line width* turns it off).
+- **Subtle animations.** Pop-ups fade in, toasts slide in, and the sidebar slides open. Settings → Appearance → *Animations* can follow Windows' "Animation effects" setting (the default), or be always on or off.
+- **Better toasts.** Each has an icon and a close button, and pauses while the pointer is over it. Errors and warnings stay until you dismiss them.
+- **Friendlier empty states**, and one consistent hover style and keyboard focus ring everywhere.
 
 ## What's new in 0.3
 
@@ -122,7 +133,7 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 
 ```
 +------+--------------------------------------------------------+
-|  ≡   |  < >   PROJ-123  Rollout date question  ● open  [Jira] |  header
+|  ≡   |  < >  PROJ-123  Rollout question  ◉ open  Jira  pin  arch|  header
 |  📅  +--------------------------------------------------------+
 |  ☰   |  ● open  Jira  Gerrit 2                     properties |
 |  ──  |                                                        |
@@ -137,7 +148,7 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 ```
 
 - **Sidebar** (left): a thin rail by default. The hamburger (or `Ctrl+\`) expands it. See [Sidebar](#sidebar).
-- **Header:** back and forward, the note's title, its status chip, and **Jira** and **Gerrit** buttons when they apply. A dot shows unsaved changes.
+- **Header:** back and forward, the note's title, its status chip, **Jira** and **Gerrit** buttons when they apply (or a button to add a Gerrit change), then **pin** and **archive**. Hover over any button to see its shortcut. A dot shows unsaved changes.
 - **Editor:** markdown that's styled as you type. See [The editor](#the-editor).
 - **Backlinks strip:** notes that link to or mention this one.
 - **Notes view** (`Ctrl+L`) and **Settings** (`Ctrl+,`) take over the main area. `Esc` goes back.
@@ -182,20 +193,20 @@ Any note can also list `aliases: [Plan B, launch]`. Links and search then match 
 
 Ticket and general notes can carry one status. Daily notes never do.
 
-| Status | Symbol | Meaning | Active |
+| Status | Icon | Meaning | Active |
 |---|---|---|---|
-| todo | ○ | Planned, not started | yes |
-| open | ● | Being worked on | yes |
-| blocked | ⊘ | Waiting on something | yes |
-| backlog | ◌ | Parked for later | no |
-| closed | ✓ | Done | no |
+| todo | empty circle | Planned, not started | yes |
+| open | circle with a dot | Being worked on | yes |
+| blocked | slashed circle | Waiting on something | yes |
+| backlog | dashed circle | Parked for later | no |
+| closed | circle with a check | Done | no |
 
 - **Set it** with `Ctrl+Shift+S` (or by clicking the status chip). Type to filter or press `1`–`5`, then `Enter`. It works on the open note, the focused sidebar row or the selected Notes view row. It rewrites only the `status:` line.
 - **Closed notes are archived.** Setting *closed* moves the note into `archive/` (links keep working). Setting any other status on a closed, archived note moves it back.
-- **Where it shows:** a chip in the header, a symbol on every sidebar, switcher and Notes view row, and counts in the tray tooltip (for example *● 3 open · ⊘ 1 blocked*).
+- **Where it shows:** a chip in the header, an icon in the status's color on every sidebar, switcher and Notes view row, and counts in the tray tooltip (for example *3 open · 1 blocked*).
 - **Filters:** type `@todo`, `@open`, `@blocked`, `@backlog`, `@closed`, `@active` (todo, open and blocked) or `@none` in the switcher or Notes view. They combine with text: `@open rollout`.
 - New ticket notes start as **open** (Settings → Notes → *Default status*). New general notes start with none.
-- The list, symbols, colors and which statuses count as *active* are editable in Settings → Statuses. An unknown value in a file is kept and shown as a grey `?`.
+- The list, icons, colors and which statuses count as *active* are editable in Settings → Statuses (click a status's icon to pick another). An unknown value in a file is kept and shown as a grey question mark.
 - This is your personal status. It isn't read from or written to Jira.
 
 ### The editor
@@ -279,12 +290,12 @@ Typing **only digits** (for example `123`) matches every ticket key ending in th
 
 ### Sidebar
 
-The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status symbols of your active notes and **Settings**. Hover over a symbol to see the note's title. Click the hamburger (or press `Ctrl+\`) to expand it:
+The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status icons of your active notes and **Settings**. Hover over an icon to see the note's title. Click the hamburger (or press `Ctrl+\`) to expand it:
 
 - **Today** and **Notes** rows, each with its shortcut as a hint.
 - **Active:** notes with an active status, ordered open, blocked, then todo, and by last edit within each. Up to 8 rows, then a **+N more** row that opens the Notes view filtered to `@active`.
 - **Recent:** the last 10 notes you opened, skipping daily notes and anything already listed.
-- The current note has an accent bar. Right-click a row to set its status.
+- Where you are is always highlighted with an accent bar and tint: **Today** on today's note, **Notes** in the Notes view, **Settings** in Settings, or the open note's row. A note not otherwise listed shows under **Open** while it's in the editor. Right-click a row to set its status.
 - Drag the right edge to resize it (180–360 px). Its width and expanded state are remembered.
 - Below a 720 px window width, the expanded sidebar floats over the editor and closes after you open a note.
 - **Keyboard:** `Ctrl+0` focuses it, `↑`/`↓` move, `Enter` opens (and puts the caret in the editor), `Ctrl+Shift+S` sets the row's status, and `Esc` goes back.
@@ -388,13 +399,13 @@ Press **`Ctrl+,`** (or click the sidebar's gear, or use **Settings** in the tray
 |---|---|
 | General | Launch at login · Start hidden in tray · Restore pinned notes · What opens on summon · Show/hide hotkey and quick switcher hotkey (press the keys to set; a key another app owns is refused) · Hide after opening Jira/Gerrit |
 | Window | Show in taskbar · Always on top · Sidebar expanded |
-| Editor | Live formatting · Font and size · Line height · Spell check · Smart paste · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
+| Editor | Live formatting · Comfortable line width · Font and size · Line height · Spell check · Smart paste · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
 | Notes | Notes folder (with a folder picker) · Default status for new tickets · Ticket key pattern (with a test field) · Daily note template |
 | Links | Jira and Gerrit URL templates, each with a live preview |
 | Notes view | Show daily notes · Show closed notes · Default sort · Group by status |
-| Statuses | Name, symbol, color and *active* flag of each status · Reorder · Add · Remove |
+| Statuses | Icon, name, color and *active* flag of each status · Reorder · Add · Remove |
 | Shortcuts | Every in-app shortcut: click it and press new keys. Conflicts are refused. Reset per row or all |
-| Appearance | Theme (follow Windows, light, dark) · Accent color |
+| Appearance | Theme (follow Windows, light, dark) · Accent color · Animations (follow Windows, on, off) |
 
 Each category has **Reset to defaults**. The footer opens `settings.json` and the notes folder.
 
@@ -411,12 +422,13 @@ Each category has **Reset to defaults**. The footer opens `settings.json` and th
 | `jira.urlTemplate` | `https://yourco.atlassian.net/browse/{key}` |
 | `gerrit.urlTemplate` | `https://gerrit.example.com/c/{n}` |
 | `defaultStatus` | `open` |
-| `statuses` | the five statuses above |
-| `liveFormatting`, `smartPaste` | `true` |
+| `statuses` | the five statuses above, each `{ "name", "icon", "color", "active" }`. `icon` is a [Lucide](https://lucide.dev/icons) name from the Settings grid, e.g. `circle-dot` |
+| `liveFormatting`, `smartPaste`, `readableWidth` | `true` |
 | `spellCheck` | `false` |
 | `fontFamily`, `fontSize`, `lineHeight` | system UI font, `14`, `1.6` |
 | `timestampFormat` | `yyyy-MM-dd HH:mm` |
 | `theme`, `accent` | `system`, `blue` |
+| `animations` | `system` (or `on`, `off`) |
 | `notesView` | `{ "showDaily": false, "showClosed": false, "sort": "edited", "groupByStatus": false }` |
 | `keys.*` | see [Keyboard shortcuts](#keyboard-shortcuts). `pinNote` is a two-key chord like `"Ctrl+E P"` |
 | `schemaVersion` | managed by the app |
@@ -489,7 +501,8 @@ stash-notes/
 │   ├── PinnedApp.svelte        A pinned note window
 │   ├── QuickApp.svelte         The Alt+J quick switcher pop-up
 │   ├── components/             Header, Sidebar, Switcher, NotesView, SettingsView, Backlinks,
-│   │                           StatusPicker, KeyRecorder, Help, Prompt, Picker, StatusIcon
+│   │                           StatusPicker, KeyRecorder, Help, Prompt, Picker, StatusIcon,
+│   │                           Icon, Highlight, Toasts, EmptyState
 │   └── lib/
 │       ├── api.ts              Typed wrappers for the Rust commands and events
 │       ├── buffer.ts           Syncs an editor with its note's Rust buffer (CodeMirror collab)
@@ -498,6 +511,10 @@ stash-notes/
 │       ├── text.ts             Link/key detection, checkboxes, timestamps, smart paste
 │       ├── keys.ts             Shortcut parsing, matching, chords and recording
 │       ├── history.ts          Back/forward history
+│       ├── icons.ts            The Lucide icons the app uses, by name
+│       ├── highlight.ts        Which letters of a result to highlight
+│       ├── motion.ts           Animation setting and the shared pop-in transitions
+│       ├── toasts.svelte.ts    Toast queue (timers, pause on hover, sticky errors)
 │       ├── status.ts / appearance.ts
 │       └── mock.ts             In-memory backend for running the UI in a browser
 ├── src-tauri/                  Rust (Tauri v2) app
@@ -581,4 +598,6 @@ Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. W
 - **Shortcut conflicts** are refused when recording, not just flagged, so two actions can never share a key.
 - **Peek (`Alt+Enter`)** shows the chosen note without adding it to history.
 - **`Alt+J` is a separate pop-up** rather than the main window with its switcher open, so a maximised app doesn't take over the screen just to search.
+- **Animations.** The spec asked for an instant summon, and that's unchanged: showing and hiding the window never animates. Only small in-app transitions (pop-ups, toasts, the sidebar) do, they're short (under 200 ms), and they follow Windows' animation setting unless you choose otherwise.
+- **Icons** are a bundled subset of [Lucide](https://lucide.dev) (ISC licence), drawn as inline SVG, so no icon font or network access is needed.
 - **Ticket files are named by key only** (`PROJ-1234.md`), and the name lives in the heading. Rewording a ticket never breaks links, and tickets are still found by name everywhere.
