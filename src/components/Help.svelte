@@ -15,6 +15,7 @@
     [keys.hide, "Close overlay, else hide the window"],
     [keys.quickSwitcher, "Quick switcher: find, open or create a note", "with text selected: link it"],
     [keys.dailyNote, "Today's daily note"],
+    [keys.notesView, "Notes view: browse, sort and filter every note"],
     [keys.followLink, "Follow link / ticket / URL under cursor", "on a checkbox line: toggle it"],
     [keys.back, "Back"],
     [keys.forward, "Forward"],

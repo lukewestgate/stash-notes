@@ -140,3 +140,16 @@ export function weekday(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "long" });
 }
+
+/** Compact "last edited" time: `5m`, `2h`, `Mon`, `Oct 3`, `Oct 3, 2025`. */
+export function relTime(ms: number, now = Date.now()): string {
+  if (!ms) return "";
+  const diff = Math.max(0, now - ms);
+  if (diff < 60_000) return "now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+  const d = new Date(ms);
+  if (diff < 6 * 86_400_000) return d.toLocaleDateString("en-US", { weekday: "short" });
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return d.toLocaleDateString("en-US", sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+}

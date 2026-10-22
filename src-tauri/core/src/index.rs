@@ -110,6 +110,11 @@ impl NoteEntry {
             .or_else(|| lines().find(|(_, low)| low.contains(first.as_str())))
             .map(|(orig, _)| snippet(orig))
     }
+
+    /// The first non-blank, non-heading body line.
+    fn first_line(&self) -> Option<String> {
+        self.body.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#')).map(snippet)
+    }
 }
 
 fn snippet(line: &str) -> String {
@@ -141,10 +146,41 @@ pub struct SearchHit {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Sidebar {
+    pub active: Vec<SearchHit>,
+    /// Active notes beyond the ones listed.
+    pub more: usize,
+    pub recent: Vec<SearchHit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchResults {
     pub hits: Vec<SearchHit>,
     /// Some hit is an exact match for the query (so no "Create" row is needed).
     pub exact: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SortBy {
+    Edited,
+    Opened,
+    Status,
+    Title,
+}
+
+/// Options for the Notes view (and the sidebar).
+pub struct ListOptions<'a> {
+    pub include_daily: bool,
+    /// Closed and archived notes.
+    pub include_put_away: bool,
+    pub sort: SortBy,
+    pub limit: usize,
+    pub today: NaiveDate,
+    pub now_ms: i64,
+    pub recents: &'a HashMap<String, i64>,
+    pub statuses: &'a [StatusDef],
 }
 
 pub struct SearchOptions<'a> {
@@ -259,6 +295,88 @@ impl Index {
         pick(&|e| e.stem_lower == lower || e.path_lower == lower)
             .or_else(|| pick(&|e| e.title_lower == lower))
             .or_else(|| pick(&|e| e.aliases_lower.iter().any(|a| a == lower)))
+    }
+
+    /// The Notes view: every visible note, filtered by `@status` tokens and
+    /// sorted; or, when the query has text, search results in rank order.
+    /// Rows carry a snippet: the matching line, else the first body line.
+    pub fn list(&self, query: &str, opts: &ListOptions) -> SearchResults {
+        let (text, filters) = status::parse_filters(query);
+        let wants_closed = filters.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
+        let keep = |e: &NoteEntry| {
+            (opts.include_daily || e.meta.kind != NoteKind::Daily || !text.trim().is_empty())
+                && (opts.include_put_away || wants_closed || !e.is_put_away())
+                && e.matches_filters(&filters, opts.statuses)
+        };
+        if !text.trim().is_empty() {
+            let search = SearchOptions {
+                include_archived: opts.include_put_away,
+                limit: usize::MAX,
+                current: None,
+                today: opts.today,
+                now_ms: opts.now_ms,
+                recents: opts.recents,
+                statuses: opts.statuses,
+            };
+            let mut res = self.search(query, &search);
+            res.hits.retain(|h| self.notes.get(&h.path).is_some_and(|e| keep(e)));
+            res.hits.truncate(opts.limit);
+            for h in &mut res.hits {
+                if h.snippet.is_none() {
+                    h.snippet = self.notes.get(&h.path).and_then(NoteEntry::first_line);
+                }
+            }
+            return res;
+        }
+        let mut all: Vec<&NoteEntry> = self.notes.values().filter(|e| keep(e)).collect();
+        let opened = |e: &NoteEntry| opts.recents.get(e.path()).copied().unwrap_or(0);
+        let rank = |e: &NoteEntry| match e.meta.status.as_deref() {
+            Some(s) => match opts.statuses.iter().position(|d| d.name == s) {
+                // Active statuses first (open, blocked, ...), then the rest in list order.
+                Some(_) if opts.statuses.iter().any(|d| d.name == s && d.active) => status::active_rank(s, opts.statuses),
+                Some(i) => 100 + i,
+                None => 200,
+            },
+            None => 300,
+        };
+        let sort_name = |e: &NoteEntry| e.meta.title.to_lowercase();
+        match opts.sort {
+            SortBy::Edited => all.sort_by(|a, b| b.mtime.cmp(&a.mtime)),
+            SortBy::Opened => all.sort_by(|a, b| opened(b).cmp(&opened(a)).then(b.mtime.cmp(&a.mtime))),
+            SortBy::Status => all.sort_by(|a, b| rank(a).cmp(&rank(b)).then(b.mtime.cmp(&a.mtime))),
+            SortBy::Title => all.sort_by_key(|e| sort_name(e)),
+        }
+        let hits = all.into_iter().take(opts.limit).map(|e| e.summary(e.first_line(), 0)).collect();
+        SearchResults { hits, exact: false }
+    }
+
+    /// The sidebar: notes with an active status (open, then blocked, then the
+    /// rest; newest edit first within each), and recently opened notes that
+    /// aren't already shown and aren't daily notes.
+    pub fn sidebar(&self, recents: &HashMap<String, i64>, statuses: &[StatusDef], max_active: usize, max_recent: usize) -> Sidebar {
+        let mut active: Vec<&NoteEntry> = self
+            .notes
+            .values()
+            .filter(|e| !e.is_put_away() && StatusFilter::Active.matches(e.meta.status.as_deref(), true, statuses))
+            .collect();
+        active.sort_by(|a, b| {
+            let ra = status::active_rank(a.meta.status.as_deref().unwrap_or(""), statuses);
+            let rb = status::active_rank(b.meta.status.as_deref().unwrap_or(""), statuses);
+            ra.cmp(&rb).then(b.mtime.cmp(&a.mtime))
+        });
+        let active_total = active.len();
+        let shown: HashSet<&str> = active.iter().take(max_active).map(|e| e.path()).collect();
+        let mut recent: Vec<(&NoteEntry, i64)> = recents
+            .iter()
+            .filter_map(|(p, t)| self.notes.get(p).map(|e| (e, *t)))
+            .filter(|(e, _)| e.meta.kind != NoteKind::Daily && !shown.contains(e.path()) && !e.meta.archived)
+            .collect();
+        recent.sort_by(|a, b| b.1.cmp(&a.1));
+        Sidebar {
+            active: active.into_iter().take(max_active).map(|e| e.summary(None, 0)).collect(),
+            more: active_total.saturating_sub(max_active),
+            recent: recent.into_iter().take(max_recent).map(|(e, _)| e.summary(None, 0)).collect(),
+        }
     }
 
     /// Notes that link to or mention `path`, most recently edited first.
@@ -568,6 +686,40 @@ mod tests {
         assert!(!paths("@none", &o).iter().any(|p| p.starts_with("daily/")));
         // Active notes are listed first in the empty query
         assert_eq!(paths("", &o)[..2], ["tickets/A-1.md".to_string(), "notes/n.md".to_string()]);
+    }
+
+    #[test]
+    fn list_view() {
+        let mut i = idx();
+        i.upsert("tickets/A-1.md", "---\nstatus: blocked\n---\n# A-1 Cache\nfirst line\n", 50);
+        i.upsert("tickets/A-2.md", "---\nstatus: open\n---\n# A-2 X\n", 40);
+        i.upsert("tickets/A-3.md", "---\nstatus: closed\n---\n# A-3 Done\n", 60);
+        let r = HashMap::new();
+        let defs = status::default_statuses();
+        let mut o = ListOptions {
+            include_daily: false,
+            include_put_away: false,
+            sort: SortBy::Edited,
+            limit: 100,
+            today: dates::parse_iso("2026-10-22").unwrap(),
+            now_ms: 0,
+            recents: &r,
+            statuses: &defs,
+        };
+        let paths = |o: &ListOptions| i.list("", o).hits.into_iter().map(|h| h.path).collect::<Vec<_>>();
+        let p = paths(&o);
+        assert!(!p.iter().any(|x| x.starts_with("daily/") || x == "tickets/A-3.md"));
+        assert_eq!(p[0], "tickets/PROJ-123.md");
+        o.sort = SortBy::Status;
+        assert_eq!(paths(&o)[..2], ["tickets/A-2.md".to_string(), "tickets/A-1.md".to_string()]);
+        o.include_daily = true;
+        o.include_put_away = true;
+        assert!(paths(&o).len() >= 7);
+        let first = i.list("@blocked", &o);
+        assert_eq!(first.hits[0].snippet.as_deref(), Some("first line"));
+        let sb = i.sidebar(&r, &defs, 1, 10);
+        assert_eq!(sb.active[0].path, "tickets/A-2.md");
+        assert_eq!(sb.more, 1);
     }
 
     #[test]

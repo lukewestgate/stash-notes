@@ -23,6 +23,7 @@ const settings: Settings = {
   theme: "system",
   fontSize: 14,
   liveFormatting: true,
+  notesView: { showDaily: false, showClosed: false, sort: "edited", groupByStatus: false },
   statuses: [
     { name: "todo", symbol: "○", color: "blue", active: true },
     { name: "open", symbol: "●", color: "green", active: true },
@@ -49,6 +50,7 @@ const settings: Settings = {
     rename: "F2",
     openSettings: "Ctrl+,",
     setStatus: "Ctrl+Shift+S",
+    notesView: "Ctrl+L",
   },
 };
 
@@ -276,6 +278,19 @@ export function handle(cmd: string, a: A): unknown {
       }
       hits.sort((x, y) => y.score - x.score);
       return { hits, exact };
+    }
+    case "list_notes": {
+      const q = String(a.query).trim().toLowerCase();
+      const filters = q.split(/\s+/).filter((w) => w.startsWith("@")).map((w) => w.slice(1));
+      const text = q.split(/\s+/).filter((w) => w && !w.startsWith("@")).join(" ");
+      const hits = [...notes.keys()]
+        .map((p) => hit(p, notes.get(p)!.replace(/^---[\s\S]*?---\n/, "").split("\n").find((l) => l.trim() && !l.startsWith("#")) ?? null))
+        .filter((h) => a.includeDaily || h.kind !== "daily")
+        .filter((h) => a.includePutAway || (!h.archived && h.status !== "closed"))
+        .filter((h) => !filters.length || filters.some((f) => (f === "active" ? ["todo", "open", "blocked"].includes(h.status ?? "") : f === "none" ? !h.status : h.status === f)))
+        .filter((h) => !text || `${h.title} ${h.label ?? ""} ${notes.get(h.path)}`.toLowerCase().includes(text))
+        .sort((x, y) => (a.sort === "title" ? x.title.localeCompare(y.title) : y.mtime - x.mtime));
+      return { hits, exact: hits.some((h) => h.title.toLowerCase() === text) };
     }
     case "backlinks": {
       const m = meta(a.path, notes.get(a.path) ?? "");

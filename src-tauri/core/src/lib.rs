@@ -10,7 +10,7 @@ pub mod settings;
 pub mod status;
 pub mod vault;
 
-pub use index::{Index, NoteEntry, SearchHit, SearchResults};
+pub use index::{Index, NoteEntry, SearchHit, SearchResults, Sidebar};
 pub use note::{NoteKind, NoteMeta};
 pub use settings::Settings;
 pub use vault::{RenameOutcome, Vault, VaultError};

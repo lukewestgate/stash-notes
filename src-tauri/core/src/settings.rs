@@ -34,12 +34,30 @@ pub struct Settings {
     pub font_size: u32,
     /// Style markdown as you type (markers hide off the caret line).
     pub live_formatting: bool,
+    pub notes_view: NotesViewSettings,
     /// Status list, in display order.
     pub statuses: Vec<StatusDef>,
     /// Status given to new ticket notes (empty for none).
     pub default_status: String,
     /// In-app shortcuts.
     pub keys: Keys,
+}
+
+/// Defaults for the Notes view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotesViewSettings {
+    pub show_daily: bool,
+    pub show_closed: bool,
+    /// `edited`, `opened`, `status` or `title`.
+    pub sort: String,
+    pub group_by_status: bool,
+}
+
+impl Default for NotesViewSettings {
+    fn default() -> Self {
+        NotesViewSettings { show_daily: false, show_closed: false, sort: "edited".into(), group_by_status: false }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +92,7 @@ pub struct Keys {
     pub rename: String,
     pub open_settings: String,
     pub set_status: String,
+    pub notes_view: String,
 }
 
 impl Default for Settings {
@@ -93,6 +112,7 @@ impl Default for Settings {
             theme: "system".into(),
             font_size: 14,
             live_formatting: true,
+            notes_view: NotesViewSettings::default(),
             statuses: default_statuses(),
             default_status: "open".into(),
             keys: Keys::default(),
@@ -136,6 +156,7 @@ impl Default for Keys {
             rename: "F2".into(),
             open_settings: "Ctrl+,".into(),
             set_status: "Ctrl+Shift+S".into(),
+            notes_view: "Ctrl+L".into(),
         }
     }
 }

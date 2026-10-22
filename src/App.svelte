@@ -10,6 +10,7 @@
   import Prompt from "./components/Prompt.svelte";
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
+  import NotesView, { type NotesViewState } from "./components/NotesView.svelte";
   import { api, on, onWindowFocus, type Keys, type NoteData, type NoteMeta, type SearchHit, type Settings } from "./lib/api";
   import {
     decoConfig,
@@ -64,6 +65,15 @@
   /** Set when the open note changed on disk while we had unsaved edits (or it vanished). */
   let conflict = $state<{ disk: string | null } | null>(null);
   let nav = $state({ canBack: false, canForward: false });
+  /** What fills the main area. The editor stays mounted underneath full-window views. */
+  let screen = $state<"editor" | "notes">("editor");
+  let notesState = $state<NotesViewState>({ query: "", sort: "edited", grouped: false, showDaily: false, showPutAway: false });
+  /** Bumped when notes change, so lists reload. */
+  let listVersion = $state(0);
+  let notesView = $state<NotesView>();
+
+  /** History path standing for the Notes view. */
+  const NOTES = "::notes";
 
   let editorEl: HTMLDivElement;
   let view: EditorView;
@@ -196,14 +206,22 @@
   /** Remember cursor and scroll for the entry on screen. */
   function remember() {
     const e = hist.current;
-    if (e && view && e.path === currentPath) {
+    if (e && view && screen === "editor" && e.path === currentPath) {
       e.anchor = head();
       e.scroll = view.scrollDOM.scrollTop;
     }
   }
 
   async function show(path: string, entry: Entry | null, restore: boolean) {
+    if (path === NOTES) {
+      screen = "notes";
+      backlinksOpen = false;
+      updateNav();
+      requestAnimationFrame(() => notesView?.focus());
+      return;
+    }
     const data = await api.openNote(path);
+    screen = "editor";
     currentPath = path;
     savedContent = data.content;
     meta = data.meta;
@@ -228,7 +246,7 @@
     try {
       await flush();
       remember();
-      if (path === currentPath && !opts.peek) {
+      if (path === currentPath && !opts.peek && screen === "editor") {
         focusEditor();
         return;
       }
@@ -253,6 +271,22 @@
     const e = hist.forward();
     if (e) await show(e.path, e, true).catch(fail);
     updateNav();
+  }
+
+  /** Open the Notes view, optionally with a query (e.g. `@active`). */
+  async function openNotesView(query?: string) {
+    if (query !== undefined) notesState.query = query;
+    if (screen === "notes") {
+      notesView?.focus();
+      return;
+    }
+    await navigate(NOTES);
+  }
+
+  /** Leave the Notes view: back to where you came from, else today's note. */
+  async function leaveNotesView() {
+    if (hist.canBack) await back();
+    else await openDaily();
   }
 
   async function openDaily() {
@@ -468,6 +502,7 @@
         moved(path, r.path);
         toast(r.meta.archived ? "Closed — moved to the archive" : "Reopened — moved out of the archive");
       }
+      listVersion++;
       refreshSide();
     } catch (e) {
       fail(e);
@@ -551,6 +586,7 @@
 
   async function onVaultChanged(paths: string[]) {
     refreshSide();
+    listVersion++;
     const path = currentPath;
     if (!path || !paths.includes(path)) return;
     const disk = await api.readNote(path).catch(() => undefined);
@@ -598,6 +634,10 @@
 
   async function onSummoned() {
     if (!settings) return;
+    if (screen === "notes") {
+      requestAnimationFrame(() => notesView?.focus());
+      return;
+    }
     const today = isoDate();
     const staleDaily = meta?.kind === "daily" && !meta.archived && meta.date !== null && meta.date < today;
     const wantDaily = settings.onSummon === "daily" || staleDaily;
@@ -640,8 +680,26 @@
     quit,
     rename: startRename,
     openSettings: () => api.openSettingsFile().catch(fail),
-    setStatus: () => pickStatus(),
+    setStatus: () => {
+      if (screen === "notes") {
+        const h = notesView?.selected();
+        if (h) pickStatus(h.path, h.status, h.key ?? h.title);
+      } else pickStatus();
+    },
+    notesView: () => openNotesView(),
   };
+
+  /** Actions that only make sense with a note in the editor. */
+  const EDITOR_ONLY = new Set<keyof Keys>([
+    "followLink",
+    "openJira",
+    "openGerrit",
+    "addGerrit",
+    "timestamp",
+    "backlinks",
+    "archive",
+    "rename",
+  ]);
 
   function onKeydown(e: KeyboardEvent) {
     if (e.isComposing || !settings) return;
@@ -662,6 +720,10 @@
       // Let the link picker close itself first.
       if (view && completionStatus(view.state) !== null) return;
       stop();
+      if (screen === "notes") {
+        leaveNotesView();
+        return;
+      }
       if (backlinksOpen) {
         backlinksOpen = false;
         focusEditor();
@@ -673,6 +735,7 @@
     }
     for (const a of Object.keys(actions) as (keyof Keys)[]) {
       if (a !== "hide" && is(a)) {
+        if (screen !== "editor" && EDITOR_ONLY.has(a)) return;
         stop();
         actions[a]();
         return;
@@ -742,6 +805,13 @@
       try {
         const s = await api.startup();
         applySettings(s.settings);
+        notesState = {
+          query: "",
+          sort: s.settings.notesView.sort,
+          grouped: s.settings.notesView.groupByStatus,
+          showDaily: s.settings.notesView.showDaily,
+          showPutAway: s.settings.notesView.showClosed,
+        };
         vaultPath = s.vaultPath;
         settingsPath = s.settingsPath;
         s.warnings.forEach((w) => toast(w, undefined, 8000));
@@ -777,6 +847,7 @@
 </script>
 
 <main class="app">
+  <div class="pane" class:hidden={screen !== "editor"}>
   {#if settings}
     <Header
       {meta}
@@ -824,6 +895,26 @@
       onToggle={() => actions.backlinks()}
     />
   {/if}
+  </div>
+
+  {#if screen === "notes" && settings}
+    <NotesView
+      bind:this={notesView}
+      bind:view={notesState}
+      statuses={settings.statuses}
+      keys={settings.keys}
+      version={listVersion}
+      isTicket={isTicketKey}
+      onOpen={(p) => navigate(p)}
+      onCreate={async (q) => {
+        try {
+          navigate(await api.createNote(q.replace(/@\S+/g, "").trim()));
+        } catch (e) {
+          fail(e);
+        }
+      }}
+    />
+  {/if}
 
   {#if overlay?.type === "switcher"}
     <Switcher
@@ -867,6 +958,15 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+  }
+  .pane {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .pane.hidden {
+    display: none;
   }
   .editor {
     flex: 1;

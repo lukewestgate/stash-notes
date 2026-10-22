@@ -75,6 +75,16 @@ export interface Keys {
   rename: string;
   openSettings: string;
   setStatus: string;
+  notesView: string;
+}
+
+export type SortBy = "edited" | "opened" | "status" | "title";
+
+export interface NotesViewSettings {
+  showDaily: boolean;
+  showClosed: boolean;
+  sort: SortBy;
+  groupByStatus: boolean;
 }
 
 export interface Settings {
@@ -92,6 +102,7 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   fontSize: number;
   liveFormatting: boolean;
+  notesView: NotesViewSettings;
   statuses: StatusDef[];
   defaultStatus: string;
   keys: Keys;
@@ -145,6 +156,8 @@ export const api = {
   search: (query: string, includeArchived: boolean, current: string | null, limit = 50) =>
     call<SearchResults>("search", { query, includeArchived, current, limit }),
   setStatus: (path: string, status: string | null) => call<StatusResult>("set_status", { path, status }),
+  listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy) =>
+    call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
   archivedNames: () => call<string[]>("archived_names"),
   gerritEdit: (content: string, link: string) => call<TextEdit>("gerrit_edit", { content, link }),

@@ -299,6 +299,31 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
     })
 }
 
+/// The Notes view's rows.
+#[tauri::command]
+pub fn list_notes(
+    state: State<AppState>,
+    query: String,
+    include_daily: bool,
+    include_put_away: bool,
+    sort: stash_core::index::SortBy,
+    limit: Option<usize>,
+) -> SearchResults {
+    let recents = state.session.lock().unwrap().recents.clone();
+    let statuses = state.settings.read().unwrap().statuses.clone();
+    let opts = stash_core::index::ListOptions {
+        include_daily,
+        include_put_away,
+        sort,
+        limit: limit.unwrap_or(5000),
+        today: chrono::Local::now().date_naive(),
+        now_ms: now_ms(),
+        recents: &recents,
+        statuses: &statuses,
+    };
+    state.index.read().unwrap().list(&query, &opts)
+}
+
 #[tauri::command]
 pub fn backlinks(state: State<AppState>, path: String) -> Vec<SearchHit> {
     state.index.read().unwrap().backlinks(&path)

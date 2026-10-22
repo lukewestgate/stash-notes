@@ -87,6 +87,7 @@ pub fn run() {
             commands::rename_note,
             commands::undo_rename,
             commands::search,
+            commands::list_notes,
             commands::backlinks,
             commands::set_status,
             commands::archived_names,
