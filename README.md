@@ -5,24 +5,34 @@ A keyboard-first, always-resident notepad for work on Windows. One global hotkey
 Notes are plain markdown files in a folder you own. There's no account, no sync and no database. Stash Notes is built with [Tauri v2](https://v2.tauri.app/) (Rust) and a Svelte + CodeMirror UI.
 
 - **Instant summon.** The window is created once at login and only ever shown or hidden.
-- **Opens where you left off,** or on today's daily note.
-- **Ticket notes:** one note per Jira key (`PROJ-123`), with Jira and Gerrit links a keystroke away.
-- **Links between notes** (`[[Rollout plan]]`, bare `PROJ-123`, `[[2026-10-22]]`) with browser-style back and forward.
-- **One fuzzy switcher** (`Ctrl+K`) finds notes by ticket key, title, date or text, and creates new ones.
+- **Ticket notes with a status.** One note per Jira key (`PROJ-123`), marked todo, open, blocked, backlog or closed, with Jira and Gerrit links a keystroke away.
+- **Live markdown.** Headings, bold, lists and checkboxes are styled as you type, and the file stays plain markdown.
+- **Sidebar and Notes view.** See what you're working on at a glance, and scan, sort and filter every note.
+- **Quick capture** (`Alt+J`). File a line into a ticket or today's note without opening the app.
+- **Pinned notes.** Pop any note out into a small always-on-top window beside your code.
+- **One fuzzy switcher** (`Ctrl+K`). Find notes by ticket key, title, date, text or `@status`, and create new ones.
 - **Fully usable without the mouse.** Press `Ctrl+/` to see every shortcut.
 
 ---
 
 ## Contents
 
+- [What's new in 0.2](#whats-new-in-02)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Using Stash Notes](#using-stash-notes)
+  - [The window](#the-window)
   - [Note kinds and the notes folder](#note-kinds-and-the-notes-folder)
+  - [Statuses](#statuses)
+  - [The editor](#the-editor)
   - [Keyboard shortcuts](#keyboard-shortcuts)
   - [Quick switcher and search](#quick-switcher-and-search)
+  - [Sidebar](#sidebar)
+  - [Notes view](#notes-view)
   - [Links, backlinks and history](#links-backlinks-and-history)
-  - [Jira and Gerrit](#jira-and-gerrit)
+  - [Jira, Gerrit and smart paste](#jira-gerrit-and-smart-paste)
+  - [Quick capture](#quick-capture)
+  - [Pinned notes](#pinned-notes)
   - [Daily notes and todos](#daily-notes-and-todos)
   - [Archiving and renaming](#archiving-and-renaming)
   - [Window, tray and startup](#window-tray-and-startup)
@@ -35,32 +45,47 @@ Notes are plain markdown files in a folder you own. There's no account, no sync 
 
 ---
 
+## What's new in 0.2
+
+- **Statuses:** every ticket and general note can be todo, open, blocked, backlog or closed. Setting **closed** moves the note into the archive. `Ctrl+Shift+S` sets a status, and `@open`-style filters work in search.
+- **Sidebar:** a thin rail that expands (hamburger or `Ctrl+\`) into **Active** and **Recent** groups.
+- **Notes view** (`Ctrl+L`): a full-window list of every note with search, sorting and grouping by status.
+- **Live markdown editor:** markers hide when the caret is elsewhere, headings are sized, checkboxes are clickable, and front matter shows as a compact properties row. The caret is now visible in dark mode.
+- **Quick capture** (`Alt+J`) and **smart paste** of Jira and Gerrit links.
+- **Pinned notes** (`Ctrl+E` then `P`): pop-out always-on-top windows that stay in sync with the main window.
+- **Settings screen** (`Ctrl+,`): every option without editing JSON, including shortcut and hotkey recording.
+- **Ticket names** now come from the note's first heading (`# PROJ-123 Rollout date question`), not front matter.
+- **Opening Jira or Gerrit** keeps the app open (it used to hide).
+- **Upgrading:** run the new installer over the old version. It replaces the app in place and keeps your notes and settings.
+
+---
+
 ## Installation
 
 Stash Notes targets **Windows 10 and Windows 11** (64-bit). It needs the Microsoft Edge **WebView2** runtime, which ships with Windows 11 and current Windows 10. If WebView2 is missing, the installer downloads it.
 
-### Option 1: download a build from GitHub (no tools needed)
+### Option 1: download from the Releases page (no login needed)
 
-Every push to this repository builds the Windows installers with GitHub Actions.
+1. Go to **[Releases → latest](https://github.com/lukewestgate/stash-notes/releases/latest)**.
+2. Download one of these:
+   - **`Stash.Notes_x.y.z_x64-setup.exe`**, the installer (recommended). It installs for the current user and doesn't need admin rights.
+   - **`stash-notes.exe`**, the app as a single file you can run without installing.
+3. Run it.
 
-1. Open the repository on GitHub and go to the **Actions** tab.
-2. Click the latest successful **Build** run, preferably on the `main` branch or the branch you want to try.
-3. Under **Artifacts**, download one of these:
-   - **`stash-notes-windows`** has the installers: `Stash Notes_x.y.z_x64-setup.exe` (NSIS, recommended, installs for the current user without admin rights) and `Stash Notes_x.y.z_x64_en-US.msi`.
-   - **`stash-notes-portable-exe`** is a single `stash-notes.exe` you can run without installing.
-4. Unzip the download and run the installer (or the exe).
+> **Windows SmartScreen.** The builds are not code-signed, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 
-**No GitHub login?** Artifacts need a login, but releases don't. Every build of the default branch also publishes the installers and the portable exe to the [**Releases**](https://github.com/lukewestgate/stash-notes/releases/latest) page, under the version in `src-tauri/tauri.conf.json` (for example `v0.1.0`). Pushing a tag such as `v0.2.0` publishes that tag too.
+### Upgrading to a new version
 
-> **Windows SmartScreen.** The builds are not code-signed, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**. Code signing needs a certificate, which this project doesn't have yet.
+Download the newer installer and run it. It finds the existing install and replaces it in place. Close Stash Notes first, or let the installer close it. The install location, Start menu entry and login autostart stay the same. **Your notes folder and settings are never touched** by installing, upgrading or uninstalling. Stash Notes doesn't update itself.
 
-### Option 2: build it yourself
+### Other ways
 
-See [Building from source](#building-from-source).
+- **GitHub Actions artifacts** (needs a GitHub login): every push builds the installer. Open **Actions → Build → Artifacts**.
+- **Build it yourself:** see [Building from source](#building-from-source).
 
 ### Uninstalling
 
-Use **Settings → Apps → Installed apps → Stash Notes → Uninstall**. Your notes are never touched. They stay in your notes folder. Settings are in `%APPDATA%\com.lukewestgate.stashnotes\` and the web view's cache is in `%LOCALAPPDATA%\com.lukewestgate.stashnotes\` if you want to remove those too.
+Use **Settings → Apps → Installed apps → Stash Notes → Uninstall**. Your notes stay in your notes folder. Settings and session data are in `%APPDATA%\com.lukewestgate.stashnotes\`, and the web view's cache is in `%LOCALAPPDATA%\com.lukewestgate.stashnotes\`, if you want to remove those too.
 
 ---
 
@@ -70,22 +95,46 @@ Use **Settings → Apps → Installed apps → Stash Notes → Uninstall**. Your
 2. **Type something.** There's no save button. Notes autosave 300 ms after you stop typing, and again whenever the window hides.
 3. **Press `Esc`.** The window hides and focus goes back to the app you were using.
 4. **Press `Alt+N`** from anywhere. Stash Notes is back with the cursor where you left it. `Alt+N` again hides it.
-5. **Press `Ctrl+K`** and type a ticket key like `PROJ-123`, then `Enter`. That creates (or opens) the ticket's note.
-6. **Press `Ctrl+;`** to insert a timestamp such as `2026-10-22 14:05 `, then type your note.
-7. **Press `Ctrl+J`** to open the ticket in Jira. Stash Notes hides itself so the browser takes focus.
-8. **Press `Ctrl+/`** for the full list of shortcuts. That screen is the whole manual in brief.
+5. **Press `Ctrl+,`** to open **Settings**. Under **Links**, set your Jira and Gerrit URL templates. Under **Notes**, check the ticket key pattern.
+6. **Press `Ctrl+K`** and type a ticket key like `PROJ-123`, then `Enter`. That creates the ticket's note, with status *open* and the caret ready for you to type the ticket's name after `# PROJ-123`.
+7. **Press `Ctrl+;`** to insert a timestamp such as `2026-10-22 14:05 `, then type your note.
+8. **Press `Ctrl+J`** to open the ticket in Jira.
+9. **Press `Alt+J`** anywhere, type `PROJ-123 call went well`, and press `Enter`. The line is added to that ticket's note without opening the app.
+10. **Press `Ctrl+/`** for the full list of shortcuts. That screen is the whole manual in brief.
 
-Before using Jira or Gerrit links, set your own URLs. Press `Ctrl+,` to open `settings.json` and change `jira.urlTemplate` and `gerrit.urlTemplate` (see [Settings](#settings)). The change takes effect as soon as you save the file.
-
-Stash Notes starts automatically at login (to the tray, hidden) unless you turn `autostart` off.
+Stash Notes starts automatically at login, hidden in the tray, unless you turn that off in Settings → General.
 
 ### A typical flow
 
-`Alt+N` → `Ctrl+K` → type `123` → `Enter` → `Ctrl+;` → type a note → `Ctrl+J` to look at the ticket. Opening Jira hides the app, so you're already back in the browser. Next time, `Alt+N` brings you right back to the same note.
+`Alt+N` → `Ctrl+K` → type `123` → `Enter` → `Ctrl+;` → type a note → `Ctrl+J` to look at the ticket in the browser → back in the app, `Esc` to return to code.
 
 ---
 
 ## Using Stash Notes
+
+### The window
+
+```
++------+--------------------------------------------------------+
+|  ≡   |  < >   PROJ-123  Rollout date question  ● open  [Jira] |  header
+|  📅  +--------------------------------------------------------+
+|  ☰   |  ● open  Jira  Gerrit 2                     properties |
+|  ──  |                                                        |
+|  ●   |  PROJ-123 Rollout date question                        |  editor
+|  ⊘   |  • 2026-10-22 14:05 asked about rollout, see Rollout…  |
+|  ○   |                                                        |
+|      |                                                        |
+|  ⚙   +--------------------------------------------------------+
+|      |  Mentioned in: 2026-10-22 (daily) · Rollout plan       |  backlinks
++------+--------------------------------------------------------+
+ sidebar
+```
+
+- **Sidebar** (left): a thin rail by default. The hamburger (or `Ctrl+\`) expands it. See [Sidebar](#sidebar).
+- **Header:** back and forward, the note's title, its status chip, and **Jira** and **Gerrit** buttons when they apply. A dot shows unsaved changes.
+- **Editor:** markdown that's styled as you type. See [The editor](#the-editor).
+- **Backlinks strip:** notes that link to or mention this one.
+- **Notes view** (`Ctrl+L`) and **Settings** (`Ctrl+,`) take over the main area. `Esc` goes back.
 
 ### Note kinds and the notes folder
 
@@ -94,61 +143,109 @@ Every note is one markdown file in a single **notes folder** (the "vault"). The 
 | Kind | Path | Title | Created |
 |---|---|---|---|
 | Daily | `daily/2026-10-22.md` | The date | On first open each day (`Ctrl+D`) |
-| Ticket | `tickets/PROJ-123.md` | The ticket key | From the switcher, or by following `PROJ-123` / `[[PROJ-123]]` |
+| Ticket | `tickets/PROJ-123.md` | The first heading: the key plus the ticket name | From the switcher, by following `PROJ-123` / `[[PROJ-123]]`, or by quick capture |
 | Note | `notes/<slug>.md` | First `# heading`, else the file name | From the switcher, or by following a `[[link]]` |
-| Archived | `archive/<original path>` | Same as before | `Ctrl+Shift+A` |
+| Archived | `archive/<original path>` | Same as before | `Ctrl+Shift+A`, or setting the status to *closed* |
 
 Markdown files anywhere else in the folder are treated as regular notes. Folders starting with `.` (such as `.git`) and the `templates` folder are ignored.
 
-**Ticket keys** match the regex `[A-Z][A-Z0-9]+-\d+` by default (`PROJ-123`, `OPS-7`). You can change this with `ticketPattern`. A bare key anywhere in any note is highlighted and works as a link.
+**Ticket keys** match the regex `[A-Z][A-Z0-9]+-\d+` by default (`PROJ-123`, `OPS-7`). You can change this in Settings → Notes. A bare key anywhere in any note is highlighted and works as a link.
 
-**Ticket note format.** Ticket notes start with a small front matter block. All fields are optional:
+**Ticket note format.** All front matter fields are optional:
 
 ```markdown
 ---
-title: Rollout date question          # shown next to the key in the header and switcher
-jira: https://other.atlassian.net/browse/PROJ-123   # only to override jira.urlTemplate
+status: open
+jira: https://other.atlassian.net/browse/PROJ-123   # only to override the Jira URL template
 gerrit:
-  - 12345                             # bare change numbers expand via gerrit.urlTemplate
+  - 12345                             # bare change numbers expand via the Gerrit URL template
   - https://gerrit.example.com/c/proj/+/12399
 ---
+
+# PROJ-123 Rollout date question
 
 - 2026-10-22 14:05 asked about rollout date, see [[Rollout plan]]
 - 2026-10-22 16:40 fix pushed, waiting on review
 ```
 
+The ticket's **name** is whatever follows the key in the first heading. It's shown beside the key in the header, sidebar, switcher and Notes view. The file name stays `PROJ-123.md`, so editing the name never breaks links. Notes from 0.1 that still carry `title:` in front matter keep showing that name until you add one to the heading.
+
 Any note can also list `aliases: [Plan B, launch]`. Links and search then match those names too.
+
+### Statuses
+
+Ticket and general notes can carry one status. Daily notes never do.
+
+| Status | Symbol | Meaning | Active |
+|---|---|---|---|
+| todo | ○ | Planned, not started | yes |
+| open | ● | Being worked on | yes |
+| blocked | ⊘ | Waiting on something | yes |
+| backlog | ◌ | Parked for later | no |
+| closed | ✓ | Done | no |
+
+- **Set it** with `Ctrl+Shift+S` (or by clicking the status chip). Type to filter or press `1`–`5`, then `Enter`. It works on the open note, the focused sidebar row or the selected Notes view row. It rewrites only the `status:` line.
+- **Closed notes are archived.** Setting *closed* moves the note into `archive/` (links keep working). Setting any other status on a closed, archived note moves it back.
+- **Where it shows:** a chip in the header, a symbol on every sidebar, switcher and Notes view row, and counts in the tray tooltip (for example *● 3 open · ⊘ 1 blocked*).
+- **Filters:** type `@todo`, `@open`, `@blocked`, `@backlog`, `@closed`, `@active` (todo, open and blocked) or `@none` in the switcher or Notes view. They combine with text: `@open rollout`.
+- New ticket notes start as **open** (Settings → Notes → *Default status*). New general notes start with none.
+- The list, symbols, colors and which statuses count as *active* are editable in Settings → Statuses. An unknown value in a file is kept and shown as a grey `?`.
+- This is your personal status. It isn't read from or written to Jira.
+
+### The editor
+
+The editor styles markdown as you type, like Obsidian's live preview. Syntax markers hide when the caret is elsewhere and reappear on the line (or inline span) you're editing. The file on disk always stays plain markdown.
+
+| You type | You see |
+|---|---|
+| `#` to `######` | Sized headings |
+| `**bold**`, `*italic*`, `~~strike~~`, `` `code` `` | Styled text with the markers hidden. `Ctrl+B` / `Ctrl+I` wrap the selection |
+| `- ` and `1. ` | Bullets and numbers. `Enter` continues a list, `Tab` / `Shift+Tab` indent |
+| `- [ ]` | A clickable checkbox. Checked items are struck through and dimmed |
+| `> quote` | A left bar with muted text |
+| Fenced code | A monospace block with a background |
+| `---` | A horizontal rule |
+| `[[link]]`, `[text](url)`, ticket keys | Link-colored text with brackets and URL hidden. `Ctrl+Enter` follows |
+| Front matter | A compact properties row (status, Jira, Gerrit). Move the caret into it to edit the YAML |
+
+Tables, images, math and footnotes stay as plain text. To see raw markdown everywhere, turn off **Live formatting** in Settings → Editor.
 
 ### Keyboard shortcuts
 
-All in-app shortcuts can be changed in `settings.json` (`keys` section). In-app shortcuts take priority over the editor's own bindings.
+Every in-app shortcut can be changed in Settings → Shortcuts. In-app shortcuts take priority over the editor's own bindings.
 
 | Shortcut | Action | Notes |
 |---|---|---|
-| `Alt+N` (global) | Show or hide the app | Works from any app (`hotkey` setting) |
-| `Esc` | Close overlay, else hide window | Closes the switcher, picker, prompts and backlinks list first |
+| `Alt+N` (global) | Show or hide the app | Works from any app |
+| `Alt+J` (global) | Quick capture | See [Quick capture](#quick-capture) |
+| `Esc` | Close overlay / view, else hide window | Closes the switcher, pickers, backlinks list, Notes view and Settings first |
 | `Ctrl+K` | Quick switcher and search | Also creates notes. With text selected, links the selection |
-| `Ctrl+D` | Go to today's daily note | Creates it if missing |
-| `Ctrl+Enter` | Follow link under cursor | Note link, ticket key or URL. On a checkbox line with no link, toggles the checkbox |
-| `Alt+Left` | Back | Previous note in history |
-| `Alt+Right` | Forward | Undoes a Back |
+| `Ctrl+D` | Today's daily note | Creates it if missing |
+| `Ctrl+L` | Notes view | |
+| `Ctrl+Enter` | Follow link under cursor | Note link, ticket key or URL. On a checkbox line with no link, toggles it |
+| `Alt+Left` / `Alt+Right` | Back / forward | |
 | `Ctrl+J` | Open Jira page | The current ticket, or the key under the cursor, or the first key in the note |
-| `Ctrl+G` | Open Gerrit change | Shows a picker when there are several (`1`–`9` pick directly) |
-| `Ctrl+Shift+G` | Add Gerrit link | Prefilled from the clipboard if it looks like a Gerrit URL or change number |
-| `Ctrl+;` | Insert timestamp | `2026-10-22 14:05 ` |
-| `Ctrl+Shift+B` | Expand or collapse backlinks | Use the arrow keys and `Enter` to open one |
-| `Ctrl+Shift+A` | Archive or unarchive note | Doesn't ask first. The toast has **Undo** for 5 s |
+| `Ctrl+G` | Open Gerrit change | Picker when there are several (`1`–`9` pick directly) |
+| `Ctrl+Shift+G` | Add Gerrit link | Prefilled from the clipboard if it looks like one |
+| `Ctrl+;` | Insert timestamp | Format set in Settings → Editor |
+| `Ctrl+Shift+S` | Set status | On the note, focused sidebar row or selected Notes view row |
+| `Ctrl+Shift+B` | Expand or collapse backlinks | Arrows and `Enter` open one |
+| `Ctrl+Shift+A` | Archive or unarchive note | 5 s **Undo** toast |
+| `Ctrl+\` | Expand or collapse the sidebar | |
+| `Ctrl+0` | Focus the sidebar (and back) | |
+| `Ctrl+E`, then `P` | Pin or unpin the note | `Ctrl+P` works too if you're still holding Ctrl |
+| `Ctrl+,` | Settings | |
 | `Ctrl+/` | Shortcut help | |
 
-These extras aren't counted in the 14 above:
+Also:
 
 | Shortcut | Action |
 |---|---|
 | `[[` | Link picker: type to filter, `Enter` inserts `[[Title]]` |
+| `Ctrl+B` / `Ctrl+I` | Bold / italic |
+| `Ctrl+Shift+V` | Paste without converting Jira or Gerrit links |
 | `Ctrl+Click` | Follow a link, key or URL with the mouse |
-| Click on `[ ]` | Toggle a checkbox |
 | `F2` | Rename the current note (links to it are updated) |
-| `Ctrl+,` | Open `settings.json` in your default editor |
 | `Ctrl+S` | Save now (not needed, since autosave runs anyway) |
 | `Ctrl+Shift+Q` | Quit (or use **Quit** in the tray menu) |
 
@@ -156,11 +253,12 @@ These extras aren't counted in the 14 above:
 
 `Ctrl+K` opens one overlay that handles navigation, search and note creation.
 
-- **Empty query** lists recently opened notes, newest first. Archived notes are hidden, so this is also your "open tickets" list.
+- **Empty query** lists recently opened notes, with active notes first. Closed and archived notes are hidden, so this is also your "open tickets" list.
 - **Typing** updates the results on every keystroke. `↑`/`↓` move, `Enter` opens, `Esc` closes.
 - **Create.** When nothing matches exactly, the last row reads `Create "<query>"`. A query that looks like a ticket key creates a ticket note. Anything else creates a regular note.
-- **`Tab`** includes archived notes, which are shown dimmed with an `archived` tag.
-- **`Alt+Enter`** *peeks* at a result without adding it to history. Back returns you to where you were.
+- **`Tab`** includes closed and archived notes, shown dimmed.
+- **`Alt+Enter`** *peeks* at a result without adding it to history.
+- **Pasting a Jira URL** turns it into the ticket key.
 
 What matches, from strongest to weakest:
 
@@ -168,141 +266,170 @@ What matches, from strongest to weakest:
 |---|---|---|
 | Ticket key | `123`, `proj123`, `PROJ-123` | Highest |
 | Title and aliases | `rollout`, `rlt pln` (fuzzy) | High |
-| Date | `2026-10-22`, `oct 22`, `22 oct`, `today`, `yesterday`, `monday` | High (matches the daily note) |
-| Body text | Any word or words from a note, or a `2026-10-22 14:05` timestamp | Normal, with the matching line shown |
+| Date | `2026-10-22`, `oct 22`, `today`, `yesterday`, `monday` | High (matches the daily note) |
+| Body text | Any word or words from a note, or a timestamp | Normal, with the matching line shown |
 
-Typing **only digits** (for example `123`) matches every ticket key ending in those digits, so you rarely need the project prefix. Notes you opened in the last 7 days get a boost, and archived notes get a small penalty.
+Typing **only digits** (for example `123`) matches every ticket key ending in those digits. Notes opened in the last 7 days get a boost. There are no regexes, boolean operators or saved searches. For those, search the notes folder with Everything, ripgrep or your editor.
 
-Search is deliberately simple: there are no regexes, boolean operators or saved searches. For those, search the notes folder with Everything, ripgrep or your editor.
+### Sidebar
+
+The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status symbols of your active notes and **Settings**. Hover over a symbol to see the note's title. Click the hamburger (or press `Ctrl+\`) to expand it:
+
+- **Today** and **Notes** rows, each with its shortcut as a hint.
+- **Active:** notes with an active status, ordered open, blocked, then todo, and by last edit within each. Up to 8 rows, then a **+N more** row that opens the Notes view filtered to `@active`.
+- **Recent:** the last 10 notes you opened, skipping daily notes and anything already listed.
+- The current note has an accent bar. Right-click a row to set its status.
+- Drag the right edge to resize it (180–360 px). Its width and expanded state are remembered.
+- Below a 720 px window width, the expanded sidebar floats over the editor and closes after you open a note.
+- **Keyboard:** `Ctrl+0` focuses it, `↑`/`↓` move, `Enter` opens (and puts the caret in the editor), `Ctrl+Shift+S` sets the row's status, and `Esc` goes back.
+
+### Notes view
+
+`Ctrl+L` (or the sidebar's **Notes** row) shows every note in the main area. It's a history entry, so `Alt+Left` comes back to it, and `Esc` leaves it.
+
+- **Search** with the switcher's syntax, including `@status` filters.
+- **Rows** show the status, key or title, a one-line snippet (the matching line while searching) and when it was last edited.
+- **`Alt+S`** cycles the sort: last edited, last opened, status, title.
+- **`Alt+G`** groups by status. `←`/`→` collapse or expand a group header.
+- **`Alt+D`** shows or hides daily notes, and **`Tab`** shows or hides closed and archived notes (both hidden by default).
+- **`Enter`** opens the selected note. **`Ctrl+Shift+S`** sets its status, and **`Ctrl+E`, `P`** pins it. A **Create** row appears when nothing matches.
+
+Defaults for these are in Settings → Notes view.
 
 ### Links, backlinks and history
 
 | Written as | Opens | If the target is missing |
 |---|---|---|
 | `[[Rollout plan]]` | The note titled "Rollout plan" (case-insensitive) | Creates `notes/rollout-plan.md` |
-| `[[PROJ-123]]` or bare `PROJ-123` | `tickets/PROJ-123.md` | Creates it with a front matter stub |
+| `[[PROJ-123]]` or bare `PROJ-123` | `tickets/PROJ-123.md` | Creates it |
 | `[[2026-10-22]]` | `daily/2026-10-22.md` | Creates it from the daily template |
-| `https://...` | Your default browser | – |
+| `https://...` or `[text](https://...)` | Your default browser | – |
 
-`[[Target|shown text]]` and `[[Target#section]]` also work. Only the part before `|` or `#` is used to find the note.
+`[[Target|shown text]]` and `[[Target#section]]` also work. **Resolution order:** exact file name, then title, then alias. If two notes share a title, the most recently edited one wins. Links to archived notes still work and are shown dimmed.
 
-**Resolution order:** exact file name, then title, then alias. If two notes share a title, the most recently edited one wins. Links to archived notes still work and are shown dimmed.
+**Backlinks.** The strip at the bottom lists every note that links to the current one or mentions its ticket key. `Ctrl+Shift+B` expands it into a list.
 
-**Making links quickly:**
+**History** works like a browser. `Alt+Left` and `Alt+Right` restore each note's cursor and scroll position. It keeps the last 100 entries and is cleared when you quit.
 
-- Type `[[` to open the inline link picker.
-- Select some text and press `Ctrl+K`, then pick a note. The selection becomes `[[Title|selected text]]`.
-- Bare ticket keys need no brackets. Typing `PROJ-123` in a daily note already links to it and shows up in the ticket's backlinks.
+### Jira, Gerrit and smart paste
 
-**Backlinks.** The one-line strip at the bottom shows *"Mentioned in: …"*, listing every note that links to the current note or mentions its ticket key. `Ctrl+Shift+B` expands it into a list: use the arrows and `Enter` to open, `Esc` to collapse.
+- **`Ctrl+J`** opens the ticket using the Jira URL template (for example `https://yourco.atlassian.net/browse/{key}`), or the note's `jira:` override.
+- **`Ctrl+Shift+G`** adds a Gerrit URL or change number to the note's `gerrit:` list. **`Ctrl+G`** opens it, or shows a picker if there are several.
+- The app stays open behind the browser. If you'd rather it hide, turn on Settings → General → *Hide the window after opening a Jira or Gerrit link*.
 
-**History** works like a browser. Every note opened by a link, the switcher or `Ctrl+D` is pushed onto a stack. `Alt+Left` and `Alt+Right` move through it and restore each note's cursor and scroll position. Opening a new note after going back drops the forward entries. History survives hiding and showing the window, keeps the last 100 entries, and is cleared when you quit.
+**Smart paste** (on by default; `Ctrl+Shift+V` always pastes as typed):
 
-### Jira and Gerrit
+| Where | You paste | Result |
+|---|---|---|
+| Switcher, Notes view search, capture box | A Jira URL (`…/browse/PROJ-123`, or a board link with `selectedIssue=PROJ-123`) | It becomes `PROJ-123`, so the ticket is the top result or a **Create** row |
+| Editor, any note | A Jira URL | Inserts `PROJ-123`, which links |
+| Editor, a ticket note | A Gerrit URL (same host as the Gerrit template) | Added to the `gerrit:` front matter, with an **Undo** toast |
 
-- **`Ctrl+J`** builds the URL from `jira.urlTemplate` (for example `https://yourco.atlassian.net/browse/{key}`) and opens it. In a ticket note it uses that note's key, or the front matter `jira:` override. In any other note it uses the key under the cursor, else the first key in the note. If there's no key, a message says so.
-- **`Ctrl+Shift+G`** asks for a Gerrit URL or change number and appends it to the note's `gerrit:` list. It creates the front matter if needed.
-- **`Ctrl+G`** opens the note's only Gerrit link, or shows a picker if there are several. Bare numbers expand through `gerrit.urlTemplate` (for example `https://gerrit.example.com/c/{n}`).
-- The header shows **Jira** and **Gerrit N** buttons only when they're relevant. Hover over them to see their shortcuts.
-- After opening an external link, the app hides so the browser keeps focus. Set `hideAfterExternalLink` to `false` to turn this off.
+### Quick capture
 
-Only `http://` and `https://` links can be opened.
+Press **`Alt+J`** anywhere. A one-line box appears near the top of the screen your mouse is on.
+
+- `PROJ-123 asked about rollout`, or a pasted Jira URL followed by text, goes to that ticket's note. If the ticket has no note yet, one is created with status *open*.
+- `[] call vendor` becomes a checkbox in today's **Todo** section.
+- Anything else is added to today's daily note.
+- It's written as a timestamped bullet at the end of the note: `- 2026-10-22 14:05 asked about rollout`.
+- The muted line under the box shows where it will go. `Enter` saves and hides, `Shift+Enter` adds a line, and `Esc` cancels.
+- The text is saved before the box hides. If the note is open in the main window or a pinned window, it appears there right away.
+
+### Pinned notes
+
+Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-top window (320 × 400). Do it again, inside the pinned window or on the same note, to close it. It also works on the selected sidebar or Notes view row.
+
+- Both windows show the same live text. You can type in either, and the edits merge.
+- Drag it by its title bar. The pin icon turns always-on-top off and on, and **×** closes it. `Esc` does nothing here, so it can't be closed by accident.
+- `Ctrl+;`, `Ctrl+J`, `Ctrl+G`, `Ctrl+Shift+S` and `Ctrl+Enter` work inside it. Links open in the main window.
+- Up to 5 notes can be pinned. Each window's position and size are remembered per note, and pinned windows come back at login (Settings → General).
+- The tray menu has a **Pinned notes** submenu to focus or close each one.
+- If the note is renamed or archived, the window follows it.
 
 ### Daily notes and todos
 
 `Ctrl+D` opens today's note (`daily/YYYY-MM-DD.md`), creating it from a template with a `## Todo` section. The cursor lands at the end of the todo list, ready to type.
 
 - `Enter` at the end of a `- [ ] item` continues the list with a new checkbox.
-- `Ctrl+Enter` on a checkbox line (or clicking the `[ ]`) toggles it. Done items are dimmed.
-- Unchecked items don't roll over to the next day. They stay where you wrote them, and the switcher still finds them.
-- With `onSummon: "last"`, if the last note you had open was a **previous** day's daily note, Stash Notes opens today's instead, so you don't land on yesterday's list.
+- `Ctrl+Enter` on a checkbox line (or clicking the box) toggles it.
+- Unchecked items don't roll over to the next day.
+- If the last note you had open was a **previous** day's daily note, summoning opens today's instead.
 
-**Custom template:** create `templates/daily.md` inside the notes folder. `{{date}}` (`2026-10-22`) and `{{weekday}}` (`Thursday`) are filled in. The default template is:
-
-```markdown
-# {{date}}
-
-## Todo
-
-- [ ] 
-
-## Notes
-
-```
+**Template:** edit it in Settings → Notes. It's saved as `templates/daily.md` in the notes folder. `{{date}}` and `{{weekday}}` are filled in.
 
 ### Archiving and renaming
 
-- **`Ctrl+Shift+A`** moves the note into `archive/`, keeping its relative path (`tickets/PROJ-123.md` → `archive/tickets/PROJ-123.md`). Press it again on an archived note to move it back. Archived notes are left out of search unless you press `Tab` in the switcher, and links to them still work. A toast offers **Undo** for 5 seconds.
-- **`F2`** renames a regular note. It changes the file name and the `# heading`, and rewrites every `[[link]]` to it across the notes folder. A toast reports how many links were updated and offers **Undo** for 5 seconds. Ticket and daily notes are named by their key or date, so they can't be renamed. For tickets, set `title:` in the front matter instead.
+- **`Ctrl+Shift+A`** moves the note into `archive/`, keeping its relative path, and moves it back if it's already archived. Archived notes are left out of search unless you press `Tab`, and links to them still work. **Undo** is available for 5 seconds.
+- **`F2`** renames a regular note: the file, its `# heading` and every `[[link]]` to it. **Undo** is available for 5 seconds. Ticket names are edited in the heading after the key. Daily notes are named by their date.
 - Stash Notes **never deletes** files. To delete a note, delete the file in Explorer.
 
 ### Window, tray and startup
 
-- **Login:** Stash Notes starts with Windows (`autostart`) and stays hidden in the tray, already loaded. Set `startHidden` to `false` to show the window at login. Starting it yourself from the Start menu always shows the window.
-- **Global hotkey** (`Alt+N`): if the window is hidden, it shows and focuses the editor. If it's visible and focused, it hides. If it's visible but behind another window, it comes to the front.
-- **Close (X), Minimize and `Esc`** all hide to the tray. The process only exits through **Quit** in the tray menu or `Ctrl+Shift+Q`.
-- **Hiding gives focus back** to the window you were in before, usually your editor or terminal.
-- **Tray icon:** left-click toggles the window. Right-click opens the menu: *Show, Today's note, Open notes folder, Settings, Quit*.
+- **Login:** Stash Notes starts with Windows and stays hidden in the tray, already loaded. Starting it from the Start menu shows the window.
+- **`Alt+N`**: if the window is hidden, it shows and focuses the editor. If it's visible and focused, it hides. If it's behind another window, it comes to the front. It never touches pinned windows.
+- **Close (X), Minimize and `Esc`** hide to the tray. Quit from the tray menu or with `Ctrl+Shift+Q`.
+- **Tray icon:** left-click toggles the window. Right-click opens the menu: *Show, Today's note, Open notes folder, Settings, Pinned notes, Quit*. The tooltip counts your active notes.
 - **Single instance:** launching Stash Notes again just shows the running window.
-- **Window size and position** are remembered. The default is a centered window of about 900 × 650.
-- **Theme** follows the Windows light or dark setting. You can force one with `theme`.
+- **Window size and position** are remembered.
 
 ---
 
 ## Settings
 
-Settings live in a hand-editable JSON file:
+Press **`Ctrl+,`** (or click the sidebar's gear, or use **Settings** in the tray menu). Changes apply immediately, with no Save button.
 
-```
-%APPDATA%\com.lukewestgate.stashnotes\settings.json
-```
+| Category | Options |
+|---|---|
+| General | Launch at login · Start hidden in tray · Restore pinned notes · What opens on summon · Show/hide hotkey and quick capture hotkey (press the keys to set; a key another app owns is refused) · Hide after opening Jira/Gerrit |
+| Window | Show in taskbar · Always on top · Sidebar expanded |
+| Editor | Live formatting · Font and size · Line height · Spell check · Smart paste · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
+| Notes | Notes folder (with a folder picker) · Default status for new tickets · Ticket key pattern (with a test field) · Daily note template |
+| Links | Jira and Gerrit URL templates, each with a live preview |
+| Notes view | Show daily notes · Show closed notes · Default sort · Group by status |
+| Statuses | Name, symbol, color and *active* flag of each status · Reorder · Add · Remove |
+| Shortcuts | Every in-app shortcut: click it and press new keys. Conflicts are refused. Reset per row or all |
+| Appearance | Theme (follow Windows, light, dark) · Accent color |
 
-Press `Ctrl+,` (or use **Settings** in the tray menu) to open it in your default editor. Notepad is used if `.json` has no associated app. Changes are picked up as soon as you save, with no restart needed. Every key is optional, and anything you leave out uses its default. If the file has a JSON error, a message tells you so. The previous settings stay in effect while the app is running, and the defaults are used if it starts with a broken file.
+Each category has **Reset to defaults**. The footer opens `settings.json` and the notes folder.
 
-| Key | Default | Purpose |
-|---|---|---|
-| `vaultPath` | `Documents\StashNotes` | The notes folder. `~` means your user folder. |
-| `hotkey` | `Alt+N` | Global show/hide hotkey (for example `Ctrl+Alt+N` or `Ctrl+Alt+Space`) |
-| `onSummon` | `last` | `last`: the note you were in. `daily`: always today's note |
-| `startHidden` | `true` | When started at login, stay in the tray |
-| `autostart` | `true` | Start with Windows |
-| `showInTaskbar` | `false` | Keep a taskbar button while the window is shown |
-| `alwaysOnTop` | `false` | Float above other windows while visible |
-| `hideAfterExternalLink` | `true` | Hide after opening Jira, Gerrit or any URL |
-| `ticketPattern` | `[A-Z][A-Z0-9]+-\d+` | Regex for ticket keys. In JSON, escape the backslash: `"[A-Z][A-Z0-9]+-\\d+"` |
-| `jira.urlTemplate` | `https://yourco.atlassian.net/browse/{key}` | Jira link builder |
-| `gerrit.urlTemplate` | `https://gerrit.example.com/c/{n}` | Gerrit link builder for bare change numbers |
-| `theme` | `system` | `system`, `light` or `dark` |
-| `fontSize` | `14` | Editor and UI font size in px |
-| `keys.*` | see [shortcuts](#keyboard-shortcuts) | In-app shortcuts: `hide`, `quickSwitcher`, `dailyNote`, `followLink`, `back`, `forward`, `openJira`, `openGerrit`, `addGerrit`, `timestamp`, `backlinks`, `archive`, `help`, `quit`, `rename`, `openSettings` |
+**`settings.json`** (`%APPDATA%\com.lukewestgate.stashnotes\settings.json`) is still the source of truth, and hand edits show up in the screen live. Every key is optional. Keys the app doesn't know are kept. The main keys:
 
-Example:
+| Key | Default |
+|---|---|
+| `vaultPath` | `Documents\StashNotes` (`~` means your user folder) |
+| `hotkey` / `captureHotkey` | `Alt+N` / `Alt+J` |
+| `onSummon` | `last` (or `daily`) |
+| `startHidden`, `autostart`, `restorePinned` | `true` |
+| `showInTaskbar`, `alwaysOnTop`, `hideAfterExternalLink` | `false` |
+| `ticketPattern` | `[A-Z][A-Z0-9]+-\d+` (escape backslashes in JSON: `"\\d"`) |
+| `jira.urlTemplate` | `https://yourco.atlassian.net/browse/{key}` |
+| `gerrit.urlTemplate` | `https://gerrit.example.com/c/{n}` |
+| `defaultStatus` | `open` |
+| `statuses` | the five statuses above |
+| `liveFormatting`, `smartPaste` | `true` |
+| `spellCheck` | `false` |
+| `fontFamily`, `fontSize`, `lineHeight` | system UI font, `14`, `1.6` |
+| `timestampFormat` | `yyyy-MM-dd HH:mm` |
+| `theme`, `accent` | `system`, `blue` |
+| `notesView` | `{ "showDaily": false, "showClosed": false, "sort": "edited", "groupByStatus": false }` |
+| `keys.*` | see [Keyboard shortcuts](#keyboard-shortcuts). `pinNote` is a two-key chord like `"Ctrl+E P"` |
+| `schemaVersion` | managed by the app |
 
-```json
-{
-  "vaultPath": "C:\\Users\\me\\OneDrive\\Notes",
-  "hotkey": "Ctrl+Alt+N",
-  "ticketPattern": "(?:PROJ|OPS|INFRA)-\\d+",
-  "jira": { "urlTemplate": "https://mycompany.atlassian.net/browse/{key}" },
-  "gerrit": { "urlTemplate": "https://review.mycompany.com/c/{n}" },
-  "keys": { "rename": "Ctrl+R" }
-}
-```
-
-Shortcut strings combine `Ctrl`, `Alt`, `Shift` and `Win`/`Super`/`Meta` with a key: a letter, digit, symbol (`;`, `/`, `,`), `Enter`, `Esc`, `Tab`, `Space`, `Left`/`Right`/`Up`/`Down`, `Home`, `End` or `F1`–`F12`. Changing `vaultPath` or `ticketPattern` re-indexes the notes folder right away.
-
-The same folder also holds `session.json` (last open note, cursor position and the recently opened list) and the saved window position. Both are safe to delete.
+`session.json` in the same folder holds the last open note, recently opened notes, pinned windows and the sidebar state. It's safe to delete.
 
 ---
 
 ## Your data and safety
 
-- **Plain files are the source of truth.** Notes are ordinary UTF-8 markdown files. You can edit them in any editor while Stash Notes is running, put the folder in Git, OneDrive or Dropbox, and back it up any way you like. Stash Notes keeps only an in-memory search index, rebuilt at every start, so there's no database to corrupt.
-- **Autosave** runs 300 ms after the last keystroke, when the window hides, before navigating, and on quit.
-- **Crash-safe writes:** each save goes to a temporary file that is then renamed over the original, so a crash or power cut can't leave a half-written note. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
-- **External changes:** if a note changes on disk while you have no unsaved edits, it reloads silently. If you *do* have unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
-- **Nothing is deleted.** Archiving moves files. Renaming moves the file and rewrites links, and **Undo** puts everything back.
-- **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through a small set of Rust commands that only accept paths inside the notes folder. Only `http`/`https` URLs can be opened.
+- **Plain files are the source of truth.** Notes are ordinary UTF-8 markdown files. You can edit them in any editor while Stash Notes runs, keep the folder in Git or OneDrive, and back it up any way you like. The search index lives only in memory and is rebuilt at every start.
+- **One writer.** Rust holds the text of each open note, and every window (main, pinned, quick capture) edits that one copy. Only that copy is written to disk, so two windows can never overwrite each other.
+- **Autosave** runs 300 ms after the last change, and on hide, quit, navigate, archive and rename.
+- **Crash-safe writes:** each save goes to a temporary file that's then renamed over the original. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
+- **External changes:** if a note changes on disk while it has no unsaved edits, it reloads silently in every window. If it has unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
+- **Nothing is deleted.** Archiving and closing move files. Renaming rewrites links, and **Undo** puts everything back.
+- **Upgrades are safe.** The installer only replaces the app. Notes live in your notes folder and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten.
+- **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside the notes folder. Only `http`/`https` URLs can be opened.
 
 ---
 
@@ -329,8 +456,7 @@ npm run tauri build
 The output is written to `src-tauri\target\release\`:
 
 - `stash-notes.exe` is the app itself, which you can run directly.
-- `bundle\nsis\Stash Notes_0.1.0_x64-setup.exe` is the installer (per-user, no admin rights).
-- `bundle\msi\Stash Notes_0.1.0_x64_en-US.msi` is the MSI installer.
+- `bundle\nsis\Stash Notes_0.2.0_x64-setup.exe` is the installer (per-user, no admin rights, upgrades in place).
 
 ### Run in development mode
 
@@ -342,7 +468,7 @@ This starts the Vite dev server with hot reload and a debug build of the app. De
 
 ### Linux and macOS
 
-The app is designed for Windows, but it also builds and runs on Linux (it is tested there in CI). On Debian/Ubuntu, first install `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev`. macOS should work but isn't tested.
+The app is designed for Windows, but it also builds and runs on Linux (tested in CI). On Debian/Ubuntu, first install `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev`. macOS should work but isn't tested.
 
 ---
 
@@ -352,34 +478,45 @@ The app is designed for Windows, but it also builds and runs on Linux (it is tes
 
 ```
 stash-notes/
-├── src/                      Svelte + TypeScript UI
-│   ├── App.svelte            App state, navigation, saving, keyboard handling
-│   ├── components/           Header, Switcher, Backlinks, Help, Prompt, Picker
+├── src/                        Svelte + TypeScript UI
+│   ├── main.ts                 Picks the app for this window: main, pinned note or capture box
+│   ├── App.svelte              Main window: navigation, views, keyboard handling
+│   ├── PinnedApp.svelte        A pinned note window
+│   ├── CaptureApp.svelte       The quick capture box
+│   ├── components/             Header, Sidebar, Switcher, NotesView, SettingsView, Backlinks,
+│   │                           StatusPicker, KeyRecorder, Help, Prompt, Picker, StatusIcon
 │   └── lib/
-│       ├── api.ts            Typed wrappers for the Rust commands and events
-│       ├── editor.ts         CodeMirror setup: decorations, [[ link picker
-│       ├── text.ts           Link/key detection, checkboxes, timestamps, URLs
-│       ├── keys.ts           Shortcut parsing and matching
-│       ├── history.ts        Back/forward history
-│       └── mock.ts           In-memory backend for running the UI in a browser
-├── src-tauri/                Rust (Tauri v2) app
+│       ├── api.ts              Typed wrappers for the Rust commands and events
+│       ├── buffer.ts           Syncs an editor with its note's Rust buffer (CodeMirror collab)
+│       ├── editor.ts           CodeMirror setup: decorations, theme, [[ link picker
+│       ├── live.ts             Live markdown formatting and the front matter row
+│       ├── text.ts             Link/key detection, checkboxes, timestamps, smart paste
+│       ├── keys.ts             Shortcut parsing, matching, chords and recording
+│       ├── history.ts          Back/forward history
+│       ├── status.ts / appearance.ts
+│       └── mock.ts             In-memory backend for running the UI in a browser
+├── src-tauri/                  Rust (Tauri v2) app
 │   ├── src/
-│   │   ├── lib.rs            App setup, plugins, window events
-│   │   ├── commands.rs       Commands the UI calls (open/save/search/...)
-│   │   ├── config.rs         settings.json, indexing, file watching
-│   │   ├── window.rs         Show/hide/focus (incl. the Windows foreground fix)
-│   │   ├── tray.rs           Tray icon and menu
-│   │   ├── hotkey.rs         Global hotkey
-│   │   └── state.rs          Shared state and session persistence
-│   ├── core/                 `stash-core`: vault, index, search, parsing
-│   │   ├── src/              (no Tauri dependency; unit tested)
-│   │   └── tests/perf.rs     5,000-note performance check
-│   ├── capabilities/         Webview permissions (core events only)
-│   └── tauri.conf.json       Window, bundle and security config
-└── .github/workflows/        CI: tests on Linux, installers on Windows
+│   │   ├── lib.rs              App setup, plugins, window events
+│   │   ├── commands.rs         Commands the UI calls
+│   │   ├── buffers.rs          One authoritative text buffer per open note
+│   │   ├── pins.rs             Pinned note windows
+│   │   ├── capture.rs          The quick capture window
+│   │   ├── config.rs           settings.json (with migrations), indexing, file watching
+│   │   ├── window.rs           Show/hide/focus (incl. the Windows foreground fix)
+│   │   ├── tray.rs             Tray icon, menu and tooltip
+│   │   ├── hotkey.rs           Global hotkeys
+│   │   └── state.rs            Shared state and session persistence
+│   ├── core/                   `stash-core` (no Tauri dependency; unit tested)
+│   │   ├── src/                vault, index & search, notes, front matter, statuses,
+│   │   │                       capture routing, change sets, dates, settings
+│   │   └── tests/perf.rs       5,000-note performance check
+│   ├── capabilities/           Webview permissions (core events and window dragging only)
+│   └── tauri.conf.json         Windows, bundle and security config
+└── .github/workflows/          CI: tests on Linux, installer on Windows, releases
 ```
 
-**Architecture.** Rust owns the files, the search index and the window. The web UI only draws and sends commands. At startup, Rust scans the notes folder into an in-memory index in a background thread, then watches the folder (and `settings.json`) for changes. The UI talks to Rust through these commands: `open_note`, `save_note`, `create_note`, `archive_note`, `rename_note`, `search`, `backlinks`, `get_settings`, `set_settings` and a few helpers. Rust pushes events back: `vault-changed`, `settings-changed`, `summoned`, `toast`. Fuzzy matching uses the [`nucleo`](https://github.com/helix-editor/nucleo) matcher, the engine behind the Helix editor's picker.
+**Architecture.** Rust owns the files, the search index, the windows and the text of every open note. The web UI draws and sends commands. At startup, Rust scans the notes folder into an in-memory index in a background thread, then watches the folder (and `settings.json`) for changes. Each window opens a note with `buffer_open` and pushes its edits as CodeMirror change sets (`buffer_push`). Rust applies them to the one buffer, broadcasts them to every window showing the note (`buffer-updates`) and autosaves. Other commands cover search (`search`, `list_notes`, `sidebar`, `backlinks`), notes (`create_note`, `set_status`, `archive_note`, `rename_note`), pinned notes, capture and settings. Fuzzy matching uses the [`nucleo`](https://github.com/helix-editor/nucleo) matcher.
 
 ### Useful commands
 
@@ -393,48 +530,49 @@ cd src-tauri && cargo test --release -p stash-core --test perf -- --ignored --no
                                                            # performance check on 5,000 synthetic notes
 ```
 
-`npm run dev` on its own is handy for UI work. It fills in sample notes, and nothing is saved.
+In `npm run dev`, add `?pin=notes/rollout-plan.md` to the URL to see the pinned window, or `?capture` for the capture box.
 
 ### Continuous integration
 
 `.github/workflows/build.yml` runs on every push and pull request:
 
 - **Tests (Linux):** type check, UI tests, UI build, Rust tests, and the performance check (informational).
-- **Windows installer:** `npm run tauri build`, then uploads the installers and the portable exe as artifacts.
-- **Release:** on pushes to the default branch, and on tags matching `v*`, attaches the installers and the portable exe to a GitHub Release. Branch builds publish to `v<version>` from `tauri.conf.json`, and later builds of the same version replace its files.
+- **Windows installer:** `npm run tauri build`, then uploads the installer and the portable exe as artifacts.
+- **Release:** on pushes to the default branch (and tags matching `v*`), publishes them to the GitHub Release `v<version>`, using the version in `tauri.conf.json`.
 
-To publish a new version, bump `version` in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` and push (or push a tag such as `v0.2.0`).
+To publish a new version, bump `version` in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then push.
 
 ---
 
 ## Troubleshooting
 
-**`Alt+N` does nothing.** Another app may already be using that hotkey. When this happens, Stash Notes shows a message on startup. Pick a different `hotkey` in `settings.json`, such as `Ctrl+Alt+N`. It is re-registered as soon as you save the file.
+**`Alt+N` or `Alt+J` does nothing.** Another app may already be using that hotkey. When this happens, Stash Notes shows a message on startup. Set a different one in Settings → General.
 
-**The window appears but typing goes to the previous app.** Windows sometimes refuses to give focus to a window brought up by a background process. Stash Notes works around this by briefly attaching to the foreground thread's input queue. If it still happens, press the hotkey once more (a visible but unfocused window gets focused), and please open an issue describing your setup.
+**The window appears but typing goes to the previous app.** Windows sometimes refuses focus to a window brought up by a background process. Stash Notes works around this. If it still happens, press the hotkey once more, and please open an issue.
 
-**Jira/Gerrit open the wrong site.** Set `jira.urlTemplate` and `gerrit.urlTemplate` in `settings.json`.
+**Jira/Gerrit open the wrong site.** Set the URL templates in Settings → Links.
 
-**My ticket keys aren't highlighted.** Keys must match `ticketPattern`, which is upper-case letters, a dash and digits by default. Lower-case keys typed in the switcher are upper-cased for you.
+**My ticket keys aren't highlighted.** Keys must match the ticket pattern (Settings → Notes has a test field). Lower-case keys typed in the switcher are upper-cased for you.
 
-**Where are my notes?** Use **Open notes folder** in the tray menu. The path is also shown at the bottom of the `Ctrl+/` help screen.
+**A pinned window is off screen.** Close it from the tray menu (**Pinned notes**) and pin the note again.
 
-**I want to start fresh.** Quit the app, then delete `%APPDATA%\com.lukewestgate.stashnotes`. That resets settings, the session and the window position. Your notes folder is never touched.
+**Where are my notes?** Use **Open notes folder** in the tray menu or in Settings.
+
+**I want to start fresh.** Quit the app, then delete `%APPDATA%\com.lukewestgate.stashnotes`. Your notes folder is never touched.
 
 ---
 
 ## Design notes and decisions
 
-Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. Where the spec left open questions or room for interpretation, these choices were made. All of them can be changed in settings where noted.
+Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. Where the spec left questions open, these choices were made:
 
-- **Name and folder.** The app is called *Stash Notes*, and its default notes folder is `Documents\StashNotes` (the spec's working name was *Quick Notes*).
-- **Jira and Gerrit URLs** default to placeholders (`yourco.atlassian.net`, `gerrit.example.com`). Set your real ones in `settings.json`.
-- **Default hotkey** is `Alt+N`. If it's taken on your machine, change `hotkey`.
-- **Daily todos don't roll over.** Unchecked items stay where they were written, as the spec specifies for v1.
-- **Windows 10 and 11** are both supported. The installer bootstraps WebView2 if it's missing.
-- **The notes folder lives in Documents** by default. Syncing it with OneDrive or Git works because saves are atomic and external changes are picked up live. Point `vaultPath` elsewhere if you prefer.
-- **Shortcuts beyond the spec's 14:** `F2` rename (the spec describes renaming but assigns no key), `Ctrl+,` open settings (suggested in the spec), `Ctrl+S` save now, and `Ctrl+Click` to follow links.
-- **Peek (`Alt+Enter`)** shows the chosen note without adding it to history. `Alt+Left` returns to the note you were on, and forward history is kept.
-- **Link picker** is CodeMirror autocomplete on `[[`. It uses the same search as the switcher. When two notes share a title, both are listed with their paths.
-- **Links to archived notes** are dimmed in the editor. Search shows archived notes only after pressing `Tab`.
-- **The editor font** is Segoe UI with tabular digits, so timestamps line up in a neat column. Inline code uses Cascadia Mono.
+- **Name and folder.** The app is called *Stash Notes*, and its default notes folder is `Documents\StashNotes`.
+- **Closed notes are archived.** Setting *closed* also moves the note into `archive/`, and reopening moves it back (owner's choice on the spec's open question).
+- **Sidebar.** A thin rail with a hamburger that expands into the full sidebar (owner's choice). The expanded state is remembered.
+- **No in-app updater.** The spec's auto-update section is left out at the owner's request. Installing a newer version replaces the old one in place, and only the per-user NSIS installer is shipped, so there's never a second copy. The update-related settings (*Check for updates*, *Install automatically*) and the pre-update vault snapshot are therefore not present.
+- **Jira and Gerrit URLs** default to placeholders. Set yours in Settings → Links.
+- **Daily todos don't roll over** (spec v1).
+- **Shortcuts beyond the spec:** `F2` rename, `Ctrl+S` save now, `Ctrl+Click` follow, and right-click on a sidebar row to set its status.
+- **Shortcut conflicts** are refused when recording, not just flagged, so two actions can never share a key.
+- **Peek (`Alt+Enter`)** shows the chosen note without adding it to history.
+- **Clicking away from the capture box** hides it and keeps its text for next time.
