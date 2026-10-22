@@ -76,6 +76,8 @@ export interface Keys {
   openSettings: string;
   setStatus: string;
   notesView: string;
+  toggleSidebar: string;
+  focusSidebar: string;
 }
 
 export type SortBy = "edited" | "opened" | "status" | "title";
@@ -116,6 +118,7 @@ export interface Startup {
   lastPath: string | null;
   lastAnchor: number | null;
   indexReady: boolean;
+  ui: Record<string, unknown>;
 }
 
 export interface RenameResult {
@@ -158,6 +161,8 @@ export const api = {
   setStatus: (path: string, status: string | null) => call<StatusResult>("set_status", { path, status }),
   listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy) =>
     call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort }),
+  sidebar: () => call<{ active: SearchHit[]; more: number; recent: SearchHit[] }>("sidebar"),
+  setUi: (key: string, value: unknown) => call<void>("set_ui", { key, value }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
   archivedNames: () => call<string[]>("archived_names"),
   gerritEdit: (content: string, link: string) => call<TextEdit>("gerrit_edit", { content, link }),

@@ -17,6 +17,8 @@ pub struct Session {
     pub last_anchor: Option<usize>,
     /// Path -> last opened (ms since epoch).
     pub recents: HashMap<String, i64>,
+    /// Small UI preferences the app remembers (sidebar width, etc.).
+    pub ui: serde_json::Map<String, serde_json::Value>,
 }
 
 const MAX_RECENTS: usize = 300;

@@ -51,6 +51,8 @@ const settings: Settings = {
     openSettings: "Ctrl+,",
     setStatus: "Ctrl+Shift+S",
     notesView: "Ctrl+L",
+    toggleSidebar: "Ctrl+\\",
+    focusSidebar: "Ctrl+0",
   },
 };
 
@@ -193,6 +195,7 @@ export function handle(cmd: string, a: A): unknown {
         lastPath: null,
         lastAnchor: null,
         indexReady: true,
+        ui: {},
       } satisfies Startup;
     case "get_settings":
       return settings;
@@ -292,6 +295,20 @@ export function handle(cmd: string, a: A): unknown {
         .sort((x, y) => (a.sort === "title" ? x.title.localeCompare(y.title) : y.mtime - x.mtime));
       return { hits, exact: hits.some((h) => h.title.toLowerCase() === text) };
     }
+    case "sidebar": {
+      const all = [...notes.keys()].map((p) => hit(p)).filter((h) => !h.archived);
+      const rank = (s: string | null) => ["open", "blocked", "todo"].indexOf(s ?? "");
+      const active = all.filter((h) => rank(h.status) >= 0).sort((x, y) => rank(x.status) - rank(y.status) || y.mtime - x.mtime);
+      const recent = [...recents.entries()]
+        .sort((x, y) => y[1] - x[1])
+        .map(([p]) => p)
+        .filter((p) => notes.has(p) && !p.startsWith("daily/") && !active.some((h) => h.path === p))
+        .slice(0, 10)
+        .map((p) => hit(p));
+      return { active: active.slice(0, 8), more: Math.max(0, active.length - 8), recent };
+    }
+    case "set_ui":
+      return;
     case "backlinks": {
       const m = meta(a.path, notes.get(a.path) ?? "");
       const names = [m.title.toLowerCase(), stem(a.path).toLowerCase()];

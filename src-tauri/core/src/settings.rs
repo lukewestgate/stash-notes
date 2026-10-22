@@ -93,6 +93,8 @@ pub struct Keys {
     pub open_settings: String,
     pub set_status: String,
     pub notes_view: String,
+    pub toggle_sidebar: String,
+    pub focus_sidebar: String,
 }
 
 impl Default for Settings {
@@ -157,6 +159,8 @@ impl Default for Keys {
             open_settings: "Ctrl+,".into(),
             set_status: "Ctrl+Shift+S".into(),
             notes_view: "Ctrl+L".into(),
+            toggle_sidebar: "Ctrl+\\".into(),
+            focus_sidebar: "Ctrl+0".into(),
         }
     }
 }

@@ -88,6 +88,8 @@ pub fn run() {
             commands::undo_rename,
             commands::search,
             commands::list_notes,
+            commands::sidebar,
+            commands::set_ui,
             commands::backlinks,
             commands::set_status,
             commands::archived_names,

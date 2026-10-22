@@ -28,6 +28,7 @@ pub struct Startup {
     last_path: Option<String>,
     last_anchor: Option<usize>,
     index_ready: bool,
+    ui: serde_json::Map<String, serde_json::Value>,
 }
 
 #[tauri::command]
@@ -41,6 +42,7 @@ pub fn get_startup(state: State<AppState>) -> Startup {
         last_path: session.last_path,
         last_anchor: session.last_anchor,
         index_ready: state.ready(),
+        ui: session.ui,
     }
 }
 
@@ -400,6 +402,21 @@ pub fn save_session(state: State<AppState>, path: Option<String>, anchor: Option
         s.last_anchor = anchor;
     }
     state.save_session();
+}
+
+/// Remember a UI preference in session.json.
+#[tauri::command]
+pub fn set_ui(state: State<AppState>, key: String, value: serde_json::Value) {
+    state.session.lock().unwrap().ui.insert(key, value);
+    state.save_session();
+}
+
+/// The sidebar's Active and Recent groups.
+#[tauri::command]
+pub fn sidebar(state: State<AppState>) -> stash_core::Sidebar {
+    let recents = state.session.lock().unwrap().recents.clone();
+    let statuses = state.settings.read().unwrap().statuses.clone();
+    state.index.read().unwrap().sidebar(&recents, &statuses, 8, 10)
 }
 
 #[tauri::command]

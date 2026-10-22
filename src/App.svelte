@@ -11,6 +11,7 @@
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
   import NotesView, { type NotesViewState } from "./components/NotesView.svelte";
+  import Sidebar from "./components/Sidebar.svelte";
   import { api, on, onWindowFocus, type Keys, type NoteData, type NoteMeta, type SearchHit, type Settings } from "./lib/api";
   import {
     decoConfig,
@@ -71,6 +72,14 @@
   /** Bumped when notes change, so lists reload. */
   let listVersion = $state(0);
   let notesView = $state<NotesView>();
+
+  let side = $state<{ active: SearchHit[]; more: number; recent: SearchHit[] }>({ active: [], more: 0, recent: [] });
+  /** Thin rail by default; the hamburger (Ctrl+\\) expands it. Remembered. */
+  let sideExpanded = $state(false);
+  let sideWidth = $state(240);
+  let winWidth = $state(window.innerWidth);
+  const sideOverlay = $derived(winWidth < 720);
+  let sidebar = $state<Sidebar>();
 
   /** History path standing for the Notes view. */
   const NOTES = "::notes";
@@ -238,7 +247,38 @@
     hasKey = computeHasKey();
     updateNav();
     refreshBacklinks();
+    refreshSidebar();
+    if (sideOverlay) sideExpanded = false;
     focusEditor();
+  }
+
+  async function refreshSidebar() {
+    try {
+      side = await api.sidebar();
+    } catch {
+      // keep the previous groups
+    }
+  }
+
+  function setSideExpanded(on: boolean) {
+    sideExpanded = on;
+    api.setUi("sidebarExpanded", on).catch(() => {});
+  }
+
+  let widthTimer: ReturnType<typeof setTimeout> | undefined;
+  function setSideWidth(w: number) {
+    sideWidth = w;
+    clearTimeout(widthTimer);
+    widthTimer = setTimeout(() => api.setUi("sidebarWidth", w).catch(() => {}), 300);
+  }
+
+  function sidebarHasFocus() {
+    return !!document.activeElement?.closest(".sidebar");
+  }
+
+  function focusMain() {
+    if (screen === "notes") notesView?.focus();
+    else view.focus();
   }
 
   /** Open a note, recording it in history (or just peeking at it). */
@@ -575,6 +615,7 @@
     clearTimeout(sideTimer);
     sideTimer = setTimeout(async () => {
       refreshBacklinks();
+      refreshSidebar();
       try {
         decoConfig.archived = new Set(await api.archivedNames());
         refreshDecorations(view);
@@ -681,12 +722,19 @@
     rename: startRename,
     openSettings: () => api.openSettingsFile().catch(fail),
     setStatus: () => {
-      if (screen === "notes") {
+      const sideHit = sidebarHasFocus() ? sidebar?.focusedHit() : null;
+      if (sideHit) pickStatus(sideHit.path, sideHit.status, sideHit.key ?? sideHit.title);
+      else if (screen === "notes") {
         const h = notesView?.selected();
         if (h) pickStatus(h.path, h.status, h.key ?? h.title);
       } else pickStatus();
     },
     notesView: () => openNotesView(),
+    toggleSidebar: () => setSideExpanded(!sideExpanded),
+    focusSidebar: () => {
+      if (sidebarHasFocus()) focusMain();
+      else requestAnimationFrame(() => sidebar?.focus());
+    },
   };
 
   /** Actions that only make sense with a note in the editor. */
@@ -720,6 +768,11 @@
       // Let the link picker close itself first.
       if (view && completionStatus(view.state) !== null) return;
       stop();
+      if (sidebarHasFocus()) {
+        if (sideOverlay) sideExpanded = false;
+        focusMain();
+        return;
+      }
       if (screen === "notes") {
         leaveNotesView();
         return;
@@ -805,6 +858,8 @@
       try {
         const s = await api.startup();
         applySettings(s.settings);
+        if (typeof s.ui.sidebarExpanded === "boolean") sideExpanded = s.ui.sidebarExpanded;
+        if (typeof s.ui.sidebarWidth === "number") sideWidth = Math.max(180, Math.min(360, s.ui.sidebarWidth));
         notesState = {
           query: "",
           sort: s.settings.notesView.sort,
@@ -846,7 +901,33 @@
   });
 </script>
 
+<svelte:window bind:innerWidth={winWidth} />
+
 <main class="app">
+  {#if settings}
+    <Sidebar
+      bind:this={sidebar}
+      active={side.active}
+      more={side.more}
+      recent={side.recent}
+      current={currentPath}
+      {screen}
+      expanded={sideExpanded}
+      width={sideWidth}
+      overlay={sideOverlay}
+      statuses={settings.statuses}
+      keys={settings.keys}
+      onToggle={() => setSideExpanded(!sideExpanded)}
+      onResize={setSideWidth}
+      onToday={openDaily}
+      onNotes={(q) => openNotesView(q)}
+      onSettings={() => actions.openSettings()}
+      onOpen={(p) => navigate(p)}
+      onStatus={(h) => pickStatus(h.path, h.status, h.key ?? h.title)}
+      onLeave={focusMain}
+    />
+  {/if}
+  <div class="content">
   <div class="pane" class:hidden={screen !== "editor"}>
   {#if settings}
     <Header
@@ -915,6 +996,7 @@
       }}
     />
   {/if}
+  </div>
 
   {#if overlay?.type === "switcher"}
     <Switcher
@@ -955,9 +1037,15 @@
 
 <style>
   .app {
+    position: relative;
+    display: flex;
+    height: 100vh;
+  }
+  .content {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    height: 100vh;
   }
   .pane {
     flex: 1;
