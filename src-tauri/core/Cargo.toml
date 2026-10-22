@@ -1,6 +1,6 @@
 [package]
 name = "stash-core"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "Vault, index and search logic for Stash Notes (no UI or Tauri dependencies)"
 
