@@ -18,7 +18,12 @@
     onForward: () => void;
     onJira: () => void;
     onGerrit: () => void;
+    onAddGerrit: () => void;
     onSwitcher: () => void;
+    /** The current note is open in a pinned window. */
+    pinned: boolean;
+    onPin: () => void;
+    onArchive: () => void;
   }
   let {
     meta,
@@ -33,17 +38,22 @@
     onForward,
     onJira,
     onGerrit,
+    onAddGerrit,
     onSwitcher,
+    pinned,
+    onPin,
+    onArchive,
   }: Props = $props();
+
+  const pinKeys = $derived(keys.pinNote.split(/\s+/).map(formatKey).join(" then "));
 </script>
 
 <header class="header">
   <div class="nav">
-    <button class="icon" disabled={!canBack} onclick={onBack} title="Back ({formatKey(keys.back)})" aria-label="Back"
+    <button disabled={!canBack} onclick={onBack} title="Back ({formatKey(keys.back)})" aria-label="Back"
       ><Icon name="chevron-left" size={16} /></button
     >
     <button
-      class="icon"
       disabled={!canForward}
       onclick={onForward}
       title="Forward ({formatKey(keys.forward)})"
@@ -64,18 +74,49 @@
     <span class="dot" class:visible={dirty} title="Unsaved changes"></span>
   </button>
 
-  <div class="links">
+  <div class="actions">
     {#if meta && meta.kind !== "daily"}
       <button class="chip" onclick={onStatus} title="Set status ({formatKey(keys.setStatus)})">
-        {#if meta.status}<StatusIcon status={meta.status} {statuses} label />{:else}<span class="nostatus">status</span>{/if}
+        {#if meta.status}<StatusIcon status={meta.status} {statuses} label />{:else}<span class="nostatus"
+            ><Icon name="circle-dashed" size={14} />status</span
+          >{/if}
       </button>
     {/if}
     {#if hasKey}
-      <button onclick={onJira} title="Open in Jira ({formatKey(keys.openJira)})">Jira</button>
+      <button class="action" onclick={onJira} title="Open in Jira ({formatKey(keys.openJira)})">
+        <Icon name="ticket" size={15} /><span>Jira</span>
+      </button>
     {/if}
     {#if meta && meta.gerrit.length > 0}
-      <button onclick={onGerrit} title="Open Gerrit change ({formatKey(keys.openGerrit)})">
-        Gerrit{#if meta.gerrit.length > 1}&nbsp;<span class="count">{meta.gerrit.length}</span>{/if}
+      <button class="action" onclick={onGerrit} title="Open Gerrit change ({formatKey(keys.openGerrit)})">
+        <Icon name="git-pull-request" size={15} /><span>Gerrit</span>{#if meta.gerrit.length > 1}<span class="count"
+            >{meta.gerrit.length}</span
+          >{/if}
+      </button>
+    {:else if meta && meta.kind !== "daily"}
+      <button class="action icon" onclick={onAddGerrit} title="Add a Gerrit change ({formatKey(keys.addGerrit)})" aria-label="Add Gerrit change">
+        <Icon name="git-pull-request" size={15} />
+      </button>
+    {/if}
+    {#if meta}
+      <span class="divider"></span>
+      <button
+        class="action icon"
+        class:on={pinned}
+        onclick={onPin}
+        title="{pinned ? 'Unpin' : 'Pin beside your work'} ({pinKeys})"
+        aria-label={pinned ? "Unpin" : "Pin"}
+        aria-pressed={pinned}
+      >
+        <Icon name={pinned ? "pin-off" : "pin"} size={15} />
+      </button>
+      <button
+        class="action icon"
+        onclick={onArchive}
+        title="{meta.archived ? 'Unarchive' : 'Archive'} ({formatKey(keys.archive)})"
+        aria-label={meta.archived ? "Unarchive" : "Archive"}
+      >
+        <Icon name="archive" size={15} />
       </button>
     {/if}
   </div>
@@ -114,10 +155,12 @@
     opacity: 0.35;
     cursor: default;
   }
-  .icon {
-    font-size: 18px;
-    line-height: 1;
-    padding: 2px 7px 4px;
+  .nav button {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
   }
   .title {
     flex: 1;
@@ -160,25 +203,48 @@
   .dot.visible {
     visibility: visible;
   }
-  .links {
+  .actions {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 2px;
   }
-  .links button {
-    border-color: var(--border);
-    color: var(--fg);
+  .action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 8px;
   }
-  .links .chip {
-    border-color: transparent;
+  .action.icon {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
   }
-  .links .chip:hover {
-    border-color: var(--border);
+  .action.on {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    margin-right: 2px;
+  }
+  .divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 4px;
+    background: var(--border);
   }
   .nostatus {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font-size: 12px;
     color: var(--fg-muted);
   }
   .count {
     color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
   }
 </style>

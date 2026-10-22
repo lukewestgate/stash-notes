@@ -176,8 +176,9 @@ function linkCompletions(hooks: EditorHooks) {
 
 const layout = EditorView.theme({
   "&": { height: "100%", fontSize: "var(--font-size)" },
-  ".cm-scroller": { fontFamily: "var(--editor-font)", lineHeight: "var(--line-height)", padding: "10px 0 40px" },
-  ".cm-content": { padding: "0 20px", maxWidth: "980px" },
+  ".cm-scroller": { fontFamily: "var(--editor-font)", lineHeight: "var(--line-height)", padding: "18px 0 40px" },
+  // A centred column (Settings > Editor > Comfortable line width).
+  ".cm-content": { padding: "0 24px", maxWidth: "var(--content-max, none)", margin: "0 auto", width: "100%" },
 });
 
 /**

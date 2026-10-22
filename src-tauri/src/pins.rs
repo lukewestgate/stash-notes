@@ -3,7 +3,7 @@
 
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 pub const PREFIX: &str = "pin-";
 /// A soft limit so pinned windows don't fill the screen.
@@ -43,6 +43,12 @@ fn update(app: &AppHandle, f: impl FnOnce(&mut Vec<Pin>)) {
     let state = app.state::<AppState>();
     f(&mut state.session.lock().unwrap().pins);
     state.save_session();
+    let _ = app.emit_to(crate::window::MAIN, "pins-changed", paths(app));
+}
+
+/// The paths of the pinned notes.
+pub fn paths(app: &AppHandle) -> Vec<String> {
+    pins(app).into_iter().map(|p| p.path).collect()
 }
 
 fn build(app: &AppHandle, pin: &Pin) -> tauri::Result<WebviewWindow> {

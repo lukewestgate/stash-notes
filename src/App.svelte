@@ -63,6 +63,8 @@
   let meta = $state<NoteMeta | null>(null);
   let dirty = $state(false);
   let hasKey = $state(false);
+  /** Paths of notes open in pinned windows. */
+  let pinnedPaths = $state<string[]>([]);
   let backlinkItems = $state<SearchHit[]>([]);
   let backlinksOpen = $state(false);
   let overlay = $state<Overlay | null>(null);
@@ -944,6 +946,7 @@
     };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
+    api.pinnedPaths().then((p) => (pinnedPaths = p), () => {});
 
     const unlisten: Promise<() => void>[] = [
       on<null>("summoned", onSummoned),
@@ -952,6 +955,7 @@
       on<{ path: string; deleted: boolean }>("buffer-conflict", onBufferConflict),
       on<{ from: string; to: string }>("note-moved", (m) => moved(m.from, m.to)),
       on<string>("open-note", (p) => navigate(p)),
+      on<string[]>("pins-changed", (p) => (pinnedPaths = p)),
       on<null>("open-settings", () => toggleSettings(true)),
       on<null>("index-ready", () => {
         indexing = false;
@@ -1062,7 +1066,11 @@
       onForward={forward}
       onJira={openJira}
       onGerrit={openGerrit}
+      onAddGerrit={addGerrit}
       onSwitcher={openSwitcher}
+      pinned={!!currentPath && pinnedPaths.includes(currentPath)}
+      onPin={togglePin}
+      onArchive={toggleArchive}
     />
   {/if}
 

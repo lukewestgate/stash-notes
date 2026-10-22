@@ -203,6 +203,11 @@ pub fn pin_path(app: AppHandle, window: tauri::Window) -> Option<String> {
 }
 
 #[tauri::command]
+pub fn pinned_paths(app: AppHandle) -> Vec<String> {
+    crate::pins::paths(&app)
+}
+
+#[tauri::command]
 pub async fn pin_close(app: AppHandle, window: tauri::Window) {
     crate::pins::close(&app, window.label());
 }

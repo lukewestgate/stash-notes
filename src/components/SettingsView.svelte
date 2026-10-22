@@ -38,7 +38,7 @@
   const FIELDS: Record<Category, (keyof Settings)[]> = {
     General: ["autostart", "startHidden", "hotkey", "switcherHotkey", "restorePinned", "onSummon", "hideAfterExternalLink"],
     Window: ["showInTaskbar", "alwaysOnTop"],
-    Editor: ["liveFormatting", "fontFamily", "fontSize", "lineHeight", "spellCheck", "smartPaste", "timestampFormat"],
+    Editor: ["liveFormatting", "readableWidth", "fontFamily", "fontSize", "lineHeight", "spellCheck", "smartPaste", "timestampFormat"],
     Notes: ["vaultPath", "defaultStatus", "ticketPattern"],
     Links: ["jira", "gerrit"],
     "Notes view": ["notesView"],
@@ -313,6 +313,7 @@
         {@render toggle("Sidebar expanded", sidebarExpanded, onSidebar, "remembered between launches")}
       {:else if category === "Editor"}
         {@render toggle("Live formatting", draft.liveFormatting, (v) => set("liveFormatting", v), "hide markdown markers off the caret line")}
+        {@render toggle("Comfortable line width", draft.readableWidth, (v) => set("readableWidth", v), "keep text in a centred column on wide windows")}
         <div class="row">
           <span class="text">Font</span>
           <span class="inline">

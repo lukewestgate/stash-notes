@@ -30,6 +30,7 @@ const settings: Settings = {
   lineHeight: 1.6,
   spellCheck: false,
   accent: "blue",
+  readableWidth: true,
   animations: "system",
   liveFormatting: true,
   smartPaste: true,
@@ -84,6 +85,7 @@ const notes = new Map<string, string>([
 const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.now() - i * 60_000]));
 const recents = new Map<string, number>();
 const versions = new Map<string, number>();
+const pinned = new Set<string>();
 let dailyTemplate = "# {{date}}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n";
 let clients = 0;
 
@@ -279,9 +281,17 @@ export function handle(cmd: string, a: A): unknown {
     case "buffer_flush":
     case "buffer_resolve":
       return;
-    case "pin_toggle":
-      window.open(`${location.pathname}?pin=${encodeURIComponent(a.path)}`, "_blank", "width=340,height=420");
-      return true;
+    case "pin_toggle": {
+      const on = !pinned.delete(a.path);
+      if (on) {
+        pinned.add(a.path);
+        window.open(`${location.pathname}?pin=${encodeURIComponent(a.path)}`, "_blank", "width=340,height=420");
+      }
+      mockEmit("pins-changed", [...pinned]);
+      return on;
+    }
+    case "pinned_paths":
+      return [...pinned];
     case "pin_path":
       return new URLSearchParams(location.search).get("pin");
     case "pin_close":

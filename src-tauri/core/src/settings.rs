@@ -46,6 +46,8 @@ pub struct Settings {
     pub spell_check: bool,
     /// Accent color: blue, green, red, orange, purple, teal, pink or gray.
     pub accent: String,
+    /// Keep the editor text in a centred column of comfortable width.
+    pub readable_width: bool,
     /// Motion: `system` (follow the OS "show animations" setting), `on` or `off`.
     pub animations: String,
     /// Style markdown as you type (markers hide off the caret line).
@@ -142,6 +144,7 @@ impl Default for Settings {
             line_height: 1.6,
             spell_check: false,
             accent: "blue".into(),
+            readable_width: true,
             animations: "system".into(),
             live_formatting: true,
             smart_paste: true,

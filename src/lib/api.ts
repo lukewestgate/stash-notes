@@ -123,6 +123,7 @@ export interface Settings {
   lineHeight: number;
   spellCheck: boolean;
   accent: string;
+  readableWidth: boolean;
   /** `system` follows the OS setting. */
   animations: "system" | "on" | "off";
   liveFormatting: boolean;
@@ -187,6 +188,7 @@ export const api = {
   bufferResolve: (path: string, reload: boolean) => call<void>("buffer_resolve", { path, reload }),
   bufferFlush: (path: string | null) => call<void>("buffer_flush", { path }),
   pinToggle: (path: string) => call<boolean>("pin_toggle", { path }),
+  pinnedPaths: () => call<string[]>("pinned_paths"),
   pinPath: () => call<string | null>("pin_path"),
   pinClose: () => call<void>("pin_close"),
   pinSetOnTop: (on: boolean) => call<void>("pin_set_on_top", { on }),

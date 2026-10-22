@@ -134,6 +134,7 @@ pub fn run() {
             commands::smoke_step,
             commands::pin_path,
             commands::pin_close,
+            commands::pinned_paths,
             commands::pin_set_on_top,
             commands::open_in_main,
             commands::resolve_link,

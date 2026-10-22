@@ -11,4 +11,5 @@ export function applyAppearance(s: Settings) {
   if (s.fontFamily) root.style.setProperty("--editor-font", `"${s.fontFamily}", "Segoe UI", system-ui, sans-serif`);
   else root.style.removeProperty("--editor-font");
   root.style.setProperty("--accent", `var(--c-${s.accent || "blue"})`);
+  root.style.setProperty("--content-max", s.readableWidth ? "calc(80ch + 48px)" : "none");
 }
