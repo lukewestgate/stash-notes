@@ -13,6 +13,13 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
+/// A vault as the index knows it: for `in:` filters and `[[vault:link]]`s.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultInfo {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct NoteEntry {
     pub meta: NoteMeta,
@@ -42,7 +49,10 @@ impl NoteEntry {
         let keys = tickets.keys_in(&body);
         NoteEntry {
             stem_lower: note::stem(path).to_lowercase(),
-            path_lower: path.strip_suffix(".md").unwrap_or(path).to_lowercase(),
+            path_lower: {
+                let rel = note::split_path(path).1;
+                rel.strip_suffix(".md").unwrap_or(rel).to_lowercase()
+            },
             title_lower: meta.title.to_lowercase(),
             title_hay: match &meta.label {
                 Some(l) => format!("{} {}", meta.title, l),
@@ -70,9 +80,14 @@ impl NoteEntry {
             .chain(self.aliases_lower.iter().map(String::as_str))
     }
 
+    fn vault(&self) -> &str {
+        &self.meta.vault
+    }
+
     fn summary(&self, snippet: Option<String>, score: i64) -> SearchHit {
         SearchHit {
             path: self.meta.path.clone(),
+            vault: self.meta.vault.clone(),
             kind: self.meta.kind,
             title: self.meta.title.clone(),
             label: self.meta.label.clone(),
@@ -133,6 +148,7 @@ fn snippet(line: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     pub path: String,
+    pub vault: String,
     pub kind: NoteKind,
     pub title: String,
     pub label: Option<String>,
@@ -175,6 +191,8 @@ pub enum SortBy {
 
 /// Options for the Notes view (and the sidebar).
 pub struct ListOptions<'a> {
+    /// The vault listed, unless the query names others with `in:`.
+    pub vault: &'a str,
     pub include_daily: bool,
     /// Closed and archived notes.
     pub include_put_away: bool,
@@ -187,6 +205,8 @@ pub struct ListOptions<'a> {
 }
 
 pub struct SearchOptions<'a> {
+    /// The current vault: its notes rank a little higher.
+    pub prefer: Option<&'a str>,
     pub include_archived: bool,
     pub limit: usize,
     /// The open note, excluded from the empty-query list.
@@ -212,6 +232,7 @@ const MODIFIED_ON_DATE: i64 = 5_000;
 const BODY: i64 = 3_000;
 const RECENCY_MAX: i64 = 1_500;
 const ARCHIVE_PENALTY: i64 = 1_000;
+const VAULT_BOOST: i64 = 2_000;
 
 fn normalize_key(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
@@ -219,16 +240,55 @@ fn normalize_key(s: &str) -> String {
 
 pub struct Index {
     notes: HashMap<String, NoteEntry>,
+    /// Ticket keys for vaults without their own pattern.
     tickets: TicketMatcher,
+    vault_tickets: HashMap<String, TicketMatcher>,
+    vaults: Vec<VaultInfo>,
 }
 
 impl Index {
     pub fn new(tickets: TicketMatcher) -> Self {
-        Index { notes: HashMap::new(), tickets }
+        Index { notes: HashMap::new(), tickets, vault_tickets: HashMap::new(), vaults: Vec::new() }
     }
 
     pub fn tickets(&self) -> &TicketMatcher {
         &self.tickets
+    }
+
+    /// The ticket keys a vault uses.
+    pub fn tickets_for(&self, vault: &str) -> &TicketMatcher {
+        self.vault_tickets.get(vault).unwrap_or(&self.tickets)
+    }
+
+    pub fn set_tickets_for(&mut self, vault: &str, tickets: TicketMatcher) {
+        self.vault_tickets.insert(vault.to_string(), tickets);
+    }
+
+    pub fn set_vaults(&mut self, vaults: Vec<VaultInfo>) {
+        self.vaults = vaults;
+    }
+
+    pub fn vaults(&self) -> &[VaultInfo] {
+        &self.vaults
+    }
+
+    fn has_vault(&self, id: &str) -> bool {
+        self.vaults.iter().any(|v| v.id == id)
+    }
+
+    /// The vaults `in:` words pick (by id or the start of the name), or None
+    /// when the query has no `in:` words.
+    pub fn vault_scope(&self, q: &Query) -> Option<HashSet<String>> {
+        if q.vaults.is_empty() {
+            return None;
+        }
+        Some(
+            self.vaults
+                .iter()
+                .filter(|v| q.vaults.iter().any(|w| v.id == *w || v.id.starts_with(w.as_str()) || v.name.to_lowercase().starts_with(w.as_str())))
+                .map(|v| v.id.clone())
+                .collect(),
+        )
     }
 
     pub fn len(&self) -> usize {
@@ -244,13 +304,18 @@ impl Index {
     }
 
     pub fn upsert(&mut self, path: &str, content: &str, mtime: i64) -> &NoteEntry {
-        let entry = NoteEntry::new(path, content, mtime, &self.tickets);
+        let entry = NoteEntry::new(path, content, mtime, self.tickets_for(note::split_path(path).0));
         self.notes.insert(path.to_string(), entry);
         &self.notes[path]
     }
 
     pub fn remove(&mut self, path: &str) -> Option<NoteEntry> {
         self.notes.remove(path)
+    }
+
+    /// Forget every note in a vault (before re-indexing it).
+    pub fn remove_vault(&mut self, vault: &str) {
+        self.notes.retain(|_, e| e.vault() != vault);
     }
 
     pub fn get(&self, path: &str) -> Option<&NoteEntry> {
@@ -265,23 +330,39 @@ impl Index {
         self.notes.values()
     }
 
-    /// Resolve a link target to an existing note: dates and ticket keys by
-    /// path (active before archived), then exact file name, then title, then
-    /// alias. Ties go to the most recently edited note.
-    pub fn resolve(&self, target: &str) -> Option<String> {
+    /// Resolve a link target to an existing note, looking in `from` (the
+    /// linking note's vault) first, then the other vaults in order.
+    /// `[[work:Target]]` looks only in that vault.
+    pub fn resolve(&self, target: &str, from: &str) -> Option<String> {
+        let (qualified, t) = note::split_target(target.trim());
+        if let Some(v) = qualified.filter(|v| self.has_vault(v)) {
+            return self.resolve_in(t, v);
+        }
         let t = target.trim();
+        if let Some(p) = self.resolve_in(t, from) {
+            return Some(p);
+        }
+        self.vaults.iter().filter(|v| v.id != from).find_map(|v| self.resolve_in(t, &v.id))
+    }
+
+    /// Resolve within one vault: dates and ticket keys by path (active before
+    /// archived), then exact file name, then title, then alias. Ties go to
+    /// the most recently edited note.
+    fn resolve_in(&self, t: &str, vault: &str) -> Option<String> {
         if t.is_empty() {
             return None;
         }
         let by_path = |rel: String| -> Option<String> {
-            [rel.clone(), format!("archive/{rel}")].into_iter().find(|p| self.notes.contains_key(p))
+            [note::join_path(vault, &rel), note::join_path(vault, &format!("archive/{rel}"))]
+                .into_iter()
+                .find(|p| self.notes.contains_key(p))
         };
         if dates::parse_iso(t).is_some() {
             if let Some(p) = by_path(format!("daily/{t}.md")) {
                 return Some(p);
             }
         }
-        if let Some(key) = self.tickets.as_key(t) {
+        if let Some(key) = self.tickets_for(vault).as_key(t) {
             if let Some(p) = by_path(format!("tickets/{key}.md")) {
                 return Some(p);
             }
@@ -291,7 +372,7 @@ impl Index {
         let pick = |pred: &dyn Fn(&NoteEntry) -> bool| -> Option<String> {
             self.notes
                 .values()
-                .filter(|e| pred(e))
+                .filter(|e| e.vault() == vault && pred(e))
                 .max_by_key(|e| (!e.meta.archived, e.mtime))
                 .map(|e| e.meta.path.clone())
         };
@@ -307,13 +388,21 @@ impl Index {
         let q = Query::parse(query);
         let text = &q.text;
         let wants_closed = q.statuses.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
+        // This vault, unless `in:` names others.
+        let scope = self.vault_scope(&q);
+        let in_scope = |e: &NoteEntry| match &scope {
+            Some(s) => s.contains(e.vault()),
+            None => e.vault() == opts.vault,
+        };
         let keep = |e: &NoteEntry| {
-            (opts.include_daily || e.meta.kind != NoteKind::Daily || !text.trim().is_empty())
+            in_scope(e)
+                && (opts.include_daily || e.meta.kind != NoteKind::Daily || !text.trim().is_empty())
                 && (opts.include_put_away || wants_closed || !e.is_put_away())
                 && e.matches_filters(&q, opts.statuses)
         };
         if !text.trim().is_empty() {
             let search = SearchOptions {
+                prefer: Some(opts.vault),
                 include_archived: opts.include_put_away,
                 limit: usize::MAX,
                 current: None,
@@ -357,11 +446,11 @@ impl Index {
     /// The sidebar: notes with an active status (open, then blocked, then the
     /// rest; newest edit first within each), and recently opened notes that
     /// aren't already shown and aren't daily notes.
-    pub fn sidebar(&self, recents: &HashMap<String, i64>, statuses: &[StatusDef], max_active: usize, max_recent: usize) -> Sidebar {
+    pub fn sidebar(&self, vault: &str, recents: &HashMap<String, i64>, statuses: &[StatusDef], max_active: usize, max_recent: usize) -> Sidebar {
         let mut active: Vec<&NoteEntry> = self
             .notes
             .values()
-            .filter(|e| !e.is_put_away() && StatusFilter::Active.matches(e.meta.status.as_deref(), true, statuses))
+            .filter(|e| e.vault() == vault && !e.is_put_away() && StatusFilter::Active.matches(e.meta.status.as_deref(), true, statuses))
             .collect();
         active.sort_by(|a, b| {
             let ra = status::active_rank(a.meta.status.as_deref().unwrap_or(""), statuses);
@@ -373,7 +462,7 @@ impl Index {
         let mut recent: Vec<(&NoteEntry, i64)> = recents
             .iter()
             .filter_map(|(p, t)| self.notes.get(p).map(|e| (e, *t)))
-            .filter(|(e, _)| e.meta.kind != NoteKind::Daily && !shown.contains(e.path()) && !e.meta.archived)
+            .filter(|(e, _)| e.vault() == vault && e.meta.kind != NoteKind::Daily && !shown.contains(e.path()) && !e.meta.archived)
             .collect();
         recent.sort_by(|a, b| b.1.cmp(&a.1));
         Sidebar {
@@ -389,17 +478,23 @@ impl Index {
             return Vec::new();
         };
         let names: HashSet<&str> = target.names().collect();
+        // From other vaults, only `[[vault:name]]` links count.
+        let vault = target.vault();
+        let qualified: HashSet<String> = names.iter().map(|n| format!("{vault}:{n}")).collect();
         let key = target.meta.key.as_deref();
+        let links_here = |e: &NoteEntry| {
+            e.links.iter().any(|l| (e.vault() == vault && names.contains(l.as_str())) || qualified.contains(l.as_str()))
+        };
         let mut out: Vec<&NoteEntry> = self
             .notes
             .values()
             .filter(|e| e.meta.path != path)
-            .filter(|e| e.links.iter().any(|l| names.contains(l.as_str())) || key.is_some_and(|k| e.keys.iter().any(|x| x == k)))
+            .filter(|e| links_here(e) || key.is_some_and(|k| e.keys.iter().any(|x| x == k)))
             .collect();
         out.sort_by(|a, b| b.mtime.cmp(&a.mtime).then_with(|| a.meta.path.cmp(&b.meta.path)));
         out.into_iter()
             .map(|e| {
-                let mut needles: Vec<String> = names.iter().map(|n| format!("[[{n}")).collect();
+                let mut needles: Vec<String> = names.iter().map(|n| format!("[[{n}")).chain(qualified.iter().map(|n| format!("[[{n}"))).collect();
                 if let Some(k) = key {
                     needles.push(k.to_lowercase());
                 }
@@ -416,10 +511,10 @@ impl Index {
 
     /// Lower-case names (title, file name, key, alias) of archived notes that
     /// no active note shares, so the editor can dim links to them.
-    pub fn archived_names(&self) -> Vec<String> {
+    pub fn archived_names(&self, vault: &str) -> Vec<String> {
         let mut active = HashSet::new();
         let mut archived = HashSet::new();
-        for e in self.notes.values() {
+        for e in self.notes.values().filter(|e| e.vault() == vault) {
             let set = if e.meta.archived { &mut archived } else { &mut active };
             set.extend(e.names().filter(|n| !n.contains('/')).map(str::to_string));
         }
@@ -433,11 +528,13 @@ impl Index {
         // Asking for closed notes by name shows them even when put away.
         let wants_closed = parsed.statuses.iter().any(|f| *f == StatusFilter::Named(status::CLOSED.into()));
         let show_put_away = opts.include_archived || wants_closed;
-        let visible = |e: &NoteEntry| (show_put_away || !e.is_put_away()) && e.matches_filters(&parsed, opts.statuses);
+        let scope = self.vault_scope(&parsed);
+        let in_scope = |e: &NoteEntry| scope.as_ref().is_none_or(|s| s.contains(e.vault()));
+        let visible = |e: &NoteEntry| in_scope(e) && (show_put_away || !e.is_put_away()) && e.matches_filters(&parsed, opts.statuses);
         let q = parsed.text.trim();
         if q.is_empty() {
-            if !parsed.has_filters() {
-                return SearchResults { hits: self.recent(opts), exact: false };
+            if !parsed.has_filters() || (parsed.statuses.is_empty() && parsed.tags.is_empty()) {
+                return SearchResults { hits: self.recent(opts, &in_scope), exact: false };
             }
             let mut all: Vec<&NoteEntry> = self.notes.values().filter(|e| visible(e)).collect();
             all.sort_by(|a, b| b.mtime.cmp(&a.mtime));
@@ -454,7 +551,7 @@ impl Index {
         let q_lower = q.to_lowercase();
         let q_norm = normalize_key(q);
         // `PROJ-1234 Do this thing`: the ticket is an exact match by its key.
-        let lead_key = self.tickets.split_named(q).filter(|(_, name)| !name.is_empty()).map(|(k, _)| k);
+        let lead_key = self.lead_key(q, opts.prefer);
         let digits_only = !q.is_empty() && q.chars().all(|c| c.is_ascii_digit());
         let date = dates::parse_query(q, opts.today);
         let words: Vec<String> = q_lower.split_whitespace().map(str::to_string).collect();
@@ -530,6 +627,9 @@ impl Index {
             if e.is_put_away() {
                 best -= ARCHIVE_PENALTY;
             }
+            if opts.prefer == Some(e.vault()) {
+                best += VAULT_BOOST;
+            }
             scored.push((best, e, body_only));
         }
         scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.meta.title.cmp(&b.1.meta.title)));
@@ -539,6 +639,15 @@ impl Index {
             .map(|(score, e, body_only)| e.summary(if body_only { e.matching_line(&words) } else { None }, score))
             .collect();
         SearchResults { hits, exact }
+    }
+
+    /// `PROJ-1234 Do this thing`: the key, if the query starts with a ticket
+    /// key (as any vault's tickets read it, the preferred vault's first) and a name.
+    fn lead_key(&self, q: &str, prefer: Option<&str>) -> Option<String> {
+        let mut matchers: Vec<&TicketMatcher> = prefer.map(|p| self.tickets_for(p)).into_iter().collect();
+        matchers.extend(self.vault_tickets.values());
+        matchers.push(&self.tickets);
+        matchers.into_iter().find_map(|t| t.split_named(q).filter(|(_, name)| !name.is_empty()).map(|(k, _)| k))
     }
 
     /// Every tag in use with how many notes carry it, most used first.
@@ -556,8 +665,8 @@ impl Index {
 
     /// Recently opened notes, newest first, topped up with recently edited
     /// ones. Notes with an active status come first.
-    fn recent(&self, opts: &SearchOptions) -> Vec<SearchHit> {
-        let visible = |e: &&NoteEntry| (opts.include_archived || !e.is_put_away()) && Some(e.path()) != opts.current;
+    fn recent(&self, opts: &SearchOptions, in_scope: &dyn Fn(&NoteEntry) -> bool) -> Vec<SearchHit> {
+        let visible = |e: &&NoteEntry| in_scope(e) && (opts.include_archived || !e.is_put_away()) && Some(e.path()) != opts.current;
         let mut opened: Vec<(&NoteEntry, i64)> =
             opts.recents.iter().filter_map(|(p, t)| self.notes.get(p).map(|e| (e, *t))).filter(|(e, _)| visible(e)).collect();
         opened.sort_by(|a, b| b.1.cmp(&a.1));
@@ -600,6 +709,7 @@ mod tests {
 
     fn opts<'a>(recents: &'a HashMap<String, i64>) -> SearchOptions<'a> {
         SearchOptions {
+            prefer: None,
             include_archived: false,
             limit: 50,
             current: None,
@@ -746,6 +856,7 @@ mod tests {
         let r = HashMap::new();
         let defs = status::default_statuses();
         let mut o = ListOptions {
+            vault: "",
             include_daily: false,
             include_put_away: false,
             sort: SortBy::Edited,
@@ -766,7 +877,7 @@ mod tests {
         assert!(paths(&o).len() >= 7);
         let first = i.list("@blocked", &o);
         assert_eq!(first.hits[0].snippet.as_deref(), Some("first line"));
-        let sb = i.sidebar(&r, &defs, 1, 10);
+        let sb = i.sidebar("", &r, &defs, 1, 10);
         assert_eq!(sb.active[0].path, "tickets/A-2.md");
         assert_eq!(sb.more, 1);
     }
@@ -774,12 +885,12 @@ mod tests {
     #[test]
     fn resolve_links() {
         let i = idx();
-        assert_eq!(i.resolve("Rollout plan").as_deref(), Some("notes/rollout-plan.md"));
-        assert_eq!(i.resolve("rollout-plan").as_deref(), Some("notes/rollout-plan.md"));
-        assert_eq!(i.resolve("proj-123").as_deref(), Some("tickets/PROJ-123.md"));
-        assert_eq!(i.resolve("2026-10-22").as_deref(), Some("daily/2026-10-22.md"));
-        assert_eq!(i.resolve("Old idea").as_deref(), Some("archive/notes/old-idea.md"));
-        assert_eq!(i.resolve("nope"), None);
+        assert_eq!(i.resolve("Rollout plan", "").as_deref(), Some("notes/rollout-plan.md"));
+        assert_eq!(i.resolve("rollout-plan", "").as_deref(), Some("notes/rollout-plan.md"));
+        assert_eq!(i.resolve("proj-123", "").as_deref(), Some("tickets/PROJ-123.md"));
+        assert_eq!(i.resolve("2026-10-22", "").as_deref(), Some("daily/2026-10-22.md"));
+        assert_eq!(i.resolve("Old idea", "").as_deref(), Some("archive/notes/old-idea.md"));
+        assert_eq!(i.resolve("nope", ""), None);
     }
 
     #[test]
@@ -787,7 +898,45 @@ mod tests {
         let mut i = Index::new(TicketMatcher::default_pattern());
         i.upsert("notes/a.md", "# Same\n", 1);
         i.upsert("notes/b.md", "# Same\n", 2);
-        assert_eq!(i.resolve("same").as_deref(), Some("notes/b.md"));
+        assert_eq!(i.resolve("same", "").as_deref(), Some("notes/b.md"));
+    }
+
+    #[test]
+    fn vaults() {
+        let mut i = Index::new(TicketMatcher::default_pattern());
+        i.set_vaults(vec![
+            VaultInfo { id: "work".into(), name: "Work".into() },
+            VaultInfo { id: "home".into(), name: "Personal".into() },
+        ]);
+        i.upsert("work:notes/plan.md", "# Plan\nwork plan\n", 10);
+        i.upsert("home:notes/plan.md", "# Plan\nhome plan, see [[work:Plan]]\n", 5);
+        i.upsert("work:tickets/AB-1.md", "# AB-1 Thing\n", 1);
+        i.upsert("home:notes/other.md", "# Other\nmentions AB-1 and [[Plan]]\n", 1);
+        // Links resolve in their own vault first, then elsewhere; `vault:` pins it.
+        assert_eq!(i.resolve("Plan", "home").as_deref(), Some("home:notes/plan.md"));
+        assert_eq!(i.resolve("Plan", "work").as_deref(), Some("work:notes/plan.md"));
+        assert_eq!(i.resolve("work:Plan", "home").as_deref(), Some("work:notes/plan.md"));
+        assert_eq!(i.resolve("AB-1", "home").as_deref(), Some("work:tickets/AB-1.md"));
+        assert_eq!(i.resolve("nope:Plan", "work").as_deref(), None);
+        // Search: all vaults, the preferred one first; in: narrows.
+        let r = HashMap::new();
+        let mut o = opts(&r);
+        o.prefer = Some("home");
+        let paths = |q: &str, o: &SearchOptions| i.search(q, o).hits.into_iter().map(|h| h.path).collect::<Vec<_>>();
+        assert_eq!(paths("plan", &o)[0], "home:notes/plan.md");
+        assert_eq!(paths("plan in:work", &o), vec!["work:notes/plan.md"]);
+        assert!(paths("plan in:pers", &o).iter().all(|p| p.starts_with("home:")));
+        assert!(paths("plan in:zzz", &o).is_empty());
+        // Backlinks: same-vault names, other vaults only via vault:name (or a key mention).
+        let b: Vec<_> = i.backlinks("work:notes/plan.md").into_iter().map(|h| h.path).collect();
+        assert_eq!(b, vec!["home:notes/plan.md"]);
+        let b: Vec<_> = i.backlinks("work:tickets/AB-1.md").into_iter().map(|h| h.path).collect();
+        assert_eq!(b, vec!["home:notes/other.md"]);
+        // The sidebar shows one vault.
+        i.upsert("work:tickets/AB-2.md", "---\nstatus: open\n---\n# AB-2\n", 1);
+        let defs = status::default_statuses();
+        assert_eq!(i.sidebar("work", &r, &defs, 8, 8).active.len(), 1);
+        assert!(i.sidebar("home", &r, &defs, 8, 8).active.is_empty());
     }
 
     #[test]
@@ -804,8 +953,8 @@ mod tests {
     #[test]
     fn archived_names_exclude_active() {
         let mut i = idx();
-        assert_eq!(i.archived_names(), vec!["old idea", "old-idea"]);
+        assert_eq!(i.archived_names(""), vec!["old idea", "old-idea"]);
         i.upsert("notes/old-idea.md", "# Old idea\n", 1);
-        assert!(i.archived_names().is_empty());
+        assert!(i.archived_names("").is_empty());
     }
 }

@@ -1,7 +1,7 @@
 //! Process-wide state shared by commands, the tray, the hotkey and the watcher.
 
 use serde::{Deserialize, Serialize};
-use stash_core::note::TicketMatcher;
+use stash_core::note::{self, TicketMatcher};
 use stash_core::vault::RenameUndo;
 use stash_core::{Index, Settings, Vault};
 use std::collections::HashMap;
@@ -13,6 +13,10 @@ use std::sync::{Mutex, RwLock};
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Session {
+    /// The vault the main window is in.
+    pub current_vault: Option<String>,
+    /// Each vault's last open note, to return to when switching back.
+    pub last_by_vault: HashMap<String, String>,
     pub last_path: Option<String>,
     pub last_anchor: Option<usize>,
     /// Path -> last opened (ms since epoch).
@@ -44,6 +48,19 @@ impl Session {
         if self.last_path.as_deref() == Some(from) {
             self.last_path = Some(to.to_string());
         }
+        for p in self.last_by_vault.values_mut().filter(|p| *p == from) {
+            *p = to.to_string();
+        }
+    }
+
+    /// Paths saved before 0.5 have no vault: they belong to the first one.
+    pub fn qualify(&mut self, first: &str) {
+        let q = |p: &str| if note::split_path(p).0.is_empty() { note::join_path(first, p) } else { p.to_string() };
+        self.recents = self.recents.drain().map(|(p, t)| (q(&p), t)).collect();
+        self.last_path = self.last_path.as_deref().map(q);
+        for pin in &mut self.pins {
+            pin.path = q(&pin.path);
+        }
     }
 }
 
@@ -52,11 +69,13 @@ pub struct AppState {
     pub settings_path: PathBuf,
     pub session_path: PathBuf,
     pub session: Mutex<Session>,
-    pub vault: RwLock<Vault>,
+    /// The vaults' folders, in settings order: (id, folder).
+    pub vaults: RwLock<Vec<(String, Vault)>>,
     pub index: RwLock<Index>,
     pub index_ready: AtomicBool,
     pub warnings: Mutex<Vec<String>>,
-    pub undo: Mutex<HashMap<u64, RenameUndo>>,
+    /// Note renames: (vault id, how to undo it).
+    pub undo: Mutex<HashMap<u64, (String, RenameUndo)>>,
     /// Tag renames: each note's tags before the rename.
     pub tag_undo: Mutex<HashMap<u64, Vec<(String, Vec<String>)>>>,
     pub next_undo: AtomicU64,
@@ -66,19 +85,20 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(settings: Settings, settings_path: PathBuf, session_path: PathBuf, vault_root: PathBuf) -> Self {
-        let session = std::fs::read_to_string(&session_path)
+    pub fn new(settings: Settings, settings_path: PathBuf, session_path: PathBuf, vaults: Vec<(String, Vault)>) -> Self {
+        let mut session: Session = std::fs::read_to_string(&session_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let tickets = TicketMatcher::new(&settings.ticket_regex());
+        session.qualify(settings.first_vault());
+        let index = crate::config::new_index(&settings);
         AppState {
             settings: RwLock::new(settings),
             settings_path,
             session_path,
             session: Mutex::new(session),
-            vault: RwLock::new(Vault::new(vault_root)),
-            index: RwLock::new(Index::new(tickets)),
+            vaults: RwLock::new(vaults),
+            index: RwLock::new(index),
             index_ready: AtomicBool::new(false),
             warnings: Mutex::new(Vec::new()),
             undo: Mutex::new(HashMap::new()),
@@ -93,8 +113,11 @@ impl AppState {
         self.settings.read().unwrap().clone()
     }
 
-    pub fn tickets(&self) -> TicketMatcher {
-        self.index.read().unwrap().tickets().clone()
+    /// The ticket keys of the vault `path` (or a bare vault id) is in.
+    pub fn tickets_for(&self, path: &str) -> TicketMatcher {
+        let (id, rel) = note::split_path(path);
+        let id = if id.is_empty() { rel } else { id };
+        self.index.read().unwrap().tickets_for(id).clone()
     }
 
     pub fn warn(&self, msg: impl Into<String>) {
@@ -118,16 +141,70 @@ impl AppState {
     }
 
     /// Re-read one note from disk into the index (or drop it if gone).
-    pub fn reindex(&self, rel: &str) {
-        let vault = self.vault.read().unwrap();
+    pub fn reindex(&self, path: &str) {
+        let Ok(path) = self.qualify(path) else { return };
+        let Ok((vault, rel)) = self.locate(&path) else { return };
         let mut index = self.index.write().unwrap();
-        match vault.read(rel) {
+        match vault.read(&rel) {
             Ok(content) => {
-                index.upsert(rel, &content, vault.mtime(rel));
+                index.upsert(&path, &content, vault.mtime(&rel));
             }
             Err(_) => {
-                index.remove(rel);
+                index.remove(&path);
             }
+        }
+    }
+
+    pub fn first_vault(&self) -> String {
+        self.settings.read().unwrap().first_vault().to_string()
+    }
+
+    /// The folder and in-vault path of `vault:rel/path.md` (a path without a
+    /// vault is in the first one).
+    pub fn locate(&self, path: &str) -> Result<(Vault, String), String> {
+        let (id, rel) = note::split_path(path);
+        let rel = Vault::clean(rel).map_err(|e| e.to_string())?;
+        let vault = if id.is_empty() { self.vaults.read().unwrap().first().map(|(_, v)| v.clone()) } else { self.vault(id) };
+        vault.map(|v| (v, rel)).ok_or_else(|| format!("no vault `{id}`"))
+    }
+
+    /// `path` with its vault spelled out and the in-vault part checked.
+    pub fn qualify(&self, path: &str) -> Result<String, String> {
+        let (id, rel) = note::split_path(path);
+        let rel = Vault::clean(rel).map_err(|e| e.to_string())?;
+        let id = if id.is_empty() { self.first_vault() } else { id.to_string() };
+        if self.vault(&id).is_none() {
+            return Err(format!("no vault `{id}`"));
+        }
+        Ok(note::join_path(&id, &rel))
+    }
+
+    /// Read the note at `vault:rel/path.md`.
+    pub fn read_note(&self, path: &str) -> Result<String, String> {
+        let (v, rel) = self.locate(path)?;
+        v.read(&rel).map_err(|e| e.to_string())
+    }
+
+    /// Write the note at `vault:rel/path.md` (crash-safe); returns its new mtime.
+    pub fn write_note(&self, path: &str, text: &str) -> Result<i64, String> {
+        let (v, rel) = self.locate(path)?;
+        v.write(&rel, text).map_err(|e| e.to_string())
+    }
+
+    pub fn note_exists(&self, path: &str) -> bool {
+        self.locate(path).is_ok_and(|(v, rel)| v.exists(&rel))
+    }
+
+    pub fn vault(&self, id: &str) -> Option<Vault> {
+        self.vaults.read().unwrap().iter().find(|(v, _)| v == id).map(|(_, v)| v.clone())
+    }
+
+    /// The vault the main window is in (or the first, if that one is gone).
+    pub fn current_vault(&self) -> String {
+        let cur = self.session.lock().unwrap().current_vault.clone();
+        match cur {
+            Some(v) if self.vault(&v).is_some() => v,
+            _ => self.first_vault(),
         }
     }
 }

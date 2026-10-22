@@ -8,7 +8,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 export type NoteKind = "daily" | "ticket" | "note";
 
 export interface NoteMeta {
+  /** `vault:relative/path.md`. */
   path: string;
+  vault: string;
   kind: NoteKind;
   archived: boolean;
   title: string;
@@ -40,6 +42,7 @@ export interface BufferUpdate {
 
 export interface SearchHit {
   path: string;
+  vault: string;
   kind: NoteKind;
   title: string;
   label: string | null;
@@ -99,6 +102,16 @@ export interface Keys {
   toggleSidebar: string;
   focusSidebar: string;
   pinNote: string;
+  switchVault: string;
+}
+
+export interface VaultDef {
+  /** Stable id used in paths, `[[id:Note]]` links and `in:id` searches. */
+  id: string;
+  name: string;
+  /** Empty for the default folder (Documents\StashNotes). */
+  path: string;
+  color: string;
 }
 
 export type SortBy = "edited" | "opened" | "status" | "title";
@@ -112,7 +125,7 @@ export interface NotesViewSettings {
 
 export interface Settings {
   schemaVersion: number;
-  vaultPath: string;
+  vaults: VaultDef[];
   hotkey: string;
   switcherHotkey: string;
   timestampFormat: string;
@@ -147,7 +160,9 @@ export interface Settings {
 
 export interface Startup {
   settings: Settings;
-  vaultPath: string;
+  /** Each vault's folder, by id. */
+  vaultPaths: Record<string, string>;
+  currentVault: string;
   settingsPath: string;
   warnings: string[];
   lastPath: string | null;
@@ -188,8 +203,12 @@ export const api = {
   testHotkey: (spec: string, which: "main" | "switcher") => call<void>("test_hotkey", { spec, which }),
   testTicketPattern: (pattern: string, sample: string) => call<string[]>("test_ticket_pattern", { pattern, sample }),
   pickFolder: () => call<string | null>("pick_folder"),
-  getDailyTemplate: () => call<string>("get_daily_template"),
-  setDailyTemplate: (text: string) => call<void>("set_daily_template", { text }),
+  getDailyTemplate: (vault: string) => call<string>("get_daily_template", { vault }),
+  setDailyTemplate: (vault: string, text: string) => call<void>("set_daily_template", { vault, text }),
+  getVaultPaths: () => call<Record<string, string>>("get_vault_paths"),
+  defaultVaultFolder: () => call<string>("default_vault_folder"),
+  /** Make `vault` current; returns the note last open there, if any. */
+  switchVault: (vault: string) => call<string | null>("switch_vault", { vault }),
   bufferOpen: (path: string) => call<Opened>("buffer_open", { path }),
   bufferClose: (path: string) => call<void>("buffer_close", { path }),
   bufferPush: (path: string, version: number, updates: BufferUpdate[]) =>
@@ -208,26 +227,28 @@ export const api = {
   quickHide: () => call<void>("quick_hide"),
   quickResize: (height: number) => call<void>("quick_resize", { height }),
   quickOpen: (path: string) => call<void>("quick_open", { path }),
-  quickCreate: (title: string) => call<string>("quick_create", { title }),
-  resolveLink: (target: string) => call<string>("resolve_link", { target }),
-  createNote: (title: string) => call<string>("create_note", { title }),
-  dailyNote: (date: string) => call<string>("daily_note", { date }),
+  /** `vault`: where it goes (null: the current vault, or the one its ticket key belongs to). */
+  quickCreate: (title: string, vault: string | null) => call<string>("quick_create", { title, vault }),
+  resolveLink: (target: string, from: string | null) => call<string>("resolve_link", { target, from }),
+  createNote: (title: string, vault: string) => call<string>("create_note", { title, vault }),
+  dailyNote: (date: string, vault: string) => call<string>("daily_note", { date, vault }),
   archiveNote: (path: string) => call<string>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),
   undoRename: (undoId: number) => call<string>("undo_rename", { undoId }),
-  search: (query: string, includeArchived: boolean, current: string | null, limit = 50) =>
-    call<SearchResults>("search", { query, includeArchived, current, limit }),
+  /** `prefer`: the vault ranked first (default: the current one). */
+  search: (query: string, includeArchived: boolean, current: string | null, limit = 50, prefer: string | null = null) =>
+    call<SearchResults>("search", { query, includeArchived, current, limit, prefer }),
   setStatus: (path: string, status: string | null) => call<StatusResult>("set_status", { path, status }),
   setTags: (path: string, tags: string[]) => call<StatusResult>("set_tags", { path, tags }),
   listTags: () => call<TagCount[]>("list_tags"),
   renameTag: (from: string, to: string) => call<{ notes: number; undoId: number }>("rename_tag", { from, to }),
   undoTagRename: (undoId: number) => call<void>("undo_tag_rename", { undoId }),
-  listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy) =>
-    call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort }),
-  sidebar: () => call<{ active: SearchHit[]; more: number; recent: SearchHit[] }>("sidebar"),
+  listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy, vault: string) =>
+    call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort, vault }),
+  sidebar: (vault: string) => call<{ active: SearchHit[]; more: number; recent: SearchHit[] }>("sidebar", { vault }),
   setUi: (key: string, value: unknown) => call<void>("set_ui", { key, value }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
-  archivedNames: () => call<string[]>("archived_names"),
+  archivedNames: (vault: string) => call<string[]>("archived_names", { vault }),
   gerritEdit: (content: string, link: string) => call<TextEdit>("gerrit_edit", { content, link }),
   openUrl: (url: string) => call<void>("open_url", { url }),
   hideWindow: () => call<void>("hide_window"),
@@ -235,7 +256,7 @@ export const api = {
   saveSession: (path: string | null, anchor: number | null) => call<void>("save_session", { path, anchor }),
   readClipboard: () => call<string>("read_clipboard"),
   openSettingsFile: () => call<void>("open_settings_file"),
-  openVaultFolder: () => call<void>("open_vault_folder"),
+  openVaultFolder: (vault: string) => call<void>("open_vault_folder", { vault }),
 };
 
 type Handler<T> = (payload: T) => void;

@@ -194,7 +194,7 @@ pub fn note_moved(app: &AppHandle, from: &str, to: &str) {
 /// Reopen the pinned windows from last time.
 pub fn restore(app: &AppHandle) {
     for pin in pins(app) {
-        if app.state::<AppState>().vault.read().unwrap().exists(&pin.path) {
+        if app.state::<AppState>().note_exists(&pin.path) {
             if let Err(e) = build(app, &pin) {
                 eprintln!("could not restore pinned note {}: {e}", pin.path);
             }

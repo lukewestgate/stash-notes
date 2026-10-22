@@ -1,11 +1,15 @@
 <script lang="ts">
-  import type { Keys, NoteMeta, SearchHit, StatusDef } from "../lib/api";
+  import type { Keys, NoteMeta, SearchHit, StatusDef, VaultDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
   import { isoDate, relTime } from "../lib/text";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
   interface Props {
+    vaults: VaultDef[];
+    currentVault: string;
+    /** Open the vault switcher. */
+    onVault: () => void;
     active: SearchHit[];
     more: number;
     recent: SearchHit[];
@@ -31,6 +35,9 @@
     onLeave: () => void;
   }
   let {
+    vaults,
+    currentVault,
+    onVault,
     active,
     more,
     recent,
@@ -65,8 +72,8 @@
     if (!open || isToday) return null;
     const listed = active.some((h) => h.path === open.path) || (expanded && recent.some((h) => h.path === open.path));
     if (listed) return null;
-    const { path, kind, title, label, key, status, tags, archived } = open;
-    return { path, kind, title, label, key, status, tags, archived, mtime: 0, snippet: null, score: 0 };
+    const { path, vault, kind, title, label, key, status, tags, archived } = open;
+    return { path, vault, kind, title, label, key, status, tags, archived, mtime: 0, snippet: null, score: 0 };
   });
 
   const items = $derived<Item[]>([
@@ -208,6 +215,22 @@
       <span class="ico">{@render icon("menu")}</span>
       {#if expanded}<span class="label brand">Stash Notes</span>{/if}
     </button>
+    {#if vaults.length > 1}
+      {@const v = vaults.find((x) => x.id === currentVault) ?? vaults[0]}
+      <button
+        class="row nav vault"
+        onclick={onVault}
+        title="Vault: {v.name} — switch ({formatKey(keys.switchVault)})"
+        tabindex="-1"
+        style:--vc="var(--c-{v.color})"
+      >
+        <span class="ico"><span class="badge">{v.name.slice(0, 1).toUpperCase()}</span></span>
+        {#if expanded}
+          <span class="label vname">{v.name}</span>
+          <span class="chev"><Icon name="chevron-down" size={14} /></span>
+        {/if}
+      </button>
+    {/if}
     {@render row(items[0], "Today", "today", formatKey(keys.dailyNote), isToday)}
     {@render row(items[1], "Notes", "notes", formatKey(keys.notesView), screen === "notes")}
   </div>
@@ -377,6 +400,30 @@
   .brand {
     font-weight: 600;
     color: var(--fg);
+  }
+  .badge {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--vc);
+  }
+  .vault {
+    background: color-mix(in srgb, var(--vc) 10%, transparent);
+  }
+  .vault:hover {
+    background: color-mix(in srgb, var(--vc) 18%, transparent);
+  }
+  .vname {
+    font-weight: 600;
+  }
+  .chev {
+    display: flex;
+    color: var(--fg-muted);
   }
   .hint {
     font-size: 11px;

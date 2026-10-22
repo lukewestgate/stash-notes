@@ -1,6 +1,7 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import { api, type SearchHit, type StatusDef, type TagCount } from "../lib/api";
+  import { api, type SearchHit, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
+  import VaultTag from "./VaultTag.svelte";
   import { completeTag, tagSuggestions, typingTag } from "../lib/text";
   import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
@@ -16,10 +17,14 @@
     isTicket: (q: string) => boolean;
     statuses: StatusDef[];
     tagColors: Record<string, string>;
+    vaults: VaultDef[];
+    /** The app's vault: ranked first, and where new notes go. Null in the pop-up (Rust knows). */
+    currentVault: string | null;
     /** A pasted Jira URL becomes its key. */
     pasteKey: (text: string) => string | null;
     onChoose: (hit: SearchHit, peek: boolean) => void;
-    onCreate: (query: string) => void;
+    /** Create from the query, in `vault` (the narrowed scope; null for the default). */
+    onCreate: (query: string, vault: string | null) => void;
     /** Fill a window of its own (the Alt+J pop-up) instead of floating over the app. */
     embedded?: boolean;
     /** Embedded only: Esc was pressed. */
@@ -27,8 +32,34 @@
     /** Embedded only: the content's height changed. */
     onSize?: (height: number) => void;
   }
-  let { mode, current, isTicket, statuses, tagColors, pasteKey, onChoose, onCreate, embedded = false, onClose, onSize }: Props =
-    $props();
+  let {
+    mode,
+    current,
+    isTicket,
+    statuses,
+    tagColors,
+    vaults,
+    currentVault,
+    pasteKey,
+    onChoose,
+    onCreate,
+    embedded = false,
+    onClose,
+    onSize,
+  }: Props = $props();
+
+  /** Tab cycles the vaults searched: all, the current one, then each other one. */
+  let scope = $state<string | null>(null);
+  const scopes = $derived<(string | null)[]>([
+    null,
+    ...(currentVault ? [currentVault] : []),
+    ...vaults.map((v) => v.id).filter((id) => id !== currentVault),
+  ]);
+  const scopeDef = $derived(vaults.find((v) => v.id === scope));
+
+  function cycleScope() {
+    scope = scopes[(scopes.indexOf(scope) + 1) % scopes.length];
+  }
   let box: HTMLDivElement;
 
   $effect(() => {
@@ -73,7 +104,7 @@
   async function run(q: string, archived: boolean) {
     const my = ++seq;
     try {
-      const r = await api.search(q, archived, current);
+      const r = await api.search(q, archived, current, 50, currentVault);
       if (my !== seq) return;
       hits = r.hits;
       exact = r.exact;
@@ -84,7 +115,7 @@
   }
 
   $effect(() => {
-    run(searched, includeArchived);
+    run(scope ? `${searched} in:${scope}` : searched, includeArchived);
   });
 
   $effect(() => {
@@ -95,7 +126,7 @@
 
   function choose(i: number, peek: boolean) {
     if (i < hits.length) onChoose(hits[i], peek);
-    else if (showCreate) onCreate(query.trim());
+    else if (showCreate) onCreate(query.trim(), scope);
   }
 
   function keydown(e: KeyboardEvent) {
@@ -114,7 +145,12 @@
     } else if (e.key === "Tab" && suggestions.length) {
       e.preventDefault();
       query = completeTag(query, suggestions[0]);
+    } else if (e.key === "Tab" && vaults.length > 1) {
+      e.preventDefault();
+      cycleScope();
     } else if (e.key === "Tab") {
+      e.preventDefault();
+    } else if (e.altKey && !e.ctrlKey && (e.key === "a" || e.key === "A" || e.code === "KeyA")) {
       e.preventDefault();
       includeArchived = !includeArchived;
     }
@@ -135,6 +171,11 @@
         autocomplete="off"
       />
       {#if includeArchived}<span class="flag">+ archived</span>{/if}
+      {#if vaults.length > 1}
+        <button class="scope" class:narrow={scopeDef} style:--vc={scopeDef ? `var(--c-${scopeDef.color})` : null} onclick={cycleScope} title="Which vaults to search (Tab)">
+          {#if scopeDef}<span class="dot"></span>{scopeDef.name}{:else}All vaults{/if}
+        </button>
+      {/if}
     </div>
     {#if suggestions.length}
       <div class="suggest">
@@ -159,6 +200,7 @@
             {#if hit.label}<span class="label"><Highlight text={hit.label} {query} /></span>{/if}
             {#each hit.tags as t}<TagChip tag={t} colors={tagColors} />{/each}
             {#if hit.archived}<span class="tag">archived</span>{/if}
+            {#if vaults.length > 1 && !scope}<span class="vtag"><VaultTag vault={hit.vault} {vaults} /></span>{/if}
           </span>
           {#if hit.snippet}<span class="snippet"><Highlight text={hit.snippet} {query} /></span>{/if}
         </button>
@@ -183,6 +225,7 @@
               <span class="label">note</span>
             {/if}
             {#each newTags as t}<TagChip tag={t} colors={tagColors} />{/each}
+            {#if vaults.length > 1 && (scope ?? currentVault)}<span class="vtag"><VaultTag vault={(scope ?? currentVault)!} {vaults} /></span>{/if}
           </span>
         </button>
       {/if}
@@ -198,7 +241,8 @@
       <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
       <span><kbd>Enter</kbd> {mode === "link" ? "link" : "open"}</span>
       {#if mode === "open"}<span><kbd>Alt+Enter</kbd> peek</span>{/if}
-      <span><kbd>Tab</kbd> {includeArchived ? "hide" : "include"} closed & archived</span>
+      {#if vaults.length > 1}<span><kbd>Tab</kbd> vaults</span>{/if}
+      <span><kbd>Alt+A</kbd> {includeArchived ? "hide" : "include"} closed</span>
       <span><kbd>Esc</kbd> close</span>
     </div>
   </div>
@@ -279,6 +323,36 @@
     padding: 0 4px;
     border: 1px solid var(--border);
     border-radius: 3px;
+  }
+  .scope {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 10px;
+    font: inherit;
+    font-size: 11.5px;
+    white-space: nowrap;
+    color: var(--fg-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 8px;
+    cursor: pointer;
+  }
+  .scope.narrow {
+    color: var(--fg);
+    border-color: color-mix(in srgb, var(--vc) 50%, transparent);
+    background: color-mix(in srgb, var(--vc) 12%, transparent);
+  }
+  .scope .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--vc);
+  }
+  .vtag {
+    margin-left: auto;
+    padding-left: 8px;
   }
   .flag {
     font-size: 12px;

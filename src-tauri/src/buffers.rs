@@ -118,7 +118,7 @@ pub struct MovedEvent {
 }
 
 fn meta(app: &AppHandle, path: &str, text: &str) -> NoteMeta {
-    note::parse_meta(path, text, &app.state::<AppState>().tickets())
+    note::parse_meta(path, text, &app.state::<AppState>().tickets_for(path))
 }
 
 fn emit_to_windows<S: Serialize + Clone>(app: &AppHandle, windows: &HashSet<String>, event: &str, payload: S) {
@@ -133,7 +133,7 @@ pub fn open(app: &AppHandle, label: &str, path: &str) -> Result<Opened, String> 
     let bufs = app.state::<Buffers>();
     let mut map = bufs.map.lock().unwrap();
     if !map.contains_key(path) {
-        let text = state.vault.read().unwrap().read(path).map_err(|e| e.to_string())?;
+        let text = state.read_note(path)?;
         map.insert(path.to_string(), Buffer::new(text));
     }
     let b = map.get_mut(path).unwrap();
@@ -273,7 +273,7 @@ pub fn write(app: &AppHandle, path: &str, text: &str) -> Result<(), String> {
     // Record what we are about to write first, so the file watcher can tell
     // this write from an outside edit however quickly it fires.
     let previous = bufs.map.lock().unwrap().get_mut(path).map(|b| std::mem::replace(&mut b.saved, text.to_string()));
-    let mtime = match state.vault.read().unwrap().write(path, text) {
+    let mtime = match state.write_note(path, text) {
         Ok(m) => m,
         Err(e) => {
             if let (Some(prev), Some(b)) = (previous, bufs.map.lock().unwrap().get_mut(path)) {
@@ -281,7 +281,7 @@ pub fn write(app: &AppHandle, path: &str, text: &str) -> Result<(), String> {
                     b.saved = prev;
                 }
             }
-            return Err(e.to_string());
+            return Err(e);
         }
     };
     let status_changed = {
@@ -354,7 +354,7 @@ pub fn moved(app: &AppHandle, from: &str, to: &str) {
 
 /// The file changed on disk. Returns true if an open buffer handled it.
 pub fn disk_changed(app: &AppHandle, path: &str) -> bool {
-    let disk = app.state::<AppState>().vault.read().unwrap().read(path).ok();
+    let disk = app.state::<AppState>().read_note(path).ok();
     let (clean, windows) = {
         let bufs = app.state::<Buffers>();
         let mut map = bufs.map.lock().unwrap();
@@ -384,7 +384,7 @@ pub fn disk_changed(app: &AppHandle, path: &str) -> bool {
 /// Resolve a conflict: take the disk version (`reload`) or keep the buffer and save it.
 pub fn resolve(app: &AppHandle, path: &str, reload: bool) -> Result<(), String> {
     if reload {
-        let disk = app.state::<AppState>().vault.read().unwrap().read(path).map_err(|e| e.to_string())?;
+        let disk = app.state::<AppState>().read_note(path)?;
         apply_server_change(app, path, &disk, false);
         let bufs = app.state::<Buffers>();
         let mut map = bufs.map.lock().unwrap();

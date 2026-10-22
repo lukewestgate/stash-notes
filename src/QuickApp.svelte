@@ -32,9 +32,9 @@
     }
   }
 
-  async function create(query: string) {
+  async function create(query: string, vault: string | null) {
     try {
-      await api.quickCreate(query);
+      await api.quickCreate(query, vault);
     } catch (e) {
       error = String(e);
     }
@@ -68,6 +68,8 @@
         {isTicket}
         statuses={settings.statuses}
         tagColors={settings.tagColors}
+        vaults={settings.vaults}
+        currentVault={null}
         {pasteKey}
         onChoose={choose}
         onCreate={create}

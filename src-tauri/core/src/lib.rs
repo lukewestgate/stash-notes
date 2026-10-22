@@ -14,5 +14,5 @@ pub mod vault;
 
 pub use index::{Index, NoteEntry, SearchHit, SearchResults, Sidebar};
 pub use note::{NoteKind, NoteMeta};
-pub use settings::Settings;
+pub use settings::{Settings, VaultDef};
 pub use vault::{RenameOutcome, Vault, VaultError};

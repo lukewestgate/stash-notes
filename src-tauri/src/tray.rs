@@ -1,7 +1,7 @@
 //! Tray icon: left click toggles the window; right click opens the menu.
 
 use crate::{commands, window};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -40,6 +40,18 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &today, &folder, &settings])?;
+    let (vaults, current) = {
+        let state = app.state::<crate::state::AppState>();
+        let s = state.settings.read().unwrap();
+        (s.vaults.iter().map(|v| (v.id.clone(), v.name.clone())).collect::<Vec<_>>(), state.current_vault())
+    };
+    if vaults.len() > 1 {
+        let sub = Submenu::with_id(app, "vaults", "Vault", true)?;
+        for (id, name) in vaults {
+            sub.append(&CheckMenuItem::with_id(app, format!("vault:{id}"), name, true, id == current, None::<&str>)?)?;
+        }
+        menu.insert(&sub, 1)?;
+    }
     let pinned = crate::pins::list_for_menu(app);
     if !pinned.is_empty() {
         let sub = Submenu::with_id(app, "pinned", "Pinned notes", true)?;
@@ -75,7 +87,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.emit("open-daily", ());
             }
             "folder" => {
-                if let Err(e) = commands::open_vault_folder(app.clone(), app.state()) {
+                let vault = app.state::<crate::state::AppState>().current_vault();
+                if let Err(e) = commands::open_vault_folder(app.clone(), app.state(), vault) {
                     let _ = app.emit("toast", e);
                 }
             }
@@ -85,7 +98,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             }
             "quit" => commands::request_quit(app),
             id => {
-                if let Some(label) = id.strip_prefix("pin-focus:") {
+                if let Some(vault) = id.strip_prefix("vault:") {
+                    window::show(app);
+                    let _ = app.emit_to(window::MAIN, "switch-vault", vault.to_string());
+                } else if let Some(label) = id.strip_prefix("pin-focus:") {
                     crate::pins::focus(app, label);
                 } else if let Some(label) = id.strip_prefix("pin-close:") {
                     crate::pins::close_later(app, label);

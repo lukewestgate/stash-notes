@@ -45,6 +45,7 @@ fn five_thousand_notes() {
 
     let recents = HashMap::new();
     let opts = SearchOptions {
+        prefer: None,
         include_archived: false,
         limit: 50,
         current: None,

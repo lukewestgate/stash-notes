@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import type { Keys } from "../lib/api";
+  import type { Keys, VaultDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
 
   interface Props {
@@ -8,9 +8,11 @@
     hotkey: string;
     switcherHotkey: string;
     settingsPath: string;
-    vaultPath: string;
+    vaults: VaultDef[];
+    /** Each vault's folder, by id. */
+    vaultPaths: Record<string, string>;
   }
-  let { keys, hotkey, switcherHotkey, settingsPath, vaultPath }: Props = $props();
+  let { keys, hotkey, switcherHotkey, settingsPath, vaults, vaultPaths }: Props = $props();
 
   const rows = $derived<[string, string, string?][]>([
     [hotkey, "Show or hide Stash Notes", "global, works from any app"],
@@ -19,6 +21,7 @@
     [keys.quickSwitcher, "Quick switcher: find, open or create a note", "with text selected: link it"],
     [keys.dailyNote, "Today's daily note"],
     [keys.notesView, "Notes view: browse, sort and filter every note"],
+    [keys.switchVault, "Switch vault", "opening a note from another vault switches too"],
     [keys.toggleSidebar, "Expand / collapse the sidebar"],
     [keys.focusSidebar, "Move focus to the sidebar (and back)"],
     [keys.followLink, "Follow link / ticket / URL under cursor", "on a checkbox line: toggle it"],
@@ -47,7 +50,9 @@
     ["↑ ↓", "Move"],
     ["Enter", "Open / create"],
     ["Alt+Enter", "Peek without adding to history"],
-    ["Tab", "Include archived notes"],
+    ["Tab", "Search all vaults / this vault / each vault (or complete a #tag)"],
+    ["Alt+A", "Include closed and archived notes"],
+    ["#tag  @status  in:vault", "Filter as you type"],
   ];
 </script>
 
@@ -85,7 +90,7 @@
       </div>
     </div>
     <p class="paths">
-      Notes: <code>{vaultPath}</code><br />
+      {#each vaults as v}{v.name}: <code>{vaultPaths[v.id] ?? v.path}</code><br />{/each}
       Settings: <code>{settingsPath}</code> (shortcuts are configurable there)
     </p>
     <p class="close">Press <kbd>Esc</kbd> to close</p>

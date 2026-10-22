@@ -80,7 +80,7 @@
     const ref = refAt(line.text, pos - line.from, tickets);
     if (!ref) return false;
     if (ref.kind === "url") api.openUrl(ref.target).catch((e) => say(String(e)));
-    else api.resolveLink(ref.target).then((p) => api.openInMain(p), (e) => say(String(e)));
+    else api.resolveLink(ref.target, path).then((p) => api.openInMain(p), (e) => say(String(e)));
     return true;
   }
 
@@ -204,7 +204,9 @@
     extensions = editorExtensions({
       onChange: () => sync?.push(),
       follow: followAt,
-      linkSearch: (q) => api.search(q, false, path, 30),
+      linkSearch: (q) => api.search(q, false, path, 30, meta?.vault ?? null),
+      vault: () => meta?.vault ?? null,
+      vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
       paste: () => false,
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
@@ -234,7 +236,7 @@
         if (m.from !== path) return;
         path = m.to;
         if (sync) sync.path = m.to;
-        if (meta) meta = { ...meta, path: m.to, archived: m.to.startsWith("archive/") };
+        if (meta) meta = { ...meta, path: m.to, archived: m.to.slice(m.to.indexOf(":") + 1).startsWith("archive/") };
       }),
       on<Settings>("settings-changed", applySettings),
     ];

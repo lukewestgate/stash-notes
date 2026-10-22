@@ -10,7 +10,8 @@
 
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type Keys, type SearchHit, type SortBy, type StatusDef, type TagCount } from "../lib/api";
+  import { api, type Keys, type SearchHit, type SortBy, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
+  import VaultTag from "./VaultTag.svelte";
   import { formatKey } from "../lib/keys";
   import { completeTag, relTime, tagSuggestions, typingTag } from "../lib/text";
   import TagChip from "./TagChip.svelte";
@@ -23,6 +24,9 @@
     view: NotesViewState;
     statuses: StatusDef[];
     tagColors: Record<string, string>;
+    /** The vault listed (unless the query says `in:` others). */
+    vault: string;
+    vaults: VaultDef[];
     keys: Keys;
     /** Bumped by the app when notes change, to reload the list. */
     version: number;
@@ -32,7 +36,7 @@
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;
   }
-  let { view = $bindable(), statuses, tagColors, keys, version, isTicket, pasteKey, onOpen, onCreate }: Props = $props();
+  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isTicket, pasteKey, onOpen, onCreate }: Props = $props();
 
   let allTags = $state<TagCount[]>([]);
   $effect(() => {
@@ -87,10 +91,10 @@
   const text = $derived(view.query.split(/\s+/).filter((w) => w && !isFilter(w)).join(" "));
   const filters = $derived(view.query.split(/\s+/).filter(isFilter));
 
-  async function load(query: string, daily: boolean, putAway: boolean, sort: SortBy) {
+  async function load(query: string, daily: boolean, putAway: boolean, sort: SortBy, vault: string) {
     const my = ++seq;
     try {
-      const r = await api.listNotes(query, daily, putAway, sort);
+      const r = await api.listNotes(query, daily, putAway, sort, vault);
       if (my !== seq) return;
       hits = r.hits;
       exact = r.exact;
@@ -101,7 +105,7 @@
 
   $effect(() => {
     void version;
-    load(searched, view.showDaily, view.showPutAway, view.sort);
+    load(searched, view.showDaily, view.showPutAway, view.sort, vault);
   });
 
   // Reset the selection when the query changes, not when the list reloads.
@@ -275,6 +279,11 @@
     </div>
   {/if}
   <div class="chips">
+    {#if vaults.length > 1 && !filters.some((f) => f.startsWith("in:"))}
+      <span class="chip vault" title="Notes in this vault; type in:name for another">
+        <VaultTag {vault} {vaults} />
+      </span>
+    {/if}
     {#each filters as f}<span class="chip on">{f}</span>{/each}
     <button class="chip" class:on={view.showDaily} onclick={() => (view.showDaily = !view.showDaily)} title="Alt+D">
       {view.showDaily ? "Daily notes shown" : "Daily notes hidden"}
@@ -322,6 +331,7 @@
                 {#each row.hit.tags.filter((t) => t !== row.group) as t}<TagChip tag={t} colors={tagColors} />{/each}
                 {#if row.hit.kind === "daily"}<span class="tag">daily</span>{/if}
                 {#if row.hit.archived}<span class="tag">archived</span>{/if}
+                {#if row.hit.vault !== vault}<VaultTag vault={row.hit.vault} {vaults} />{/if}
               </span>
               <span class="snippet"><Highlight text={row.hit.snippet ?? ""} query={view.query} /></span>
             </span>

@@ -4,7 +4,8 @@
 
   interface Props {
     title: string;
-    items: { label: string; detail?: string }[];
+    /** `color`: a theme color name for a swatch before the label. */
+    items: { label: string; detail?: string; color?: string }[];
     onChoose: (index: number) => void;
   }
   let { title, items, onChoose }: Props = $props();
@@ -44,6 +45,7 @@
         onclick={() => onChoose(i)}
       >
         <span class="n">{i + 1}</span>
+        {#if item.color}<span class="swatch" style:background="var(--c-{item.color})"></span>{/if}
         <span class="label">{item.label}</span>
         {#if item.detail && item.detail !== item.label}<span class="detail">{item.detail}</span>{/if}
       </button>
@@ -98,6 +100,13 @@
   .n {
     color: var(--fg-muted);
     font-size: 12px;
+  }
+  .swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    flex: none;
+    align-self: center;
   }
   .detail {
     color: var(--fg-muted);

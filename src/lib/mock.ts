@@ -11,7 +11,10 @@ const today = isoDate();
 
 const settings: Settings = {
   schemaVersion: 5,
-  vaultPath: "(browser demo – nothing is saved)",
+  vaults: [
+    { id: "personal", name: "Personal", path: "", color: "blue" },
+    { id: "work", name: "Work", path: "", color: "orange" },
+  ],
   hotkey: "Alt+N",
   switcherHotkey: "Alt+J",
   timestampFormat: "yyyy-MM-dd HH:mm",
@@ -68,21 +71,24 @@ const settings: Settings = {
     toggleSidebar: "Ctrl+\\",
     focusSidebar: "Ctrl+0",
     pinNote: "Ctrl+E P",
+    switchVault: "Ctrl+Shift+O",
   },
 };
 
 const notes = new Map<string, string>([
+  [`personal:daily/${today}.md`, `# ${today}\n\n## Todo\n\n- [ ] groceries, see [[Shopping list]]\n\n## Notes\n\n`],
+  ["personal:notes/shopping-list.md", "---\ntags: [home]\n---\n# Shopping list\n\n- milk\n- coffee\n"],
   [
-    `daily/${today}.md`,
+    `work:daily/${today}.md`,
     `# ${today}\n\n## Todo\n\n- [x] reply to PROJ-123 rollout question\n- [ ] review [[Rollout plan]]\n- [ ] \n\n## Notes\n\n`,
   ],
   [
-    "tickets/PROJ-123.md",
+    "work:tickets/PROJ-123.md",
     `---\nstatus: open\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n# PROJ-123 Rollout date question\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
   ],
-  ["tickets/OPS-4123.md", "---\nstatus: blocked\ntags: [bug, infra]\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
-  ["notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
-  ["archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
+  ["work:tickets/OPS-4123.md", "---\nstatus: blocked\ntags: [bug, infra]\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
+  ["work:notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
+  ["work:archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
 ]);
 const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.now() - i * 60_000]));
 const recents = new Map<string, number>();
@@ -103,6 +109,15 @@ function serverEdit(path: string, next: string) {
 }
 
 const ticketFull = /^[A-Z][A-Z0-9]+-\d+$/;
+
+/** `work:notes/x.md` -> `notes/x.md`. */
+function rel(p: string) {
+  return p.slice(p.indexOf(":") + 1);
+}
+
+function vaultOf(p: string) {
+  return p.slice(0, p.indexOf(":"));
+}
 
 function stem(p: string) {
   return p.split("/").pop()!.replace(/\.md$/, "");
@@ -133,8 +148,8 @@ function frontMatter(text: string): { fields: Record<string, string | string[]>;
 }
 
 function meta(path: string, text: string): NoteMeta {
-  const archived = path.startsWith("archive/");
-  const p = archived ? path.slice(8) : path;
+  const archived = rel(path).startsWith("archive/");
+  const p = archived ? rel(path).slice(8) : rel(path);
   const s = stem(p);
   const { fields, body } = frontMatter(text);
   const kind: NoteKind = p.startsWith("daily/") ? "daily" : p.startsWith("tickets/") && ticketFull.test(s) ? "ticket" : "note";
@@ -146,6 +161,7 @@ function meta(path: string, text: string): NoteMeta {
   const tagList = Array.isArray(rawTags) ? rawTags : typeof rawTags === "string" ? rawTags.replace(/^\[|\]$/g, "").split(",") : [];
   return {
     path,
+    vault: vaultOf(path),
     kind,
     archived,
     title: kind === "note" ? (heading ?? s) : s,
@@ -178,6 +194,7 @@ function hit(path: string, snippet: string | null = null, score = 0): SearchHit 
   const m = meta(path, notes.get(path)!);
   return {
     path,
+    vault: m.vault,
     kind: m.kind,
     title: m.title,
     label: m.label,
@@ -191,10 +208,12 @@ function hit(path: string, snippet: string | null = null, score = 0): SearchHit 
   };
 }
 
-function resolve(target: string): string | null {
-  const t = target.trim().toLowerCase();
-  for (const [p, text] of notes) {
-    const m = meta(p, text);
+function resolve(target: string, vault: string): string | null {
+  const [v, t0] = /^[a-z0-9_-]+:/.test(target) ? [target.slice(0, target.indexOf(":")), target.slice(target.indexOf(":") + 1)] : [vault, target];
+  const t = t0.trim().toLowerCase();
+  const order = [...notes.keys()].sort((x, y) => Number(vaultOf(y) === v) - Number(vaultOf(x) === v));
+  for (const p of order) {
+    const m = meta(p, notes.get(p)!);
     if (stem(p).toLowerCase() === t || m.title.toLowerCase() === t) return p;
   }
   return null;
@@ -204,26 +223,42 @@ function slug(s: string) {
   return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "untitled";
 }
 
-function ensure(target: string): string {
-  const found = resolve(target);
+function ensure(target: string, vault: string): string {
+  const found = resolve(target, vault);
   if (found) return found;
   const t = target.trim();
   let path: string;
   let body: string;
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
-    path = `daily/${t}.md`;
-    body = `# ${t}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n`;
+    path = `${vault}:daily/${t}.md`;
+    body = dailyTemplate.replace("{{date}}", t);
   } else if (ticketFull.test(t.split(/\s+/)[0].toUpperCase())) {
     const [key, ...name] = t.split(/\s+/);
-    path = `tickets/${key.toUpperCase()}.md`;
+    // Ticket keys live in the work vault in the demo.
+    path = `work:tickets/${key.toUpperCase()}.md`;
     body = `---\nstatus: open\ngerrit:\n---\n\n# ${key.toUpperCase()} ${name.join(" ")}\n\n`;
   } else {
-    path = `notes/${slug(t)}.md`;
+    path = `${vault}:notes/${slug(t)}.md`;
     body = `# ${t}\n\n`;
   }
   notes.set(path, body);
   mtimes.set(path, Date.now());
   return path;
+}
+
+/** The current vault (the main window follows the note it opens). */
+let current = "work";
+
+/** `in:` words in a query -> the vault ids they pick (null: none given). */
+function inScope(query: string): Set<string> | null {
+  const words = query.split(/\s+/).filter((w) => w.startsWith("in:")).map((w) => w.slice(3).toLowerCase());
+  if (!words.length) return null;
+  return new Set(settings.vaults.filter((v) => words.some((w) => v.id.startsWith(w) || v.name.toLowerCase().startsWith(w))).map((v) => v.id));
+}
+
+/** The query without filter words. */
+function plain(query: string): string {
+  return query.split(/\s+/).filter((w) => !/^(#|@|in:)/.test(w)).join(" ").trim();
 }
 
 function changed(path: string) {
@@ -238,7 +273,8 @@ export function handle(cmd: string, a: A): unknown {
     case "get_startup":
       return {
         settings,
-        vaultPath: settings.vaultPath,
+        vaultPaths: { personal: "(browser demo) Personal", work: "(browser demo) Work" },
+        currentVault: current,
         settingsPath: "settings.json",
         warnings: [],
         lastPath: null,
@@ -263,6 +299,13 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "pick_folder":
       return "C:\\Users\\me\\Notes";
+    case "get_vault_paths":
+      return { personal: "(browser demo) Personal", work: "(browser demo) Work" };
+    case "default_vault_folder":
+      return "(browser demo – nothing is saved)";
+    case "switch_vault":
+      current = a.vault;
+      return null;
     case "get_daily_template":
       return dailyTemplate;
     case "set_daily_template":
@@ -272,6 +315,7 @@ export function handle(cmd: string, a: A): unknown {
       const text = notes.get(a.path);
       if (text === undefined) throw new Error(`no such note ${a.path}`);
       recents.set(a.path, Date.now());
+      current = vaultOf(a.path);
       return {
         text,
         version: versions.get(a.path) ?? 0,
@@ -329,7 +373,7 @@ export function handle(cmd: string, a: A): unknown {
       mockEmit("open-note", a.path);
       return;
     case "quick_create": {
-      const path = ensure(a.title);
+      const path = ensure(plain(a.title), a.vault ?? current);
       mockEmit("open-note", path);
       return path;
     }
@@ -337,12 +381,18 @@ export function handle(cmd: string, a: A): unknown {
       mockEmit("open-note", a.path);
       return;
     case "resolve_link":
-    case "create_note":
-      return ensure(a.target ?? a.title);
+      return ensure(a.target, a.from ? vaultOf(a.from) : current);
+    case "create_note": {
+      const path = ensure(plain(a.title), a.vault);
+      const tags = String(a.title).split(/\s+/).filter((w) => w.startsWith("#")).map((w) => normalizeTag(w)).filter((t): t is string => !!t);
+      if (tags.length) notes.set(path, setTagsIn(notes.get(path)!, tags));
+      return path;
+    }
     case "daily_note":
-      return ensure(a.date);
+      return ensure(a.date, a.vault);
     case "archive_note": {
-      const to = a.path.startsWith("archive/") ? a.path.slice(8) : `archive/${a.path}`;
+      const r = rel(a.path);
+      const to = `${vaultOf(a.path)}:${r.startsWith("archive/") ? r.slice(8) : `archive/${r}`}`;
       notes.set(to, notes.get(a.path)!);
       notes.delete(a.path);
       versions.set(to, versions.get(a.path) ?? 0);
@@ -351,7 +401,7 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "rename_note": {
       const text = notes.get(a.path)!;
-      const to = `notes/${slug(a.title)}.md`;
+      const to = `${vaultOf(a.path)}:notes/${slug(a.title)}.md`;
       notes.delete(a.path);
       notes.set(to, text.replace(/^# .*$/m, `# ${a.title}`));
       changed(to);
@@ -368,9 +418,9 @@ export function handle(cmd: string, a: A): unknown {
       else edit = st ? { from: 0, to: 0, insert: `---\nstatus: ${st}\n---\n\n` } : null;
       const next = edit ? text.slice(0, edit.from) + edit.insert + text.slice(edit.to) : text;
       serverEdit(path, next);
-      const archived = path.startsWith("archive/");
+      const archived = rel(path).startsWith("archive/");
       if ((st === "closed") !== archived) {
-        const to = archived ? path.slice(8) : `archive/${path}`;
+        const to = `${vaultOf(path)}:${archived ? rel(path).slice(8) : `archive/${rel(path)}`}`;
         notes.delete(path);
         notes.set(to, next);
         versions.set(to, versions.get(path) ?? 0);
@@ -410,8 +460,12 @@ export function handle(cmd: string, a: A): unknown {
       throw new Error("undo is not available in the browser demo");
     case "search": {
       const tagged = tagFilter(String(a.query));
-      const q = String(a.query).split(/\s+/).filter((w) => !w.startsWith("#")).join(" ").trim().toLowerCase();
-      const visible = [...notes.keys()].filter((p) => (a.includeArchived || !p.startsWith("archive/")) && tagged(hit(p)));
+      const scope = inScope(String(a.query));
+      const prefer = a.prefer ?? current;
+      const q = plain(String(a.query)).toLowerCase();
+      const visible = [...notes.keys()]
+        .filter((p) => (a.includeArchived || !rel(p).startsWith("archive/")) && tagged(hit(p)) && (!scope || scope.has(vaultOf(p))))
+        .sort((x, y) => Number(vaultOf(y) === prefer) - Number(vaultOf(x) === prefer));
       if (!q) {
         return {
           hits: visible
@@ -440,8 +494,10 @@ export function handle(cmd: string, a: A): unknown {
     case "list_notes": {
       const q = String(a.query).trim().toLowerCase();
       const filters = q.split(/\s+/).filter((w) => w.startsWith("@")).map((w) => w.slice(1));
-      const text = q.split(/\s+/).filter((w) => w && !w.startsWith("@") && !w.startsWith("#")).join(" ");
+      const text = q.split(/\s+/).filter((w) => w && !/^(@|#|in:)/.test(w)).join(" ");
+      const scope = inScope(q) ?? new Set([a.vault]);
       const hits = [...notes.keys()]
+        .filter((p) => scope.has(vaultOf(p)))
         .map((p) => hit(p, notes.get(p)!.replace(/^---[\s\S]*?---\n/, "").split("\n").find((l) => l.trim() && !l.startsWith("#")) ?? null))
         .filter(tagFilter(q))
         .filter((h) => a.includeDaily || h.kind !== "daily")
@@ -452,13 +508,13 @@ export function handle(cmd: string, a: A): unknown {
       return { hits, exact: hits.some((h) => h.title.toLowerCase() === text) };
     }
     case "sidebar": {
-      const all = [...notes.keys()].map((p) => hit(p)).filter((h) => !h.archived);
+      const all = [...notes.keys()].filter((p) => vaultOf(p) === a.vault).map((p) => hit(p)).filter((h) => !h.archived);
       const rank = (s: string | null) => ["open", "blocked", "todo"].indexOf(s ?? "");
       const active = all.filter((h) => rank(h.status) >= 0).sort((x, y) => rank(x.status) - rank(y.status) || y.mtime - x.mtime);
       const recent = [...recents.entries()]
         .sort((x, y) => y[1] - x[1])
         .map(([p]) => p)
-        .filter((p) => notes.has(p) && !p.startsWith("daily/") && !active.some((h) => h.path === p))
+        .filter((p) => notes.has(p) && vaultOf(p) === a.vault && !rel(p).startsWith("daily/") && !active.some((h) => h.path === p))
         .slice(0, 10)
         .map((p) => hit(p));
       return { active: active.slice(0, 8), more: Math.max(0, active.length - 8), recent };
@@ -477,7 +533,7 @@ export function handle(cmd: string, a: A): unknown {
         .map((p) => hit(p));
     }
     case "archived_names":
-      return [...notes.keys()].filter((p) => p.startsWith("archive/")).map((p) => meta(p, notes.get(p)!).title.toLowerCase());
+      return [...notes.keys()].filter((p) => vaultOf(p) === a.vault && rel(p).startsWith("archive/")).map((p) => meta(p, notes.get(p)!).title.toLowerCase());
     case "gerrit_edit": {
       const content: string = a.content;
       const m = /^---\n[\s\S]*?\ngerrit:[^\n]*\n((?:\s+-[^\n]*\n)*)/.exec(content);

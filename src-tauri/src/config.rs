@@ -3,8 +3,9 @@
 use crate::state::AppState;
 use crate::{hotkey, window};
 use notify::{RecursiveMode, Watcher};
-use stash_core::note::TicketMatcher;
-use stash_core::{Index, Settings, Vault};
+use stash_core::index::VaultInfo;
+use stash_core::note::{self, TicketMatcher};
+use stash_core::{Index, Settings, Vault, VaultDef};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -15,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const DEFAULT_VAULT_DIR: &str = "StashNotes";
 
 /// Read settings.json, creating it with defaults on first run.
-pub fn load_settings(path: &Path, default_vault: &Path) -> (Settings, Option<String>) {
+pub fn load_settings(path: &Path) -> (Settings, Option<String>) {
     match std::fs::read_to_string(path) {
         Ok(text) => match stash_core::settings::migrate(&text) {
             Some(migrated) => {
@@ -27,8 +28,7 @@ pub fn load_settings(path: &Path, default_vault: &Path) -> (Settings, Option<Str
             None => Settings::from_json(&text),
         },
         Err(_) => {
-            let mut s = Settings::default();
-            s.vault_path = default_vault.display().to_string();
+            let s = Settings::default();
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
@@ -38,9 +38,9 @@ pub fn load_settings(path: &Path, default_vault: &Path) -> (Settings, Option<Str
     }
 }
 
-/// The vault folder for these settings: `vaultPath`, with `~` expanded, or the default.
-pub fn vault_root(settings: &Settings, default_vault: &Path, home: Option<&Path>) -> PathBuf {
-    let p = settings.vault_path.trim();
+/// A vault's folder: its `path`, with `~` expanded, or the default.
+pub fn vault_root(def: &VaultDef, default_vault: &Path, home: Option<&Path>) -> PathBuf {
+    let p = def.path.trim();
     if p.is_empty() {
         return default_vault.to_path_buf();
     }
@@ -58,50 +58,73 @@ pub fn default_vault(app: &AppHandle) -> PathBuf {
         .join(DEFAULT_VAULT_DIR)
 }
 
-/// Build the index in the background, then start watching the vault.
+/// Every vault's (id, folder), in settings order.
+pub fn open_vaults(app: &AppHandle, settings: &Settings) -> Vec<(String, Vault)> {
+    let default = default_vault(app);
+    let home = app.path().home_dir().ok();
+    settings.vaults.iter().map(|v| (v.id.clone(), Vault::new(vault_root(v, &default, home.as_deref())))).collect()
+}
+
+/// An empty index that knows the vaults and their ticket keys.
+pub fn new_index(settings: &Settings) -> Index {
+    let mut index = Index::new(TicketMatcher::new(&settings.ticket_regex()));
+    index.set_vaults(settings.vaults.iter().map(|v| VaultInfo { id: v.id.clone(), name: v.name.clone() }).collect());
+    index
+}
+
+/// Read every vault into a fresh index: (index, note count).
+fn build_index(state: &AppState) -> (Index, usize) {
+    let vaults = state.vaults.read().unwrap().clone();
+    let mut fresh = new_index(&state.settings());
+    let mut count = 0;
+    for (id, vault) in &vaults {
+        if let Err(e) = vault.ensure_root() {
+            state.warn(format!("cannot create the folder for vault {id}: {e}"));
+        }
+        for (rel, content, mtime) in vault.scan() {
+            fresh.upsert(&note::join_path(id, &rel), &content, mtime);
+            count += 1;
+        }
+    }
+    (fresh, count)
+}
+
+/// Build the index in the background, then start watching the vaults.
 pub fn start_indexing(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let state = app.state::<AppState>();
         let generation = state.vault_generation.load(Ordering::Acquire);
         let started = std::time::Instant::now();
-        let (notes, tickets) = {
-            let vault = state.vault.read().unwrap();
-            if let Err(e) = vault.ensure_root() {
-                state.warn(format!("cannot create the notes folder: {e}"));
-            }
-            (vault.scan(), state.tickets())
-        };
-        let mut fresh = Index::new(tickets);
-        for (path, content, mtime) in &notes {
-            fresh.upsert(path, content, *mtime);
-        }
+        let (fresh, count) = build_index(&state);
         if state.vault_generation.load(Ordering::Acquire) != generation {
             return;
         }
         *state.index.write().unwrap() = fresh;
         state.index_ready.store(true, Ordering::Release);
-        eprintln!("indexed {} notes in {:?}", notes.len(), started.elapsed());
-        let _ = app.emit("index-ready", notes.len());
+        eprintln!("indexed {count} notes in {:?}", started.elapsed());
+        let _ = app.emit("index-ready", count);
         crate::tray::refresh_tooltip(&app);
         watch_vault(&app);
     });
 }
 
-/// Watch the vault and settings.json. Changes are re-indexed and announced
+/// Watch the vaults and settings.json. Changes are re-indexed and announced
 /// to the UI as `vault-changed` / `settings-changed`.
 pub fn watch_vault(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let root = state.vault.read().unwrap().root().to_path_buf();
+    let vaults = state.vaults.read().unwrap().clone();
     let settings_path = state.settings_path.clone();
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
     let mut watchers = Vec::new();
-    match notify::recommended_watcher(tx.clone()) {
-        Ok(mut w) => match w.watch(&root, RecursiveMode::Recursive) {
-            Ok(()) => watchers.push(w),
-            Err(e) => state.warn(format!("cannot watch the notes folder: {e}")),
-        },
-        Err(e) => state.warn(format!("file watcher unavailable: {e}")),
+    for (id, vault) in &vaults {
+        match notify::recommended_watcher(tx.clone()) {
+            Ok(mut w) => match w.watch(vault.root(), RecursiveMode::Recursive) {
+                Ok(()) => watchers.push(w),
+                Err(e) => state.warn(format!("cannot watch the folder of vault {id}: {e}")),
+            },
+            Err(e) => state.warn(format!("file watcher unavailable: {e}")),
+        }
     }
     if let Some(dir) = settings_path.parent() {
         if let Ok(mut w) = notify::recommended_watcher(tx) {
@@ -129,7 +152,7 @@ pub fn watch_vault(app: &AppHandle) {
         let mut rels = BTreeSet::new();
         let mut rescan = false;
         {
-            let vault = state.vault.read().unwrap();
+            let vaults = state.vaults.read().unwrap();
             for ev in events.into_iter().flatten() {
                 if matches!(ev.kind, notify::EventKind::Access(_)) {
                     continue;
@@ -137,11 +160,15 @@ pub fn watch_vault(app: &AppHandle) {
                 for p in ev.paths {
                     if p == settings_path {
                         settings_changed = true;
-                    } else if let Some(rel) = vault.rel_of(&p) {
-                        rels.insert(rel);
-                    } else if p.starts_with(vault.root()) && !is_ignored(&p) && p.extension().is_none() {
-                        // A folder moved or vanished: cheaper to rescan than to guess.
-                        rescan = true;
+                        continue;
+                    }
+                    for (id, vault) in vaults.iter() {
+                        if let Some(rel) = vault.rel_of(&p) {
+                            rels.insert(note::join_path(id, &rel));
+                        } else if p.starts_with(vault.root()) && !is_ignored(&p) && p.extension().is_none() {
+                            // A folder moved or vanished: cheaper to rescan than to guess.
+                            rescan = true;
+                        }
                     }
                 }
             }
@@ -166,17 +193,13 @@ fn is_ignored(p: &Path) -> bool {
     p.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
 }
 
-/// Re-read the whole vault into a fresh index, and tell the UI everything may have changed.
+/// Re-read every vault into a fresh index, and tell the UI everything may have changed.
 fn rescan_vault(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let notes = state.vault.read().unwrap().scan();
-    let mut fresh = Index::new(state.tickets());
-    for (p, c, m) in &notes {
-        fresh.upsert(p, c, *m);
-    }
+    let (fresh, _) = build_index(&state);
     let paths: Vec<String> = {
         let old = state.index.read().unwrap();
-        old.entries().map(|e| e.path().to_string()).chain(notes.iter().map(|n| n.0.clone())).collect::<BTreeSet<_>>().into_iter().collect()
+        old.entries().chain(fresh.entries()).map(|e| e.path().to_string()).collect::<BTreeSet<_>>().into_iter().collect()
     };
     *state.index.write().unwrap() = fresh;
     let _ = app.emit("vault-changed", paths);
@@ -219,17 +242,28 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
     if changed(&|s| s.autostart.to_string()) {
         sync_autostart(app, new.autostart);
     }
-    if old.is_some() && changed(&|s| format!("{}\n{}", s.vault_path, s.ticket_pattern)) {
+    // Folders or ticket keys changed: re-index everything. A renamed vault
+    // only needs the index to know its new name (for `in:` searches).
+    let folders = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.path)).collect::<Vec<_>>().join("\n");
+    if old.is_some() && !changed(&|s| format!("{}\n{}", folders(s), s.ticket_pattern)) {
+        let names = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.name)).collect::<Vec<_>>().join("\n");
+        if changed(&names) {
+            state.index.write().unwrap().set_vaults(new.vaults.iter().map(|v| VaultInfo { id: v.id.clone(), name: v.name.clone() }).collect());
+            crate::tray::rebuild_menu(app);
+        }
+    }
+    if old.is_some() && changed(&|s| format!("{}\n{}", folders(s), s.ticket_pattern)) {
         if regex_check(&new.ticket_pattern).is_err() {
             let _ = app.emit("toast", format!("ticketPattern `{}` is not a valid regex; using the default", new.ticket_pattern));
         }
-        let root = vault_root(new, &default_vault(app), app.path().home_dir().ok().as_deref());
         state.vault_generation.fetch_add(1, Ordering::AcqRel);
         state.watchers.lock().unwrap().clear();
-        *state.vault.write().unwrap() = Vault::new(root);
-        *state.index.write().unwrap() = Index::new(TicketMatcher::new(&new.ticket_regex()));
+        crate::buffers::flush_all(app);
+        *state.vaults.write().unwrap() = open_vaults(app, new);
+        *state.index.write().unwrap() = new_index(new);
         state.index_ready.store(false, Ordering::Release);
         start_indexing(app);
+        crate::tray::rebuild_menu(app);
     }
     if old.is_some() {
         crate::tray::refresh_tooltip(app);
@@ -273,12 +307,12 @@ mod tests {
     fn vault_root_resolution() {
         let def = PathBuf::from("/docs/StashNotes");
         let home = PathBuf::from("/home/me");
-        let mut s = Settings::default();
-        assert_eq!(vault_root(&s, &def, Some(&home)), def);
-        s.vault_path = "~/notes".into();
-        assert_eq!(vault_root(&s, &def, Some(&home)), home.join("notes"));
-        s.vault_path = "/abs/v".into();
-        assert_eq!(vault_root(&s, &def, Some(&home)), PathBuf::from("/abs/v"));
+        let mut v = VaultDef::default();
+        assert_eq!(vault_root(&v, &def, Some(&home)), def);
+        v.path = "~/notes".into();
+        assert_eq!(vault_root(&v, &def, Some(&home)), home.join("notes"));
+        v.path = "/abs/v".into();
+        assert_eq!(vault_root(&v, &def, Some(&home)), PathBuf::from("/abs/v"));
     }
 
     #[test]

@@ -51,13 +51,16 @@
     | { type: "switcher"; mode: "open" | "link"; sel?: { from: number; to: number; text: string } }
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void }
-    | { type: "picker"; title: string; items: { label: string; detail?: string }[]; choose: (i: number) => void }
+    | { type: "picker"; title: string; items: { label: string; detail?: string; color?: string }[]; choose: (i: number) => void }
     | { type: "status"; path: string; current: string | null; title: string }
     | { type: "tags"; path: string; tags: string[]; all: TagCount[]; title: string };
 
 
   let settings = $state<Settings | null>(null);
-  let vaultPath = $state("");
+  /** Each vault's folder, by id. */
+  let vaultPaths = $state<Record<string, string>>({});
+  /** The vault the sidebar, Notes view, Today and new notes belong to. */
+  let currentVault = $state("");
   let settingsPath = $state("");
   let meta = $state<NoteMeta | null>(null);
   let dirty = $state(false);
@@ -238,6 +241,8 @@
     screen = "editor";
     currentPath = path;
     meta = data.meta;
+    // The window follows the note into its vault (Rust records it too).
+    if (data.meta.vault && data.meta.vault !== currentVault) enterVault(data.meta.vault);
     serverDirty = data.dirty;
     conflict = data.deleted ? { deleted: true } : null;
     view.setState(EditorState.create({ doc: data.text, extensions: [extensions, NoteSync.extension(data)] }));
@@ -265,9 +270,54 @@
     await show(currentPath, hist.current, true).catch(fail);
   }
 
+  /** Point the sidebar, Notes view and link styling at vault `id`. */
+  function enterVault(id: string) {
+    currentVault = id;
+    listVersion++;
+    refreshArchived();
+  }
+
+  async function refreshArchived() {
+    try {
+      decoConfig.archived = new Set(await api.archivedNames(currentVault));
+      refreshDecorations(view);
+    } catch {
+      // keep the old set
+    }
+  }
+
+  /** Switch to vault `id`: back to the note last open there, else its daily note. */
+  async function switchVault(id: string) {
+    try {
+      await flush();
+      const last = await api.switchVault(id);
+      enterVault(id);
+      navigate(last ?? (await api.dailyNote(isoDate(), id)));
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  function pickVault() {
+    const vs = settings?.vaults ?? [];
+    if (vs.length < 2) {
+      toast("Add another vault in Settings → Vaults to switch between them");
+      return;
+    }
+    overlay = {
+      type: "picker",
+      title: "Switch vault",
+      items: vs.map((v) => ({ label: v.name, detail: v.id === currentVault ? "current" : `in:${v.id}`, color: v.color })),
+      choose: (i) => {
+        closeOverlay();
+        if (vs[i].id !== currentVault) switchVault(vs[i].id);
+      },
+    };
+  }
+
   async function refreshSidebar() {
     try {
-      side = await api.sidebar();
+      side = await api.sidebar(currentVault);
     } catch {
       // keep the previous groups
     }
@@ -358,7 +408,7 @@
 
   async function openDaily() {
     try {
-      navigate(await api.dailyNote(isoDate()));
+      navigate(await api.dailyNote(isoDate(), currentVault));
     } catch (e) {
       fail(e);
     }
@@ -372,7 +422,7 @@
     const ref = refAt(line.text, pos - line.from, tickets);
     if (!ref) return false;
     if (ref.kind === "url") openExternal(ref.target);
-    else api.resolveLink(ref.target).then((p) => navigate(p), fail);
+    else api.resolveLink(ref.target, currentPath).then((p) => navigate(p), fail);
     return true;
   }
 
@@ -513,7 +563,7 @@
     if (sync?.path === from) sync.path = to;
     if (currentPath === from) {
       currentPath = to;
-      if (meta) meta = { ...meta, path: to, archived: to.startsWith("archive/") };
+      if (meta) meta = { ...meta, path: to, archived: to.slice(to.indexOf(":") + 1).startsWith("archive/") };
     }
     refreshSide();
   }
@@ -525,7 +575,7 @@
       const from = currentPath;
       const to = await api.archiveNote(from);
       moved(from, to);
-      const archived = to.startsWith("archive/");
+      const archived = to.slice(to.indexOf(":") + 1).startsWith("archive/");
       done(archived ? "Archived" : "Unarchived", {
         label: "Undo",
         run: async () => {
@@ -713,11 +763,11 @@
     else navigate(hit.path, { peek });
   }
 
-  async function switcherCreate(query: string) {
+  async function switcherCreate(query: string, vault: string | null) {
     const o = overlay;
     closeOverlay();
     try {
-      const path = await api.createNote(query);
+      const path = await api.createNote(query, vault ?? currentVault);
       if (o?.type === "switcher" && o.mode === "link" && o.sel) {
         const title = query.split(/\s+/).filter((w) => w && !/^(@|#|in:)./.test(w)).join(" ");
         insertLink(startsWithTicket(title) ? title.split(/\s+/)[0].toUpperCase() : title, o.sel);
@@ -749,7 +799,7 @@
       refreshBacklinks();
       refreshSidebar();
       try {
-        decoConfig.archived = new Set(await api.archivedNames());
+        decoConfig.archived = new Set(await api.archivedNames(currentVault));
         refreshDecorations(view);
       } catch {
         // ignore
@@ -849,6 +899,7 @@
     notesView: () => openNotesView(),
     pinNote: () => togglePin(),
     toggleSidebar: () => setSideExpanded(!sideExpanded),
+    switchVault: pickVault,
     focusSidebar: () => {
       if (sidebarHasFocus()) focusMain();
       else requestAnimationFrame(() => sidebar?.focus());
@@ -976,6 +1027,8 @@
       onChange: onDocChange,
       follow: followAt,
       linkSearch: (q) => api.search(q, false, currentPath, 30),
+      vault: () => meta?.vault ?? null,
+      vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
       paste: smartPaste,
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
@@ -1012,10 +1065,17 @@
         listVersion++;
       }),
       on<null>("open-daily", openDaily),
+      on<string>("switch-vault", (id) => id !== currentVault && switchVault(id)),
       on<null>("quit-requested", quit),
       on<string>("toast", (t) => toast(t, undefined, "warn")),
       on<Settings>("settings-changed", (s) => {
-        if (settings && s.vaultPath !== settings.vaultPath) indexing = true;
+        const folders = (x: Settings) => x.vaults.map((v) => `${v.id}=${v.path}`).join("\n");
+        if (settings && folders(s) !== folders(settings)) {
+          indexing = true;
+          api.getVaultPaths().then((p) => (vaultPaths = p), () => {});
+        }
+        // The current vault was removed: go to the first one.
+        if (!s.vaults.some((v) => v.id === currentVault) && s.vaults.length) switchVault(s.vaults[0].id);
         const fromScreen = screen === "settings";
         applySettings(s);
         if (!fromScreen) toast("Settings reloaded");
@@ -1038,14 +1098,16 @@
           showDaily: s.settings.notesView.showDaily,
           showPutAway: s.settings.notesView.showClosed,
         };
-        vaultPath = s.vaultPath;
+        vaultPaths = s.vaultPaths;
+        currentVault = s.currentVault;
         settingsPath = s.settingsPath;
         s.warnings.forEach((w) => toast(w, undefined, "warn"));
         let path = s.lastPath;
         const today = isoDate();
-        const staleDaily = path?.startsWith("daily/") && path < `daily/${today}.md`;
+        const rel = path ? path.slice(path.indexOf(":") + 1) : "";
+        const staleDaily = rel.startsWith("daily/") && rel < `daily/${today}.md`;
         if (!path || s.settings.onSummon === "daily" || staleDaily) {
-          path = await api.dailyNote(today);
+          path = await api.dailyNote(today, currentVault);
         }
         const entry = hist.push(path);
         if (path === s.lastPath && s.lastAnchor !== null) entry.anchor = s.lastAnchor;
@@ -1079,6 +1141,9 @@
   {#if settings}
     <Sidebar
       bind:this={sidebar}
+      vaults={settings.vaults}
+      {currentVault}
+      onVault={pickVault}
       active={side.active}
       more={side.more}
       recent={side.recent}
@@ -1163,6 +1228,8 @@
       {indexing}
       sidebarExpanded={sideExpanded}
       onSidebar={setSideExpanded}
+      {currentVault}
+      {vaultPaths}
     />
   {/if}
 
@@ -1172,6 +1239,8 @@
       bind:view={notesState}
       statuses={settings.statuses}
       tagColors={settings.tagColors}
+      vault={currentVault}
+      vaults={settings.vaults}
       keys={settings.keys}
       version={listVersion}
       isTicket={startsWithTicket}
@@ -1179,7 +1248,7 @@
       onOpen={(p) => navigate(p)}
       onCreate={async (q) => {
         try {
-          navigate(await api.createNote(q));
+          navigate(await api.createNote(q, currentVault));
         } catch (e) {
           fail(e);
         }
@@ -1196,11 +1265,13 @@
       {pasteKey}
       statuses={settings?.statuses ?? []}
       tagColors={settings?.tagColors ?? {}}
+      vaults={settings?.vaults ?? []}
+      {currentVault}
       onChoose={switcherChoose}
       onCreate={switcherCreate}
     />
   {:else if overlay?.type === "help" && settings}
-    <Help keys={settings.keys} hotkey={settings.hotkey} switcherHotkey={settings.switcherHotkey} {settingsPath} {vaultPath} />
+    <Help keys={settings.keys} hotkey={settings.hotkey} switcherHotkey={settings.switcherHotkey} {settingsPath} vaults={settings.vaults} {vaultPaths} />
   {:else if overlay?.type === "prompt"}
     <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} onSubmit={overlay.submit} />
   {:else if overlay?.type === "status" && settings}

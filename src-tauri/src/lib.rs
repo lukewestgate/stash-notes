@@ -39,10 +39,13 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let settings_path = config_dir.join("settings.json");
-            let default_vault = config::default_vault(&handle);
-            let (settings, warning) = config::load_settings(&settings_path, &default_vault);
-            let root = config::vault_root(&settings, &default_vault, app.path().home_dir().ok().as_deref());
-            let state = AppState::new(settings.clone(), settings_path, data_dir.join("session.json"), root);
+            let (mut settings, warning) = config::load_settings(&settings_path);
+            if let Some(e) = settings.vault_error() {
+                eprintln!("settings: {e}; using the default vault");
+                settings.vaults = stash_core::Settings::default().vaults;
+            }
+            let vaults = config::open_vaults(&handle, &settings);
+            let state = AppState::new(settings.clone(), settings_path, data_dir.join("session.json"), vaults);
             if let Some(w) = warning {
                 state.warn(w);
             }
@@ -134,6 +137,9 @@ pub fn run() {
             commands::smoke_step,
             commands::pin_path,
             commands::pin_close,
+            commands::get_vault_paths,
+            commands::switch_vault,
+            commands::default_vault_folder,
             commands::set_tags,
             commands::list_tags,
             commands::rename_tag,

@@ -17,8 +17,8 @@ pub const SCHEMA_VERSION: u32 = 5;
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub schema_version: u32,
-    /// Folder holding the notes. Empty means `Documents/StashNotes`.
-    pub vault_path: String,
+    /// The vaults: folders of notes, in sidebar order. Never empty.
+    pub vaults: Vec<VaultDef>,
     /// Global show/hide hotkey.
     pub hotkey: String,
     /// Global hotkey that opens the quick switcher from anywhere.
@@ -65,6 +65,39 @@ pub struct Settings {
     pub default_status: String,
     /// In-app shortcuts.
     pub keys: Keys,
+}
+
+/// A vault: a folder of notes with a name and a color.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VaultDef {
+    /// Stable id used in note paths (`work:notes/x.md`), `[[work:Note]]`
+    /// links and `in:work` searches. Lower case letters, digits, `-`, `_`.
+    pub id: String,
+    pub name: String,
+    /// The folder. Empty means `Documents/StashNotes`; `~` is your user folder.
+    pub path: String,
+    /// A theme color name.
+    pub color: String,
+}
+
+impl Default for VaultDef {
+    fn default() -> Self {
+        VaultDef { id: "personal".into(), name: "Personal".into(), path: String::new(), color: "blue".into() }
+    }
+}
+
+/// A vault id from a name: `My Work!` -> `my-work`, unique among `taken`.
+pub fn vault_id(name: &str, taken: &[String]) -> String {
+    let base: String = crate::note::slugify(name).chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    let base = if base.is_empty() || base == "untitled" { "vault".to_string() } else { base };
+    let mut id = base.clone();
+    let mut n = 2;
+    while taken.contains(&id) {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
 }
 
 /// Defaults for the Notes view.
@@ -123,13 +156,14 @@ pub struct Keys {
     pub focus_sidebar: String,
     /// A two-key chord: the first key, then the second (space separated).
     pub pin_note: String,
+    pub switch_vault: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Settings {
             schema_version: SCHEMA_VERSION,
-            vault_path: String::new(),
+            vaults: vec![VaultDef::default()],
             hotkey: "Alt+N".into(),
             switcher_hotkey: "Alt+J".into(),
             timestamp_format: "yyyy-MM-dd HH:mm".into(),
@@ -203,6 +237,7 @@ impl Default for Keys {
             toggle_sidebar: "Ctrl+\\".into(),
             focus_sidebar: "Ctrl+0".into(),
             pin_note: "Ctrl+E P".into(),
+            switch_vault: "Ctrl+Shift+O".into(),
         }
     }
 }
@@ -214,7 +249,10 @@ pub fn migrate(text: &str) -> Option<String> {
     let mut v: serde_json::Value = serde_json::from_str(text).ok()?;
     let obj = v.as_object_mut()?;
     let version = obj.get("schemaVersion").and_then(|x| x.as_u64()).unwrap_or(1) as u32;
-    if version >= SCHEMA_VERSION {
+    // A single notes folder and no vault list means the file predates vaults
+    // whatever its version says.
+    let lone_folder = obj.contains_key("vaultPath") && !obj.contains_key("vaults");
+    if version >= SCHEMA_VERSION && !lone_folder {
         return None;
     }
     if version < 2 {
@@ -243,7 +281,13 @@ pub fn migrate(text: &str) -> Option<String> {
             }
         }
     }
-    if version < 5 {
+    if version < 5 || lone_folder {
+        // 0.5 has several vaults; the one notes folder becomes the first.
+        if !obj.contains_key("vaults") {
+            let path = obj.remove("vaultPath").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+            let first = VaultDef { path, ..VaultDef::default() };
+            obj.insert("vaults".into(), serde_json::to_value(vec![first]).unwrap_or_default());
+        }
         // 0.5 groups the Notes view by status or by tag.
         if let Some(serde_json::Value::Object(nv)) = obj.get_mut("notesView") {
             if let Some(g) = nv.remove("groupByStatus") {
@@ -285,6 +329,35 @@ impl Settings {
         serde_json::to_string_pretty(self).unwrap_or_default()
     }
 
+    /// Why these settings' vault list can't be used, if it can't.
+    pub fn vault_error(&self) -> Option<String> {
+        if self.vaults.is_empty() {
+            return Some("keep at least one vault".into());
+        }
+        for (i, v) in self.vaults.iter().enumerate() {
+            let ok = !v.id.is_empty() && v.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+            if !ok {
+                return Some(format!("vault id `{}` must be lower case letters, digits, - or _", v.id));
+            }
+            if self.vaults[..i].iter().any(|o| o.id == v.id) {
+                return Some(format!("two vaults have the id `{}`", v.id));
+            }
+            if v.name.trim().is_empty() {
+                return Some("every vault needs a name".into());
+            }
+        }
+        None
+    }
+
+    pub fn vault(&self, id: &str) -> Option<&VaultDef> {
+        self.vaults.iter().find(|v| v.id == id)
+    }
+
+    /// The first vault (where unqualified paths from before 0.5 belong).
+    pub fn first_vault(&self) -> &str {
+        self.vaults.first().map(|v| v.id.as_str()).unwrap_or("personal")
+    }
+
     /// The ticket regex, falling back to the default if the configured one is invalid.
     pub fn ticket_regex(&self) -> regex::Regex {
         regex::Regex::new(&self.ticket_pattern)
@@ -313,14 +386,29 @@ mod tests {
         let (s, _) = Settings::from_json(&migrate(v3).unwrap());
         assert_eq!(s.statuses[0].icon, "circle-dot");
         assert_eq!(s.statuses[1].icon, "circle");
-        let v4 = r#"{"schemaVersion":4,"notesView":{"groupByStatus":true}}"#;
-        let (s, _) = Settings::from_json(&migrate(v4).unwrap());
+        let v4 = r#"{"schemaVersion":4,"vaultPath":"D:\\Notes","notesView":{"groupByStatus":true}}"#;
+        let out = migrate(v4).unwrap();
+        let (s, _) = Settings::from_json(&out);
         assert_eq!(s.notes_view.group_by, "status");
+        assert_eq!(s.vaults.len(), 1);
+        assert_eq!((s.vaults[0].id.as_str(), s.vaults[0].path.as_str()), ("personal", "D:\\Notes"));
+        assert!(!out.contains("vaultPath"));
+        assert!(s.vault_error().is_none());
         let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
         assert!(merged.contains("\"futureKey\": 1"));
         assert!(merged.contains("\"hotkey\": \"Alt+N\""));
     }
 
+
+    #[test]
+    fn vault_ids() {
+        assert_eq!(vault_id("My Work!", &[]), "my-work");
+        assert_eq!(vault_id("Work", &["work".into()]), "work-2");
+        assert_eq!(vault_id("???", &[]), "vault");
+        let mut s = Settings::default();
+        s.vaults.push(VaultDef { id: "personal".into(), ..VaultDef::default() });
+        assert!(s.vault_error().is_some());
+    }
 
     #[test]
     fn partial_json_fills_defaults() {

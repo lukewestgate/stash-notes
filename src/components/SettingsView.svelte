@@ -3,7 +3,7 @@
   // and is written to settings.json, which stays the source of truth: hand
   // edits to the file show up here live.
   import { onMount } from "svelte";
-  import { api, type Keys, type Settings, type StatusDef, type TagCount } from "../lib/api";
+  import { api, type Keys, type Settings, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import { toaster } from "../lib/toasts.svelte";
   import TagChip from "./TagChip.svelte";
   import { sameKeys } from "../lib/keys";
@@ -20,11 +20,15 @@
     indexing: boolean;
     sidebarExpanded: boolean;
     onSidebar: (expanded: boolean) => void;
+    currentVault: string;
+    /** Each vault's folder, by id. */
+    vaultPaths: Record<string, string>;
   }
-  let { settings, settingsPath, indexing, sidebarExpanded, onSidebar }: Props = $props();
+  let { settings, settingsPath, indexing, sidebarExpanded, onSidebar, currentVault, vaultPaths }: Props = $props();
 
   const CATEGORIES = [
     "General",
+    "Vaults",
     "Window",
     "Editor",
     "Notes",
@@ -42,7 +46,8 @@
     General: ["autostart", "startHidden", "hotkey", "switcherHotkey", "restorePinned", "onSummon", "hideAfterExternalLink"],
     Window: ["showInTaskbar", "alwaysOnTop"],
     Editor: ["liveFormatting", "readableWidth", "fontFamily", "fontSize", "lineHeight", "spellCheck", "smartPaste", "timestampFormat"],
-    Notes: ["vaultPath", "defaultStatus", "ticketPattern"],
+    Vaults: [],
+    Notes: ["defaultStatus", "ticketPattern"],
     Links: ["jira", "gerrit"],
     "Notes view": ["notesView"],
     Statuses: ["statuses"],
@@ -67,6 +72,7 @@
     ["backlinks", "Backlinks panel"],
     ["archive", "Archive / unarchive"],
     ["rename", "Rename note"],
+    ["switchVault", "Switch vault"],
     ["toggleSidebar", "Toggle sidebar"],
     ["focusSidebar", "Focus sidebar"],
     ["pinNote", "Pin / unpin note (two keys)"],
@@ -149,11 +155,68 @@
     if (saving === 0) draft = structuredClone(s);
   });
 
+  // svelte-ignore state_referenced_locally
+  let templateVault = $state(currentVault);
+  let defaultFolder = $state("");
+  let newVault = $state({ name: "", path: "" });
+
+  $effect(() => {
+    const v = templateVault;
+    api.getDailyTemplate(v).then((t) => (template = templateSaved = t), () => {});
+  });
+
   onMount(async () => {
     defaults = await api.defaultSettings().catch(() => null);
-    template = templateSaved = await api.getDailyTemplate().catch(() => "");
+    defaultFolder = await api.defaultVaultFolder().catch(() => "");
     testPattern();
   });
+
+  /** A vault id from a name, unique among the vaults (same rule as Rust's `vault_id`). */
+  function vaultId(name: string): string {
+    const base = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "vault";
+    let id = base;
+    for (let n = 2; draft.vaults.some((v) => v.id === id); n++) id = `${base}-${n}`;
+    return id;
+  }
+
+  function editVaults(change: (list: VaultDef[]) => void) {
+    return save("vaults", (s) => change(s.vaults));
+  }
+
+  async function addVault() {
+    const name = newVault.name.trim();
+    if (!name) {
+      errors = { ...errors, vaults: "Give the new vault a name" };
+      return;
+    }
+    if (!newVault.path.trim()) {
+      errors = { ...errors, vaults: "Choose a folder for the new vault" };
+      return;
+    }
+    const used = new Set(draft.vaults.map((v) => v.color));
+    const color = COLORS.find((c) => !used.has(c)) ?? "teal";
+    await editVaults((l) => l.push({ id: vaultId(name), name, path: newVault.path.trim(), color }));
+    if (!errors.vaults) newVault = { name: "", path: "" };
+  }
+
+  async function removeVault(i: number) {
+    const before = structuredClone($state.snapshot(draft.vaults)) as VaultDef[];
+    const gone = before[i];
+    await editVaults((l) => l.splice(i, 1));
+    toaster.show(`Removed vault ${gone.name} — its notes are still in the folder`, "done", {
+      label: "Undo",
+      run: () => save("vaults", (s) => (s.vaults = before)),
+    });
+  }
+
+  async function chooseVaultFolder(i: number | null) {
+    const dir = await api.pickFolder().catch(() => null);
+    if (!dir) return;
+    if (i === null) {
+      newVault.path = dir;
+      if (!newVault.name.trim()) newVault.name = dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
+    } else await editVaults((l) => (l[i].path = dir));
+  }
 
   /** Apply a change: write it, or show why not and keep the old value. */
   async function save(field: string, change: (s: Settings) => void) {
@@ -186,8 +249,8 @@
       for (const f of FIELDS[category]) (s as unknown as Record<string, unknown>)[f] = structuredClone(d[f]);
     });
     if (category === "Notes" && defaults) {
-      await api.setDailyTemplate("").catch(() => {});
-      template = templateSaved = await api.getDailyTemplate().catch(() => "");
+      await api.setDailyTemplate(templateVault, "").catch(() => {});
+      template = templateSaved = await api.getDailyTemplate(templateVault).catch(() => "");
     }
   }
 
@@ -298,15 +361,10 @@
     });
   }
 
-  async function pickFolder() {
-    const dir = await api.pickFolder().catch(() => null);
-    if (dir) await set("vaultPath", dir);
-  }
-
   async function saveTemplate() {
     if (template === templateSaved) return;
     try {
-      await api.setDailyTemplate(template);
+      await api.setDailyTemplate(templateVault, template);
       templateSaved = template;
       delete errors.template;
       errors = { ...errors };
@@ -407,16 +465,62 @@
             <span class="preview">{timestamp(sample, draft.timestampFormat)}</span>
           </span>
         </div>
-      {:else if category === "Notes"}
-        <div class="row">
-          <span class="text">Notes folder</span>
+      {:else if category === "Vaults"}
+        <p class="note">
+          A vault is a folder of notes. The sidebar, Notes view and Today show one vault at a time; search (<b>{draft.keys.quickSwitcher}</b>
+          and the pop-up) covers all of them. Switch with <b>{draft.keys.switchVault}</b>, the sidebar or the tray. Removing a vault
+          here never deletes its files.
+        </p>
+        {#each draft.vaults as v, i (v.id)}
+          <div class="vcard" style:--vc="var(--c-{v.color})">
+            <div class="vhead">
+              <span class="badge">{v.name.slice(0, 1).toUpperCase()}</span>
+              <input class="vname" value={v.name} onchange={(e) => editVaults((l) => (l[i].name = e.currentTarget.value.trim() || l[i].name))} aria-label="Vault name" />
+              <span class="vid" title="Used in links ([[{v.id}:Note]]) and searches (in:{v.id}); never changes">in:{v.id}{#if v.id === currentVault}&nbsp;· current{/if}</span>
+              <span class="grow"></span>
+              <span class="ops">
+                <button class="mini" onclick={() => api.openVaultFolder(v.id)} title="Open the folder" aria-label="Open folder"><Icon name="external-link" size={14} /></button>
+                <button class="mini" disabled={i === 0} onclick={() => editVaults((l) => ([l[i - 1], l[i]] = [l[i], l[i - 1]]))} aria-label="Move up"><Icon name="arrow-up" size={14} /></button>
+                <button class="mini" disabled={i === draft.vaults.length - 1} onclick={() => editVaults((l) => ([l[i], l[i + 1]] = [l[i + 1], l[i]]))} aria-label="Move down"><Icon name="arrow-down" size={14} /></button>
+                <button class="mini" disabled={draft.vaults.length === 1} title={draft.vaults.length === 1 ? "Keep at least one vault" : "Remove (the files stay)"} onclick={() => removeVault(i)} aria-label="Remove"><Icon name="trash" size={14} /></button>
+              </span>
+            </div>
+            <div class="row">
+              <span class="text">Folder</span>
+              <span class="inline">
+                <input
+                  class="wide"
+                  value={v.path}
+                  placeholder={defaultFolder}
+                  title={vaultPaths[v.id] ?? ""}
+                  onchange={(e) => editVaults((l) => (l[i].path = e.currentTarget.value.trim()))}
+                  aria-label="Folder"
+                />
+                <button class="btn" onclick={() => chooseVaultFolder(i)}>Choose…</button>
+              </span>
+            </div>
+            <div class="row">
+              <span class="text">Color</span>
+              <span class="swatches">
+                {#each COLORS as c}
+                  <button class="swatch" class:on={v.color === c} style="background: var(--c-{c})" title={c} aria-label={c} onclick={() => editVaults((l) => (l[i].color = c))}></button>
+                {/each}
+              </span>
+            </div>
+          </div>
+        {/each}
+        {#if indexing}<div class="progress">Indexing notes in the background…</div>{/if}
+        <div class="add-vault">
+          <span class="text">Add a vault</span>
           <span class="inline">
-            <input class="wide" value={draft.vaultPath} onchange={(e) => set("vaultPath", e.currentTarget.value)} />
-            <button class="btn" onclick={pickFolder}>Choose…</button>
+            <input placeholder="Name, e.g. Work" bind:value={newVault.name} aria-label="New vault name" />
+            <input class="wide" placeholder="Folder" bind:value={newVault.path} aria-label="New vault folder" />
+            <button class="btn" onclick={() => chooseVaultFolder(null)}>Choose…</button>
+            <button class="btn primary" onclick={addVault}>Add vault</button>
           </span>
         </div>
-        {#if indexing}<div class="progress">Indexing notes in the background…</div>{/if}
-        {@render error("vaultPath")}
+        {@render error("vaults")}
+      {:else if category === "Notes"}
         <div class="row">
           <span class="text">Default status for new tickets</span>
           <select value={draft.defaultStatus} onchange={(e) => set("defaultStatus", e.currentTarget.value)}>
@@ -437,7 +541,12 @@
         </div>
         {@render error("ticketPattern")}
         <div class="block">
-          <span class="text">Daily note template<span class="hint">{"{{date}}"} and {"{{weekday}}"} are filled in; saved to templates/daily.md</span></span>
+          <span class="text">Daily note template<span class="hint">{"{{date}}"} and {"{{weekday}}"} are filled in; saved to templates/daily.md in the vault</span></span>
+          {#if draft.vaults.length > 1}
+            <select bind:value={templateVault} aria-label="Vault">
+              {#each draft.vaults as v}<option value={v.id}>{v.name}</option>{/each}
+            </select>
+          {/if}
           <textarea rows="8" bind:value={template} onblur={saveTemplate} spellcheck="false"></textarea>
           {@render error("template")}
         </div>
@@ -639,9 +748,11 @@
 
     <footer class="foot">
       <button class="btn" onclick={() => api.openSettingsFile()} title={settingsPath}>Open settings.json</button>
-      <button class="btn" onclick={() => api.openVaultFolder()}>Open notes folder</button>
+      <button class="btn" onclick={() => api.openVaultFolder(currentVault)}>Open notes folder</button>
       <span class="grow"></span>
-      <button class="btn" onclick={resetCategory} disabled={!defaults}>Reset {category} to defaults</button>
+      {#if FIELDS[category].length}
+        <button class="btn" onclick={resetCategory} disabled={!defaults}>Reset {category} to defaults</button>
+      {/if}
     </footer>
   </div>
 </section>
@@ -864,6 +975,54 @@
   .tags input {
     width: 160px;
   }
+  .vcard {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--vc);
+    border-radius: 8px;
+    padding: 8px 12px 4px;
+    margin: 10px 0;
+  }
+  .vhead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .badge {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--vc);
+  }
+  .vname {
+    font-weight: 600;
+    width: 180px;
+  }
+  .vid {
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .grow {
+    flex: 1;
+  }
+  .add-vault {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 14px 0 4px;
+  }
+  .btn {
+    white-space: nowrap;
+  }
+  .btn.primary {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
   .icon-cell {
     position: relative;
   }
@@ -938,8 +1097,5 @@
     gap: 8px;
     padding: 10px 24px;
     border-top: 1px solid var(--border);
-  }
-  .grow {
-    flex: 1;
   }
 </style>

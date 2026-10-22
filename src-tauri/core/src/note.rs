@@ -126,6 +126,38 @@ pub fn slugify(title: &str) -> String {
     }
 }
 
+/// Split a note path into its vault id and the path inside the vault:
+/// `work:tickets/PROJ-1.md` -> (`work`, `tickets/PROJ-1.md`). A path without
+/// a vault (`tickets/PROJ-1.md`) has the empty id. File names can't contain
+/// `:` on Windows, so the first one always ends the vault id.
+pub fn split_path(path: &str) -> (&str, &str) {
+    match path.split_once(':') {
+        Some((v, rel)) if !v.is_empty() && !v.contains('/') => (v, rel),
+        _ => ("", path),
+    }
+}
+
+/// `work` + `tickets/PROJ-1.md` -> `work:tickets/PROJ-1.md`.
+pub fn join_path(vault: &str, rel: &str) -> String {
+    if vault.is_empty() {
+        rel.to_string()
+    } else {
+        format!("{vault}:{rel}")
+    }
+}
+
+/// A `[[vault:target]]` link: (vault id, target). Plain links have no vault.
+/// Vault ids are lower case, so `[[Note: subtitle]]` stays a plain link
+/// (and the index only honours ids of vaults that exist).
+pub fn split_target(target: &str) -> (Option<&str>, &str) {
+    match target.split_once(':') {
+        Some((v, t)) if !v.is_empty() && !t.trim().is_empty() && v.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_') => {
+            (Some(v), t.trim())
+        }
+        _ => (None, target),
+    }
+}
+
 /// The file name without directories or `.md`.
 pub fn stem(path: &str) -> &str {
     let name = path.rsplit('/').next().unwrap_or(path);
@@ -142,7 +174,7 @@ pub fn unarchived_path(path: &str) -> (&str, bool) {
 
 /// Decide a note's kind from its (relative, `/`-separated) path.
 pub fn classify(path: &str, tickets: &TicketMatcher) -> (NoteKind, bool) {
-    let (p, archived) = unarchived_path(path);
+    let (p, archived) = unarchived_path(split_path(path).1);
     let s = stem(p);
     let kind = match p.split_once('/') {
         Some((DAILY_DIR, rest)) if !rest.contains('/') && dates::parse_iso(s).is_some() => NoteKind::Daily,
@@ -174,7 +206,10 @@ pub fn ticket_name(body: &str, key: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteMeta {
+    /// `vault:relative/path.md`.
     pub path: String,
+    /// The vault's id (empty for an unqualified path).
+    pub vault: String,
     pub kind: NoteKind,
     pub archived: bool,
     /// Ticket key, date or note title.
@@ -213,6 +248,7 @@ pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMet
     };
     NoteMeta {
         path: path.to_string(),
+        vault: split_path(path).0.to_string(),
         kind,
         archived,
         title,
@@ -279,6 +315,20 @@ mod tests {
         let targets: Vec<_> = l.iter().map(|w| w.target.as_str()).collect();
         assert_eq!(targets, vec!["Rollout plan", "PROJ-1", "x", "2026-10-22"]);
         assert_eq!(&text[l[2].target_start..l[2].target_end], "x");
+    }
+
+    #[test]
+    fn vault_paths() {
+        assert_eq!(split_path("work:tickets/A-1.md"), ("work", "tickets/A-1.md"));
+        assert_eq!(split_path("tickets/A-1.md"), ("", "tickets/A-1.md"));
+        assert_eq!(join_path("work", "notes/x.md"), "work:notes/x.md");
+        assert_eq!(split_target("work:Rollout plan"), (Some("work"), "Rollout plan"));
+        assert_eq!(split_target("Note: with colon"), (None, "Note: with colon"));
+        assert_eq!(split_target("Rollout plan"), (None, "Rollout plan"));
+        let t = TicketMatcher::default_pattern();
+        assert_eq!(classify("work:daily/2026-10-22.md", &t), (NoteKind::Daily, false));
+        let m = parse_meta("work:tickets/AB-1.md", "# AB-1 x", &t);
+        assert_eq!((m.vault.as_str(), m.kind), ("work", NoteKind::Ticket));
     }
 
     #[test]

@@ -32,6 +32,9 @@ export interface EditorHooks {
   /** Follow the reference at `pos`; return true if there was one. */
   follow(pos: number): boolean;
   linkSearch(query: string): Promise<{ hits: SearchHit[]; exact: boolean }>;
+  /** The vault of the note being edited, and a vault's display name. */
+  vault?(): string | null;
+  vaultName?(id: string): string;
   /** Handle pasted text specially; return true if it was handled. */
   paste(text: string): boolean;
 }
@@ -156,17 +159,27 @@ function linkCompletions(hooks: EditorHooks) {
     };
     const seen = new Map<string, number>();
     for (const h of hits) seen.set(h.title.toLowerCase(), (seen.get(h.title.toLowerCase()) ?? 0) + 1);
-    const options: Completion[] = hits.map((h, i) => ({
-      // Tickets show their name too ("PROJ-1234 Do this thing"); the link stays [[PROJ-1234]].
-      label: h.label ? `${h.title} ${h.label}` : h.title,
-      detail: [(seen.get(h.title.toLowerCase()) ?? 0) > 1 ? h.path : null, h.archived ? "archived" : null]
-        .filter(Boolean)
-        .join(" · "),
-      info: h.snippet ?? undefined,
-      type: h.kind,
-      boost: -i,
-      apply: insert(h.title),
-    }));
+    const here = hooks.vault?.() ?? null;
+    const options: Completion[] = hits.map((h, i) => {
+      // A note in another vault is linked as [[vault:Title]], so it can't be
+      // mistaken for a same-named note here. Ticket keys resolve anywhere.
+      const elsewhere = here !== null && h.vault !== here;
+      return {
+        // Tickets show their name too ("PROJ-1234 Do this thing"); the link stays [[PROJ-1234]].
+        label: h.label ? `${h.title} ${h.label}` : h.title,
+        detail: [
+          elsewhere ? (hooks.vaultName?.(h.vault) ?? h.vault) : null,
+          (seen.get(h.title.toLowerCase()) ?? 0) > 1 ? h.path.slice(h.path.indexOf(":") + 1) : null,
+          h.archived ? "archived" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        info: h.snippet ?? undefined,
+        type: h.kind,
+        boost: -i,
+        apply: insert(elsewhere && h.kind !== "ticket" ? `${h.vault}:${h.title}` : h.title),
+      };
+    });
     if (query.trim() && !exact) {
       options.push({ label: query.trim(), detail: "new note", type: "create", boost: -1000, apply: insert(query.trim()) });
     }

@@ -62,6 +62,7 @@ pub struct RenameOutcome {
     pub undo: RenameUndo,
 }
 
+#[derive(Debug, Clone)]
 pub struct Vault {
     root: PathBuf,
 }
@@ -268,7 +269,8 @@ impl Vault {
 
     /// Rename a regular note: move its file to a slug of `new_title`, update
     /// its `# heading`, and rewrite `[[links]]` to it across the vault.
-    pub fn rename_note(&self, index: &Index, rel: &str, new_title: &str, tickets: &TicketMatcher) -> Result<RenameOutcome> {
+    /// `vault_id` is this vault's id in the index; paths here are relative.
+    pub fn rename_note(&self, index: &Index, vault_id: &str, rel: &str, new_title: &str, tickets: &TicketMatcher) -> Result<RenameOutcome> {
         let new_title = new_title.trim();
         if new_title.is_empty() || new_title.contains(['[', ']', '|', '#', '\n']) {
             return Err(VaultError::NotRenamable("a title cannot be empty or contain [ ] | #".into()));
@@ -312,7 +314,12 @@ impl Vault {
         let mut links_updated = 0;
 
         // Rewrite links in every other note.
-        let mut others: Vec<String> = index.entries().map(|e| e.path().to_string()).filter(|p| p != rel).collect();
+        let mut others: Vec<String> = index
+            .entries()
+            .filter(|e| e.meta.vault == vault_id)
+            .map(|e| note::split_path(e.path()).1.to_string())
+            .filter(|p| p != rel)
+            .collect();
         others.sort();
         for p in others {
             let Ok(text) = self.read(&p) else { continue };
@@ -463,7 +470,7 @@ mod tests {
         v.write("tickets/PROJ-1.md", "- see [[Rollout plan]] and [[rollout-plan|the plan]] and [[Other]]\n").unwrap();
         v.write("notes/other.md", "# Other\n").unwrap();
         index_all(&v, &mut i);
-        let out = v.rename_note(&i, "notes/rollout-plan.md", "Launch plan", &t).unwrap();
+        let out = v.rename_note(&i, "", "notes/rollout-plan.md", "Launch plan", &t).unwrap();
         assert_eq!(out.new_path, "notes/launch-plan.md");
         assert_eq!(out.links_updated, 3);
         assert!(!v.exists("notes/rollout-plan.md"));
@@ -485,11 +492,11 @@ mod tests {
         v.write("notes/a.md", "# A\n").unwrap();
         v.write("notes/b.md", "# B\n").unwrap();
         index_all(&v, &mut i);
-        assert!(v.rename_note(&i, "tickets/PROJ-1.md", "x", &t).is_err());
-        assert!(v.rename_note(&i, "notes/a.md", "B", &t).is_err());
-        assert!(v.rename_note(&i, "notes/a.md", "a|b", &t).is_err());
+        assert!(v.rename_note(&i, "", "tickets/PROJ-1.md", "x", &t).is_err());
+        assert!(v.rename_note(&i, "", "notes/a.md", "B", &t).is_err());
+        assert!(v.rename_note(&i, "", "notes/a.md", "a|b", &t).is_err());
         // case-only rename keeps the file
-        let out = v.rename_note(&i, "notes/a.md", "a", &t).unwrap();
+        let out = v.rename_note(&i, "", "notes/a.md", "a", &t).unwrap();
         assert_eq!(out.new_path, "notes/a.md");
         assert_eq!(v.read("notes/a.md").unwrap(), "# a\n");
     }

@@ -22,7 +22,9 @@ fn err(e: impl std::fmt::Display) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct Startup {
     settings: Settings,
-    vault_path: String,
+    /// Each vault's folder, by id.
+    vault_paths: std::collections::BTreeMap<String, String>,
+    current_vault: String,
     settings_path: String,
     warnings: Vec<String>,
     last_path: Option<String>,
@@ -36,7 +38,8 @@ pub fn get_startup(state: State<AppState>) -> Startup {
     let session = state.session.lock().unwrap().clone();
     Startup {
         settings: state.settings(),
-        vault_path: state.vault.read().unwrap().root().display().to_string(),
+        vault_paths: vault_paths(&state),
+        current_vault: state.current_vault(),
         settings_path: state.settings_path.display().to_string(),
         warnings: std::mem::take(&mut *state.warnings.lock().unwrap()),
         last_path: session.last_path,
@@ -44,6 +47,33 @@ pub fn get_startup(state: State<AppState>) -> Startup {
         index_ready: state.ready(),
         ui: session.ui,
     }
+}
+
+fn vault_paths(state: &AppState) -> std::collections::BTreeMap<String, String> {
+    state.vaults.read().unwrap().iter().map(|(id, v)| (id.clone(), v.root().display().to_string())).collect()
+}
+
+/// Each vault's folder, by id (after a settings change).
+#[tauri::command]
+pub fn get_vault_paths(state: State<AppState>) -> std::collections::BTreeMap<String, String> {
+    vault_paths(&state)
+}
+
+/// Switch the main window to another vault. Returns the note to show there:
+/// the one last open in it, if it still exists.
+#[tauri::command]
+pub fn switch_vault(app: AppHandle, state: State<AppState>, vault: String) -> Res<Option<String>> {
+    if state.vault(&vault).is_none() {
+        return Err(format!("no vault `{vault}`"));
+    }
+    let last = {
+        let mut s = state.session.lock().unwrap();
+        s.current_vault = Some(vault.clone());
+        s.last_by_vault.get(&vault).cloned()
+    };
+    state.save_session();
+    crate::tray::rebuild_menu(&app);
+    Ok(last.filter(|p| state.index.read().unwrap().contains(p)))
 }
 
 #[tauri::command]
@@ -56,6 +86,9 @@ pub fn get_settings(state: State<AppState>) -> Settings {
 /// Keys this version doesn't know are kept in the file.
 #[tauri::command]
 pub fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> Res<()> {
+    if let Some(e) = settings.vault_error() {
+        return Err(e);
+    }
     let old = state.settings();
     crate::hotkey::test(&app, &settings.hotkey, &old.hotkey, &settings.switcher_hotkey)?;
     crate::hotkey::test(&app, &settings.switcher_hotkey, &old.switcher_hotkey, &settings.hotkey)?;
@@ -65,10 +98,16 @@ pub fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) 
     Ok(())
 }
 
-/// Defaults, for "reset" buttons (with the default notes folder filled in).
+/// Defaults, for "reset" buttons.
 #[tauri::command]
-pub fn default_settings(app: AppHandle) -> Settings {
-    Settings { vault_path: crate::config::default_vault(&app).display().to_string(), ..Settings::default() }
+pub fn default_settings() -> Settings {
+    Settings::default()
+}
+
+/// The folder an empty vault path means.
+#[tauri::command]
+pub fn default_vault_folder(app: AppHandle) -> String {
+    crate::config::default_vault(&app).display().to_string()
 }
 
 /// Can `spec` be used as a global hotkey? `which` is "main" or "switcher".
@@ -93,17 +132,21 @@ pub async fn pick_folder(app: AppHandle) -> Option<String> {
     app.dialog().file().blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string())
 }
 
-/// The daily note template: `templates/daily.md` in the notes folder, or the built-in one.
-#[tauri::command]
-pub fn get_daily_template(state: State<AppState>) -> String {
-    let root = state.vault.read().unwrap().root().to_path_buf();
-    std::fs::read_to_string(root.join("templates").join("daily.md")).unwrap_or_else(|_| stash_core::vault::DEFAULT_DAILY_TEMPLATE.to_string())
+fn vault_or_err(state: &AppState, id: &str) -> Res<Vault> {
+    state.vault(id).ok_or_else(|| format!("no vault `{id}`"))
 }
 
-/// Save the daily template (back to the built-in one when it matches it).
+/// A vault's daily note template: `templates/daily.md` in its folder, or the built-in one.
 #[tauri::command]
-pub fn set_daily_template(state: State<AppState>, text: String) -> Res<()> {
-    let dir = state.vault.read().unwrap().root().join("templates");
+pub fn get_daily_template(state: State<AppState>, vault: String) -> Res<String> {
+    let root = vault_or_err(&state, &vault)?.root().to_path_buf();
+    Ok(std::fs::read_to_string(root.join("templates").join("daily.md")).unwrap_or_else(|_| stash_core::vault::DEFAULT_DAILY_TEMPLATE.to_string()))
+}
+
+/// Save a vault's daily template (back to the built-in one when it matches it).
+#[tauri::command]
+pub fn set_daily_template(state: State<AppState>, vault: String, text: String) -> Res<()> {
+    let dir = vault_or_err(&state, &vault)?.root().join("templates");
     let file = dir.join("daily.md");
     if text == stash_core::vault::DEFAULT_DAILY_TEMPLATE {
         let _ = std::fs::remove_file(&file);
@@ -114,7 +157,7 @@ pub fn set_daily_template(state: State<AppState>, text: String) -> Res<()> {
 }
 
 fn meta_for(state: &AppState, path: &str, content: &str) -> NoteMeta {
-    note::parse_meta(path, content, &state.tickets())
+    note::parse_meta(path, content, &state.tickets_for(path))
 }
 
 // ---------- note buffers (see buffers.rs) ----------
@@ -123,12 +166,16 @@ fn meta_for(state: &AppState, path: &str, content: &str) -> NoteMeta {
 /// records it as recently opened.
 #[tauri::command]
 pub fn buffer_open(app: AppHandle, window: tauri::Window, state: State<AppState>, path: String) -> Res<buffers::Opened> {
-    let path = Vault::clean(&path).map_err(err)?;
+    let path = state.qualify(&path)?;
     let opened = buffers::open(&app, window.label(), &path)?;
     if window.label() == window::MAIN {
         let mut s = state.session.lock().unwrap();
         s.touch(&path, now_ms());
         s.last_path = Some(path.clone());
+        // The main window follows the note into its vault.
+        let vault = note::split_path(&path).0.to_string();
+        s.last_by_vault.insert(vault.clone(), path.clone());
+        s.current_vault = Some(vault);
     }
     state.save_session();
     Ok(opened)
@@ -155,7 +202,7 @@ pub fn buffer_pull(app: AppHandle, path: String, version: u64) -> Option<Vec<buf
 // app stops responding). Async commands run off the main thread.
 #[tauri::command]
 pub async fn pin_toggle(app: AppHandle, path: String) -> Res<bool> {
-    crate::pins::toggle(&app, &Vault::clean(&path).map_err(err)?)
+    crate::pins::toggle(&app, &app.state::<AppState>().qualify(&path)?)
 }
 
 /// The quick switcher pop-up (see quick.rs). Async: they show and hide windows.
@@ -172,15 +219,17 @@ pub async fn quick_resize(app: AppHandle, height: f64) {
 /// Open a note chosen in the pop-up in the main window.
 #[tauri::command]
 pub async fn quick_open(app: AppHandle, path: String) -> Res<()> {
-    let path = Vault::clean(&path).map_err(err)?;
+    let path = app.state::<AppState>().qualify(&path)?;
     crate::quick::open_in_main(&app, &path);
     Ok(())
 }
 
-/// Create a note from the pop-up's query and open it in the main window.
+/// Create a note from the pop-up's query (in the current vault, unless a
+/// vault's tickets claim it) and open it in the main window.
 #[tauri::command]
-pub async fn quick_create(app: AppHandle, title: String) -> Res<String> {
-    let path = create_note(app.clone(), app.state(), title)?;
+pub async fn quick_create(app: AppHandle, title: String, vault: Option<String>) -> Res<String> {
+    let vault = vault.unwrap_or_else(|| app.state::<AppState>().current_vault());
+    let path = create_note(app.clone(), app.state(), title, vault)?;
     crate::quick::open_in_main(&app, &path);
     Ok(path)
 }
@@ -239,47 +288,82 @@ pub fn buffer_flush(app: AppHandle, path: Option<String>) {
     }
 }
 
-/// Get the path for `target` (ticket key, date or title), creating the note if needed.
-pub fn ensure_note(state: &AppState, target: &str) -> Res<String> {
+/// The vault a new ticket note for `key` goes in: `preferred` if its
+/// tickets read `key` as a ticket, else the first vault whose do.
+fn ticket_vault(state: &AppState, key: &str, preferred: &str) -> String {
+    let index = state.index.read().unwrap();
+    if index.tickets_for(preferred).as_key(key).is_some() {
+        return preferred.to_string();
+    }
+    let ids: Vec<String> = state.vaults.read().unwrap().iter().map(|(id, _)| id.clone()).collect();
+    ids.into_iter().find(|id| index.tickets_for(id).as_key(key).is_some()).unwrap_or_else(|| preferred.to_string())
+}
+
+/// Get the path for `target` (ticket key, date or title), creating the note
+/// in vault `vault` if needed. Existing notes are looked up there first,
+/// then in the other vaults; `work:Target` names the vault.
+pub fn ensure_note(state: &AppState, target: &str, vault: &str) -> Res<String> {
     let target = target.trim();
     if target.is_empty() {
         return Err("empty note name".into());
     }
-    if let Some(p) = state.index.read().unwrap().resolve(target) {
+    if let Some(p) = state.index.read().unwrap().resolve(target, vault) {
         return Ok(p);
     }
-    let tickets = state.tickets();
-    let vault = state.vault.read().unwrap();
-    let (path, content) = if let Some(date) = dates::parse_iso(target) {
-        (Vault::daily_path(date), vault.daily_content(date))
-    } else if let Some(key) = tickets.as_key(target) {
-        (Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, ""))
+    let (qualified, target) = note::split_target(target);
+    let vault = qualified.filter(|v| state.vault(v).is_some()).unwrap_or(vault);
+    let tickets = state.tickets_for(vault);
+    let (id, rel, content) = if let Some(date) = dates::parse_iso(target) {
+        let v = vault_or_err(state, vault)?;
+        (vault.to_string(), Vault::daily_path(date), v.daily_content(date))
+    } else if let Some(key) = tickets.as_key(target).or_else(|| key_anywhere(state, target)) {
+        let id = ticket_vault(state, &key, vault);
+        (id, Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, ""))
     } else {
-        (vault.new_note_path(target), Vault::note_stub(target))
+        let v = vault_or_err(state, vault)?;
+        (vault.to_string(), v.new_note_path(target), Vault::note_stub(target))
     };
-    // The index may still be building; never overwrite an existing file.
-    if !vault.create_if_missing(&path, &content).map_err(err)? {
-        state.index.write().unwrap().upsert(&path, &vault.read(&path).map_err(err)?, vault.mtime(&path));
-        return Ok(path);
-    }
-    state.index.write().unwrap().upsert(&path, &content, vault.mtime(&path));
+    create_file(state, &id, &rel, &content)
+}
+
+/// `text` as a ticket key in any vault's tickets.
+fn key_anywhere(state: &AppState, text: &str) -> Option<String> {
+    let ids: Vec<String> = state.vaults.read().unwrap().iter().map(|(id, _)| id.clone()).collect();
+    let index = state.index.read().unwrap();
+    ids.iter().find_map(|id| index.tickets_for(id).as_key(text))
+}
+
+/// Create `rel` in vault `id` with `content` unless it exists (the index may
+/// still be building; never overwrite a file), index it, and return its path.
+fn create_file(state: &AppState, id: &str, rel: &str, content: &str) -> Res<String> {
+    let v = vault_or_err(state, id)?;
+    let path = note::join_path(id, rel);
+    let text = if v.create_if_missing(rel, content).map_err(err)? { content.to_string() } else { v.read(rel).map_err(err)? };
+    state.index.write().unwrap().upsert(&path, &text, v.mtime(rel));
     Ok(path)
 }
 
-/// Follow a `[[link]]` or ticket key: the existing note, or a newly created one.
+/// Follow a `[[link]]` or ticket key in the note at `from`: the existing
+/// note, or a new one in the current vault.
 #[tauri::command]
-pub fn resolve_link(state: State<AppState>, target: String) -> Res<String> {
-    ensure_note(&state, &target)
+pub fn resolve_link(state: State<AppState>, target: String, from: Option<String>) -> Res<String> {
+    let from_vault = from.as_deref().map(|p| note::split_path(p).0.to_string()).filter(|v| !v.is_empty());
+    let current = state.current_vault();
+    // Look in the linking note's vault first; a new note goes in the current vault.
+    if let Some(p) = state.index.read().unwrap().resolve(&target, from_vault.as_deref().unwrap_or(&current)) {
+        return Ok(p);
+    }
+    ensure_note(&state, &target, &current)
 }
 
-/// Create a note from the switcher: a ticket if `title` is a key, else a
-/// regular note. Filter words in the query are left out of the title, and
-/// `#tags` in it are given to the new note.
+/// Create a note from the switcher in vault `vault`: a ticket if `title` is a
+/// key (in the vault whose tickets it is), else a regular note. Filter words
+/// in the query are left out of the title, and its `#tags` go on the new note.
 #[tauri::command]
-pub fn create_note(app: AppHandle, state: State<AppState>, title: String) -> Res<String> {
+pub fn create_note(app: AppHandle, state: State<AppState>, title: String, vault: String) -> Res<String> {
     let q = stash_core::query::Query::parse(&title);
-    let existed = state.index.read().unwrap().resolve(q.text.trim()).is_some();
-    let path = create_titled(&state, q.text.trim())?;
+    let existed = state.index.read().unwrap().resolve(q.text.trim(), &vault).is_some();
+    let path = create_titled(&state, q.text.trim(), &vault)?;
     if !existed && !q.tags.is_empty() {
         let _ = edit_note(&app, &state, &path, |content, meta| {
             Ok((meta.kind != stash_core::NoteKind::Daily).then(|| frontmatter::set_inline_list(content, "tags", &q.tags)).flatten())
@@ -288,53 +372,51 @@ pub fn create_note(app: AppHandle, state: State<AppState>, title: String) -> Res
     Ok(path)
 }
 
-fn create_titled(state: &AppState, title: &str) -> Res<String> {
-    let title = title.to_string();
+fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<String> {
     // `PROJ-1234 Do this thing`: a ticket note named in its heading
     // (the file stays PROJ-1234.md so links never break).
-    if let Some((key, name)) = state.tickets().split_named(&title) {
-        if !name.is_empty() && state.index.read().unwrap().resolve(&key).is_none() {
-            let path = Vault::ticket_path(&key);
+    let named = state.tickets_for(vault).split_named(title).or_else(|| {
+        let (first, rest) = title.split_once(char::is_whitespace).unwrap_or((title, ""));
+        key_anywhere(state, first).map(|k| (k, rest.trim().to_string()))
+    });
+    if let Some((key, name)) = named {
+        if !name.is_empty() && state.index.read().unwrap().resolve(&key, vault).is_none() {
+            let id = ticket_vault(state, &key, vault);
             let content = stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, &name);
-            let vault = state.vault.read().unwrap();
-            vault.create_if_missing(&path, &content).map_err(err)?;
-            let text = vault.read(&path).map_err(err)?;
-            state.index.write().unwrap().upsert(&path, &text, vault.mtime(&path));
-            return Ok(path);
+            return create_file(state, &id, &Vault::ticket_path(&key), &content);
         }
-        return ensure_note(state, &key);
+        return ensure_note(state, &key, vault);
     }
-    ensure_note(state, &title)
+    ensure_note(state, title, vault)
 }
 
-/// Today's (or `date`'s) daily note, created from the template if missing.
+/// Vault `vault`'s daily note for `date`, created from its template if missing.
 #[tauri::command]
-pub fn daily_note(state: State<AppState>, date: String) -> Res<String> {
+pub fn daily_note(state: State<AppState>, date: String, vault: String) -> Res<String> {
     let d = dates::parse_iso(&date).ok_or_else(|| format!("bad date {date}"))?;
-    let path = Vault::daily_path(d);
-    let archived = format!("archive/{path}");
-    {
-        let vault = state.vault.read().unwrap();
-        if !vault.exists(&path) && vault.exists(&archived) {
-            return Ok(archived);
-        }
+    let rel = Vault::daily_path(d);
+    let v = vault_or_err(&state, &vault)?;
+    let archived = format!("archive/{rel}");
+    if !v.exists(&rel) && v.exists(&archived) {
+        return Ok(note::join_path(&vault, &archived));
     }
-    ensure_note(&state, &d.format("%Y-%m-%d").to_string())
+    create_file(&state, &vault, &rel, &v.daily_content(d))
 }
 
 /// Archive a note, or unarchive it if it is already archived. Returns the new path.
 #[tauri::command]
 pub fn archive_note(app: AppHandle, state: State<AppState>, path: String) -> Res<String> {
-    let path = Vault::clean(&path).map_err(err)?;
+    let path = state.qualify(&path)?;
     buffers::flush(&app, &path);
-    let to = Vault::archive_target(&path);
+    let (vault, rel) = state.locate(&path)?;
+    let to_rel = Vault::archive_target(&rel);
+    let to = note::join_path(note::split_path(&path).0, &to_rel);
     {
-        let vault = state.vault.read().unwrap();
-        vault.move_note(&path, &to).map_err(err)?;
+        vault.move_note(&rel, &to_rel).map_err(err)?;
         let mut index = state.index.write().unwrap();
         index.remove(&path);
-        if let Ok(content) = vault.read(&to) {
-            index.upsert(&to, &content, vault.mtime(&to));
+        if let Ok(content) = vault.read(&to_rel) {
+            index.upsert(&to, &content, vault.mtime(&to_rel));
         }
     }
     state.session.lock().unwrap().moved(&path, &to);
@@ -355,53 +437,58 @@ pub struct RenameResult {
 
 #[tauri::command]
 pub fn rename_note(app: AppHandle, state: State<AppState>, path: String, title: String) -> Res<RenameResult> {
-    let path = Vault::clean(&path).map_err(err)?;
+    let path = state.qualify(&path)?;
     buffers::flush_all(&app);
-    let tickets = state.tickets();
+    let id = note::split_path(&path).0.to_string();
+    let (vault, rel) = state.locate(&path)?;
+    let tickets = state.tickets_for(&path);
     let outcome = {
-        let vault = state.vault.read().unwrap();
         let index = state.index.read().unwrap();
-        vault.rename_note(&index, &path, &title, &tickets).map_err(err)?
+        vault.rename_note(&index, &id, &rel, &title, &tickets).map_err(err)?
     };
-    if outcome.new_path != path {
+    let q = |r: &str| note::join_path(&id, r);
+    let new_path = q(&outcome.new_path);
+    if new_path != path {
         state.index.write().unwrap().remove(&path);
     }
     for p in &outcome.changed {
-        state.reindex(p);
+        state.reindex(&q(p));
     }
-    state.session.lock().unwrap().moved(&path, &outcome.new_path);
+    state.session.lock().unwrap().moved(&path, &new_path);
     state.save_session();
-    if outcome.new_path != path {
-        buffers::moved(&app, &path, &outcome.new_path);
+    if new_path != path {
+        buffers::moved(&app, &path, &new_path);
     }
     // Open notes whose links were rewritten (and the renamed note's heading) reload.
     for p in &outcome.changed {
-        buffers::disk_changed(&app, p);
+        buffers::disk_changed(&app, &q(p));
     }
-    let id = state.next_undo.fetch_add(1, Ordering::Relaxed);
+    let undo_id = state.next_undo.fetch_add(1, Ordering::Relaxed);
     let files_changed = outcome.changed.len().saturating_sub(1);
-    state.undo.lock().unwrap().insert(id, outcome.undo);
-    Ok(RenameResult { new_path: outcome.new_path, links_updated: outcome.links_updated, files_changed, undo_id: id })
+    state.undo.lock().unwrap().insert(undo_id, (id, outcome.undo));
+    Ok(RenameResult { new_path, links_updated: outcome.links_updated, files_changed, undo_id })
 }
 
 /// Undo a rename. Returns the restored (original) path.
 #[tauri::command]
 pub fn undo_rename(app: AppHandle, state: State<AppState>, undo_id: u64) -> Res<String> {
-    let undo = state.undo.lock().unwrap().remove(&undo_id).ok_or("nothing to undo")?;
+    let (id, undo) = state.undo.lock().unwrap().remove(&undo_id).ok_or("nothing to undo")?;
     buffers::flush_all(&app);
-    let touched = state.vault.read().unwrap().undo_rename(&undo).map_err(err)?;
+    let q = |r: &str| note::join_path(&id, r);
+    let touched = vault_or_err(&state, &id)?.undo_rename(&undo).map_err(err)?;
     for p in &touched {
-        state.reindex(p);
+        state.reindex(&q(p));
     }
-    state.session.lock().unwrap().moved(&undo.new_path, &undo.old_path);
-    if undo.new_path != undo.old_path {
-        buffers::moved(&app, &undo.new_path, &undo.old_path);
+    let (old, new) = (q(&undo.old_path), q(&undo.new_path));
+    state.session.lock().unwrap().moved(&new, &old);
+    if new != old {
+        buffers::moved(&app, &new, &old);
     }
     for p in &touched {
-        buffers::disk_changed(&app, p);
+        buffers::disk_changed(&app, &q(p));
     }
     state.save_session();
-    Ok(undo.old_path)
+    Ok(old)
 }
 
 #[tauri::command]
@@ -411,10 +498,14 @@ pub fn search(
     include_archived: bool,
     current: Option<String>,
     limit: Option<usize>,
+    prefer: Option<String>,
 ) -> SearchResults {
     let recents = state.session.lock().unwrap().recents.clone();
     let statuses = state.settings.read().unwrap().statuses.clone();
+    // The pop-up has no vault of its own: it favors the one last used.
+    let prefer = prefer.unwrap_or_else(|| state.current_vault());
     let opts = SearchOptions {
+        prefer: Some(&prefer),
         include_archived,
         limit: limit.unwrap_or(50),
         current: current.as_deref(),
@@ -455,9 +546,10 @@ fn edit_note(
     make: impl FnOnce(&str, &NoteMeta) -> Result<Option<frontmatter::Edit>, String>,
 ) -> Res<NoteEdit> {
     let open_text = buffers::text(app, path);
+    let (vault, rel) = state.locate(path)?;
     let content = match &open_text {
         Some(t) => t.clone(),
-        None => state.vault.read().unwrap().read(path).map_err(err)?,
+        None => vault.read(&rel).map_err(err)?,
     };
     let before = meta_for(state, path, &content);
     let edit = make(&content, &before)?;
@@ -466,8 +558,7 @@ fn edit_note(
         if open_text.is_some() {
             buffers::apply_server_change(app, path, &new_content, true);
         } else {
-            let vault = state.vault.read().unwrap();
-            let mtime = vault.write(path, &new_content).map_err(err)?;
+            let mtime = vault.write(&rel, &new_content).map_err(err)?;
             state.index.write().unwrap().upsert(path, &new_content, mtime);
         }
     }
@@ -491,7 +582,7 @@ impl NoteEdit {
 #[tauri::command]
 pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: Option<String>) -> Res<StatusResult> {
     use stash_core::status::CLOSED;
-    let path = Vault::clean(&path).map_err(err)?;
+    let path = state.qualify(&path)?;
     let status = status.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
     let done = edit_note(&app, &state, &path, |content, meta| {
         if meta.kind == stash_core::NoteKind::Daily {
@@ -504,13 +595,14 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
     let reopening = status.as_deref() != Some(CLOSED) && before.archived && before.status.as_deref() == Some(CLOSED);
     let mut new_path = path.clone();
     if closing || reopening {
-        new_path = Vault::archive_target(&path);
+        let (vault, rel) = state.locate(&path)?;
+        let to_rel = Vault::archive_target(&rel);
+        new_path = note::join_path(note::split_path(&path).0, &to_rel);
         {
-            let vault = state.vault.read().unwrap();
-            vault.move_note(&path, &new_path).map_err(err)?;
+            vault.move_note(&rel, &to_rel).map_err(err)?;
             let mut index = state.index.write().unwrap();
             index.remove(&path);
-            index.upsert(&new_path, &done.new_content, vault.mtime(&new_path));
+            index.upsert(&new_path, &done.new_content, vault.mtime(&to_rel));
         }
         state.session.lock().unwrap().moved(&path, &new_path);
         state.save_session();
@@ -523,7 +615,7 @@ pub fn set_status(app: AppHandle, state: State<AppState>, path: String, status: 
 /// Replace a note's tags (normalized; invalid ones are dropped).
 #[tauri::command]
 pub fn set_tags(app: AppHandle, state: State<AppState>, path: String, tags: Vec<String>) -> Res<StatusResult> {
-    let path = Vault::clean(&path).map_err(err)?;
+    let path = state.qualify(&path)?;
     let mut clean: Vec<String> = Vec::new();
     for t in tags.iter().filter_map(|t| stash_core::query::normalize_tag(t)) {
         if !clean.contains(&t) {
@@ -610,10 +702,12 @@ pub fn list_notes(
     include_put_away: bool,
     sort: stash_core::index::SortBy,
     limit: Option<usize>,
+    vault: String,
 ) -> SearchResults {
     let recents = state.session.lock().unwrap().recents.clone();
     let statuses = state.settings.read().unwrap().statuses.clone();
     let opts = stash_core::index::ListOptions {
+        vault: &vault,
         include_daily,
         include_put_away,
         sort,
@@ -631,9 +725,10 @@ pub fn backlinks(state: State<AppState>, path: String) -> Vec<SearchHit> {
     state.index.read().unwrap().backlinks(&path)
 }
 
+/// Names of archived notes in `vault`, so the editor can dim links to them.
 #[tauri::command]
-pub fn archived_names(state: State<AppState>) -> Vec<String> {
-    state.index.read().unwrap().archived_names()
+pub fn archived_names(state: State<AppState>, vault: String) -> Vec<String> {
+    state.index.read().unwrap().archived_names(&vault)
 }
 
 #[derive(Serialize)]
@@ -714,10 +809,10 @@ pub fn set_ui(state: State<AppState>, key: String, value: serde_json::Value) {
 
 /// The sidebar's Active and Recent groups.
 #[tauri::command]
-pub fn sidebar(state: State<AppState>) -> stash_core::Sidebar {
+pub fn sidebar(state: State<AppState>, vault: String) -> stash_core::Sidebar {
     let recents = state.session.lock().unwrap().recents.clone();
     let statuses = state.settings.read().unwrap().statuses.clone();
-    state.index.read().unwrap().sidebar(&recents, &statuses, 8, 10)
+    state.index.read().unwrap().sidebar(&vault, &recents, &statuses, 8, 10)
 }
 
 #[tauri::command]
@@ -745,7 +840,7 @@ pub fn open_settings_file(app: AppHandle, state: State<AppState>) -> Res<()> {
 }
 
 #[tauri::command]
-pub fn open_vault_folder(app: AppHandle, state: State<AppState>) -> Res<()> {
-    let root = state.vault.read().unwrap().root().display().to_string();
+pub fn open_vault_folder(app: AppHandle, state: State<AppState>, vault: String) -> Res<()> {
+    let root = vault_or_err(&state, &vault)?.root().display().to_string();
     app.opener().open_path(&root, None::<&str>).map_err(err)
 }
