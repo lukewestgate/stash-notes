@@ -23,6 +23,7 @@ const settings: Settings = {
   theme: "system",
   fontSize: 14,
   liveFormatting: true,
+  smartPaste: true,
   notesView: { showDaily: false, showClosed: false, sort: "edited", groupByStatus: false },
   statuses: [
     { name: "todo", symbol: "○", color: "blue", active: true },

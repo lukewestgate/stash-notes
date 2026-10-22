@@ -3,6 +3,8 @@ import {
   checkboxToggle,
   firstTicket,
   gerritUrl,
+  isGerritUrl,
+  jiraKeyFromUrl,
   jiraUrl,
   looksLikeGerrit,
   refAt,
@@ -77,4 +79,21 @@ it("formats timestamps", () => {
 it("finds the first ticket", () => {
   expect(firstTicket("x OPS-9 then PROJ-1", T)).toBe("OPS-9");
   expect(firstTicket("none here", T)).toBeNull();
+});
+
+describe("smart paste", () => {
+  const jira = "https://yourco.atlassian.net/browse/{key}";
+  it("turns Jira URLs into keys", () => {
+    expect(jiraKeyFromUrl("https://yourco.atlassian.net/browse/PROJ-123?focusedId=1#x", T, jira)).toBe("PROJ-123");
+    expect(jiraKeyFromUrl("https://other.net/jira/browse/OPS-9", T, jira)).toBe("OPS-9");
+    expect(jiraKeyFromUrl("https://yourco.atlassian.net/jira/software/c/projects/P/boards/1?selectedIssue=PR-77", T, jira)).toBe("PR-77");
+    expect(jiraKeyFromUrl("https://yourco.atlassian.net/issues/PROJ-5/details", T, jira)).toBe("PROJ-5");
+    expect(jiraKeyFromUrl("https://example.com/PROJ-5", T, jira)).toBeNull();
+    expect(jiraKeyFromUrl("see https://yourco.atlassian.net/browse/PROJ-1", T, jira)).toBeNull();
+  });
+  it("recognizes Gerrit URLs by host", () => {
+    const g = "https://gerrit.example.com/c/{n}";
+    expect(isGerritUrl("https://gerrit.example.com/c/proj/+/12399", g)).toBe(true);
+    expect(isGerritUrl("https://example.com/c/proj/+/12399", g)).toBe(false);
+  });
 });

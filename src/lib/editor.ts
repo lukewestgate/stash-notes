@@ -32,6 +32,8 @@ export interface EditorHooks {
   /** Follow the reference at `pos`; return true if there was one. */
   follow(pos: number): boolean;
   linkSearch(query: string): Promise<{ hits: SearchHit[]; exact: boolean }>;
+  /** Handle pasted text specially; return true if it was handled. */
+  paste(text: string): boolean;
 }
 
 /** What the decorations need from settings and the index. */
@@ -248,6 +250,14 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
       if (u.docChanged) hooks.onChange();
     }),
     EditorView.domEventHandlers({
+      paste(e) {
+        const text = e.clipboardData?.getData("text/plain");
+        if (text && hooks.paste(text)) {
+          e.preventDefault();
+          return true;
+        }
+        return false;
+      },
       mousedown(e, view) {
         const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
         if (pos == null) return false;

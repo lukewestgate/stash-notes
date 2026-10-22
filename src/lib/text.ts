@@ -153,3 +153,43 @@ export function relTime(ms: number, now = Date.now()): string {
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
   return d.toLocaleDateString("en-US", sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
 }
+
+/**
+ * The ticket key a pasted Jira URL points at: `.../browse/PROJ-123`, a board
+ * link with `selectedIssue=PROJ-123`, or any URL on the Jira host containing a
+ * key. Returns null for anything else (including plain text).
+ */
+export function jiraKeyFromUrl(text: string, tickets: RegExp, jiraTemplate: string): string | null {
+  const t = text.trim();
+  if (!/^https?:\/\/\S+$/i.test(t)) return null;
+  let url: URL;
+  try {
+    url = new URL(t);
+  } catch {
+    return null;
+  }
+  const full = new RegExp(`^(?:${tickets.source})$`);
+  const selected = url.searchParams.get("selectedIssue");
+  if (selected && full.test(selected)) return selected;
+  const browse = /\/browse\/([^/?#]+)/.exec(url.pathname)?.[1];
+  if (browse && full.test(browse)) return browse;
+  let jiraHost = "";
+  try {
+    jiraHost = new URL(jiraTemplate.replace("{key}", "X-1")).host;
+  } catch {
+    // no usable template
+  }
+  if (url.host === jiraHost) return firstTicket(url.pathname, tickets);
+  return null;
+}
+
+/** Is `text` a single Gerrit URL on the host from `gerrit.urlTemplate`? */
+export function isGerritUrl(text: string, gerritTemplate: string): boolean {
+  const t = text.trim();
+  if (!/^https?:\/\/\S+$/i.test(t)) return false;
+  try {
+    return new URL(t).host === new URL(gerritTemplate.replace("{n}", "1")).host;
+  } catch {
+    return false;
+  }
+}

@@ -22,10 +22,20 @@
     /** Bumped by the app when notes change, to reload the list. */
     version: number;
     isTicket: (q: string) => boolean;
+    /** A pasted Jira URL becomes its key. */
+    pasteKey: (text: string) => string | null;
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;
   }
-  let { view = $bindable(), statuses, keys, version, isTicket, onOpen, onCreate }: Props = $props();
+  let { view = $bindable(), statuses, keys, version, isTicket, pasteKey, onOpen, onCreate }: Props = $props();
+
+  function paste(e: ClipboardEvent) {
+    const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
+    if (key) {
+      e.preventDefault();
+      view.query = key;
+    }
+  }
 
   const ROW = 44;
   const SORTS: SortBy[] = ["edited", "opened", "status", "title"];
@@ -203,6 +213,7 @@
       bind:this={input}
       bind:value={view.query}
       onkeydown={keydown}
+      onpaste={paste}
       placeholder="Search notes — key, title, date, text or @status"
       spellcheck="false"
       autocomplete="off"

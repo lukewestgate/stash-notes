@@ -104,6 +104,7 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   fontSize: number;
   liveFormatting: boolean;
+  smartPaste: boolean;
   notesView: NotesViewSettings;
   statuses: StatusDef[];
   defaultStatus: string;

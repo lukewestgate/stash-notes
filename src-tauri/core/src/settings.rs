@@ -34,6 +34,8 @@ pub struct Settings {
     pub font_size: u32,
     /// Style markdown as you type (markers hide off the caret line).
     pub live_formatting: bool,
+    /// Turn pasted Jira links into keys and Gerrit links into front matter.
+    pub smart_paste: bool,
     pub notes_view: NotesViewSettings,
     /// Status list, in display order.
     pub statuses: Vec<StatusDef>,
@@ -114,6 +116,7 @@ impl Default for Settings {
             theme: "system".into(),
             font_size: 14,
             live_formatting: true,
+            smart_paste: true,
             notes_view: NotesViewSettings::default(),
             statuses: default_statuses(),
             default_status: "open".into(),

@@ -29,7 +29,9 @@
     checkboxToggle,
     firstTicket,
     gerritUrl,
+    isGerritUrl,
     isoDate,
+    jiraKeyFromUrl,
     jiraUrl,
     looksLikeGerrit,
     refAt,
@@ -414,18 +416,64 @@
       title: "Add Gerrit change — paste a URL or type a change number",
       placeholder: "https://gerrit…/c/project/+/12345 or 12345",
       value: looksLikeGerrit(clip, settings.gerrit.urlTemplate) ? clip.trim() : "",
-      submit: async (v) => {
+      submit: (v) => {
         closeOverlay();
-        try {
-          const edit = await api.gerritEdit(docText(), v);
-          view.dispatch({ changes: edit });
-          await flush();
-          toast(`Gerrit link added (${meta?.gerrit.length ?? 1} total)`);
-        } catch (e) {
-          fail(e);
-        }
+        addGerritLink(v, false);
       },
     };
+  }
+
+  /** Append a Gerrit link to the current note's front matter, optionally with an Undo toast. */
+  async function addGerritLink(link: string, undoable: boolean) {
+    try {
+      const path = currentPath;
+      const edit = await api.gerritEdit(docText(), link);
+      view.dispatch({ changes: edit });
+      await flush();
+      const msg = `Added Gerrit link (${meta?.gerrit.length ?? 1} total)`;
+      if (!undoable) return toast(msg);
+      toast(msg, {
+        label: "Undo",
+        run: () => {
+          if (currentPath !== path) return;
+          const doc = docText();
+          const at = doc.indexOf(edit.insert);
+          if (at >= 0 && doc.indexOf(edit.insert, at + 1) < 0) {
+            view.dispatch({ changes: { from: at, to: at + edit.insert.length } });
+            flush();
+          }
+        },
+      });
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  // ---------- smart paste ----------
+
+  /** Set by Ctrl+Shift+V: the next paste goes in as typed. */
+  let rawPaste = false;
+
+  function pasteKey(text: string): string | null {
+    if (!settings?.smartPaste) return null;
+    return jiraKeyFromUrl(text, tickets, settings.jira.urlTemplate);
+  }
+
+  function smartPaste(text: string): boolean {
+    if (rawPaste || !settings?.smartPaste) {
+      rawPaste = false;
+      return false;
+    }
+    const key = pasteKey(text);
+    if (key) {
+      view.dispatch(view.state.replaceSelection(key));
+      return true;
+    }
+    if (meta?.kind === "ticket" && isGerritUrl(text, settings.gerrit.urlTemplate)) {
+      addGerritLink(text.trim(), true);
+      return true;
+    }
+    return false;
   }
 
   function insertTimestamp() {
@@ -751,6 +799,12 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (e.isComposing || !settings) return;
+    if (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "V" || e.key === "v" || e.code === "KeyV")) {
+      // Paste as typed; the browser still performs the paste.
+      rawPaste = true;
+      setTimeout(() => (rawPaste = false), 1000);
+      return;
+    }
     const is = (a: keyof Keys) => matches(e, keySpecs[a] ?? null);
     const stop = () => {
       e.preventDefault();
@@ -823,6 +877,7 @@
       onChange: onDocChange,
       follow: followAt,
       linkSearch: (q) => api.search(q, false, currentPath, 30),
+      paste: smartPaste,
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     darkQuery.addEventListener("change", applyDark);
@@ -986,6 +1041,7 @@
       keys={settings.keys}
       version={listVersion}
       isTicket={isTicketKey}
+      {pasteKey}
       onOpen={(p) => navigate(p)}
       onCreate={async (q) => {
         try {
@@ -1003,6 +1059,7 @@
       mode={overlay.mode}
       current={currentPath}
       isTicket={isTicketKey}
+      {pasteKey}
       statuses={settings?.statuses ?? []}
       onChoose={switcherChoose}
       onCreate={switcherCreate}

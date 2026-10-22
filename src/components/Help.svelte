@@ -35,6 +35,7 @@
     ["Ctrl+Click", "Follow link"],
     [keys.rename, "Rename note (updates links)"],
     [keys.openSettings, "Open settings.json"],
+    ["Ctrl+Shift+V", "Paste without converting Jira/Gerrit links"],
     [keys.quit, "Quit"],
   ]);
   const inSwitcher: [string, string][] = [

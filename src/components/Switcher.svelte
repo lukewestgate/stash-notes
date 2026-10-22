@@ -9,10 +9,20 @@
     current: string | null;
     isTicket: (q: string) => boolean;
     statuses: StatusDef[];
+    /** A pasted Jira URL becomes its key. */
+    pasteKey: (text: string) => string | null;
     onChoose: (hit: SearchHit, peek: boolean) => void;
     onCreate: (query: string) => void;
   }
-  let { mode, current, isTicket, statuses, onChoose, onCreate }: Props = $props();
+  let { mode, current, isTicket, statuses, pasteKey, onChoose, onCreate }: Props = $props();
+
+  function paste(e: ClipboardEvent) {
+    const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
+    if (key) {
+      e.preventDefault();
+      query = key;
+    }
+  }
 
   let query = $state("");
   let hits = $state<SearchHit[]>([]);
@@ -78,6 +88,7 @@
         bind:this={input}
         bind:value={query}
         onkeydown={keydown}
+        onpaste={paste}
         placeholder={mode === "link" ? "Link selection to…" : "Find or create a note — key, title, date, text or @status"}
         spellcheck="false"
         autocomplete="off"
