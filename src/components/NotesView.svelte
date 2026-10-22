@@ -13,6 +13,7 @@
   import { api, type Keys, type SearchHit, type SortBy, type StatusDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
   import { relTime } from "../lib/text";
+  import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
@@ -288,9 +289,19 @@
       {/each}
     </div>
     {#if rows.length === 0}
-      <div class="empty">
-        {view.query ? "No matching notes" : "No notes to show"} — {formatKey(keys.quickSwitcher)} to create one
-      </div>
+      {#if view.query}
+        <EmptyState icon="search-x" title="No notes match “{view.query.trim()}”">
+          {#if !view.showPutAway || !view.showDaily}
+            Closed, archived or daily notes may be hidden —
+            {#if !view.showPutAway}<kbd>Tab</kbd> shows closed{/if}{#if !view.showPutAway && !view.showDaily}, {/if}{#if !view.showDaily}<kbd>Alt+D</kbd> shows daily{/if}.
+          {/if}
+        </EmptyState>
+      {:else}
+        <EmptyState icon="inbox" title="No notes to show">
+          Press <kbd>{formatKey(keys.quickSwitcher)}</kbd> and type a name to create one, or <kbd>{formatKey(keys.dailyNote)}</kbd> for
+          today's note.
+        </EmptyState>
+      {/if}
     {/if}
   </div>
   <div class="hints">
@@ -338,6 +349,7 @@
   }
   input:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
   }
   .chips {
     display: flex;
@@ -466,10 +478,6 @@
     font-weight: 600;
   }
   .hcount {
-    color: var(--fg-muted);
-  }
-  .empty {
-    padding: 24px 16px;
     color: var(--fg-muted);
   }
   .hints {
