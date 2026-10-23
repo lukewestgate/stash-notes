@@ -350,6 +350,7 @@ Also:
 `Ctrl+K` opens one overlay that handles navigation, search and note creation.
 
 - **Empty query** lists recently opened notes, with active notes first. Closed and archived notes are hidden, so this is also your "open tickets" list.
+- **Closing:** click outside a popup or press `Esc`. Pressing `Ctrl+K` again also closes the switcher (or your configured switcher shortcut).
 - **Typing** updates the results on every keystroke. `↑`/`↓` move, `Enter` opens, `Esc` closes.
 - **Create.** When nothing matches exactly, the last row reads `Create "<query>"`.
   - **Ticket keys:** a query that starts with a ticket key creates a ticket note, and any text after the key becomes its name. `PROJ-1234 Do this thing` creates `tickets/PROJ-1234.md` titled *PROJ-1234 Do this thing*, in the vault whose tickets `PROJ-` are. If that ticket already exists, it's the top result instead.

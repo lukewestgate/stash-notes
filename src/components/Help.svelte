@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
   import type { Keys, VaultDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
 
@@ -11,8 +12,9 @@
     vaults: VaultDef[];
     /** Each vault's folder, by id. */
     vaultPaths: Record<string, string>;
+    onClose: () => void;
   }
-  let { keys, hotkey, switcherHotkey, settingsPath, vaults, vaultPaths }: Props = $props();
+  let { keys, hotkey, switcherHotkey, settingsPath, vaults, vaultPaths, onClose }: Props = $props();
 
   const rows = $derived<[string, string, string?][]>([
     [hotkey, "Show or hide Stash Notes", "global, works from any app"],
@@ -57,7 +59,7 @@
   ];
 </script>
 
-<div class="backdrop" role="presentation" in:dim>
+<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
   <div class="help" in:pop role="dialog" aria-label="Keyboard shortcuts">
     <h2>Keyboard shortcuts</h2>
     <div class="cols">

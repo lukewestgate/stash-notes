@@ -5,6 +5,7 @@
   import type { TagCount } from "../lib/api";
   import { normalizeTag } from "../lib/text";
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
   import Icon from "./Icon.svelte";
   import TagChip from "./TagChip.svelte";
 
@@ -80,7 +81,7 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim onmousedown={(e) => e.target === e.currentTarget && onClose()}>
+<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
   <div class="picker" role="dialog" aria-label={title} in:pop>
     <div class="title">{title}</div>
     <div class="field">

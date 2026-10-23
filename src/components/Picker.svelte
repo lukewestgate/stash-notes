@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
   import { onMount } from "svelte";
 
   interface Props {
@@ -7,8 +8,9 @@
     /** `color`: a theme color name for a swatch before the label. */
     items: { label: string; detail?: string; color?: string }[];
     onChoose: (index: number) => void;
+    onClose: () => void;
   }
-  let { title, items, onChoose }: Props = $props();
+  let { title, items, onChoose, onClose }: Props = $props();
 
   let sel = $state(0);
   let box: HTMLDivElement;
@@ -32,7 +34,7 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim>
+<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
   <div class="picker" in:pop role="listbox" aria-label={title} tabindex="-1" bind:this={box} onkeydown={keydown}>
     <div class="title">{title}</div>
     {#each items as item, i}

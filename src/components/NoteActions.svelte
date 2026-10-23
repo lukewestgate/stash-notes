@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
 
   let { title, canRename, canStatus, onRename, onMove, onDelete, onStatus, onClose }: {
     title: string; canRename: boolean; canStatus: boolean;
@@ -21,8 +22,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="backdrop" role="presentation" in:dim onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
   <div class="note-actions" role="dialog" aria-modal="true" aria-label="Note actions for {title}" tabindex="-1" bind:this={box} onkeydown={keydown} in:pop>
     <div class="heading"><span>{title}</span><button class="close" onclick={onClose} aria-label="Close note actions"><Icon name="x" size={15} /></button></div>
     <button class="item" onclick={onRename} disabled={!canRename} title={canRename ? "Rename note" : "Daily and ticket files keep their date or key"}><Icon name="pencil" size={16} /><span>Rename…</span><kbd aria-hidden="true">F2</kbd></button>

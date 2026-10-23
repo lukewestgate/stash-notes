@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
   import { onMount } from "svelte";
 
   interface Props {
@@ -7,8 +8,9 @@
     value: string;
     placeholder?: string;
     onSubmit: (value: string) => void;
+    onClose: () => void;
   }
-  let { title, value, placeholder = "", onSubmit }: Props = $props();
+  let { title, value, placeholder = "", onSubmit, onClose }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let text = $state(value);
@@ -27,7 +29,7 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim>
+<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
   <div class="prompt" in:pop role="dialog" aria-label={title}>
     <label>
       <span>{title}</span>

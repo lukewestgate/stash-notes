@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import type { VaultDef } from "../lib/api";
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
   import Icon from "./Icon.svelte";
 
   interface Props {
@@ -51,12 +52,11 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="backdrop"
   role="presentation"
   in:dim
-  onclick={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}
+  use:dismissOnBackdrop={() => { if (!busy) onClose(); }}
 >
   <div
     class="file-dialog"

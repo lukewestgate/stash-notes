@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
+  import { dismissOnBackdrop } from "../lib/popup";
   import { api, type SearchHit, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import VaultTag from "./VaultTag.svelte";
   import { completeTag, tagSuggestions, typingTag } from "../lib/text";
@@ -27,8 +28,8 @@
     onCreate: (query: string, vault: string | null) => void;
     /** Fill a window of its own (the Alt+J pop-up) instead of floating over the app. */
     embedded?: boolean;
-    /** Embedded only: Esc was pressed. */
-    onClose?: () => void;
+    /** Dismiss the overlay, or hide the embedded window. */
+    onClose: () => void;
     /** Embedded only: the content's height changed. */
     onSize?: (height: number) => void;
   }
@@ -157,7 +158,7 @@
   }
 </script>
 
-<div class="backdrop" class:embedded role="presentation" in:dim>
+<div class="backdrop" class:embedded role="presentation" in:dim use:dismissOnBackdrop={() => { if (!embedded) onClose(); }}>
   <div class="switcher" in:pop bind:this={box} role="dialog" aria-label={mode === "link" ? "Link to note" : "Quick switcher"}>
     <div class="inputrow">
       <span class="lead"><Icon name="search" size={16} /></span>

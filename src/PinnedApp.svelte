@@ -153,6 +153,11 @@
     await api.pinSetOnTop(onTop);
   }
 
+  function closeOverlay() {
+    overlay = null;
+    view.focus();
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (!settings || e.isComposing) return;
     const k = settings.keys;
@@ -163,8 +168,7 @@
     if (overlay) {
       if (e.key === "Escape") {
         stop();
-        overlay = null;
-        view.focus();
+        closeOverlay();
       }
       return;
     }
@@ -331,7 +335,7 @@
   {#if message}<div class="message">{message}</div>{/if}
 
   {#if overlay?.type === "status" && settings}
-    <StatusPicker statuses={settings.statuses} current={meta?.status ?? null} title="Status" onChoose={setStatus} />
+    <StatusPicker statuses={settings.statuses} current={meta?.status ?? null} title="Status" onChoose={setStatus} onClose={closeOverlay} />
   {:else if overlay?.type === "tags" && settings && meta}
     {@const o = overlay}
     <TagPicker
@@ -340,14 +344,11 @@
       all={o.all}
       colors={settings.tagColors}
       onChange={setTags}
-      onClose={() => {
-        overlay = null;
-        view.focus();
-      }}
+      onClose={closeOverlay}
     />
   {:else if overlay?.type === "links"}
     {@const o = overlay}
-    <Picker title="Open link" items={o.items} onChoose={(i) => { overlay = null; api.openUrl(o.urls[i]); }} />
+    <Picker title="Open link" items={o.items} onChoose={(i) => { overlay = null; api.openUrl(o.urls[i]); }} onClose={closeOverlay} />
   {/if}
 </main>
 

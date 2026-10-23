@@ -871,6 +871,10 @@
   // ---------- overlays ----------
 
   function openSwitcher() {
+    if (overlay?.type === "switcher") {
+      closeOverlay();
+      return;
+    }
     const sel = view.state.selection.main;
     if (!sel.empty) {
       overlay = {
@@ -1101,9 +1105,9 @@
           (e.shiftKey ? last : first).focus();
         }
       }
-      if (is("hide") || (overlay.type === "help" && is("help"))) {
+      if (is("hide") || (overlay.type === "help" && is("help")) || (overlay.type === "switcher" && is("quickSwitcher"))) {
         stop();
-        closeOverlay();
+        if (!e.repeat || is("hide")) closeOverlay();
       }
       return;
     }
@@ -1137,6 +1141,7 @@
       if (a !== "hide" && is(a)) {
         if (screen !== "editor" && EDITOR_ONLY.has(a)) return;
         stop();
+        if (a === "quickSwitcher" && e.repeat) return;
         actions[a]();
         return;
       }
@@ -1441,14 +1446,15 @@
       {currentVault}
       onChoose={switcherChoose}
       onCreate={switcherCreate}
+      onClose={closeOverlay}
     />
   {:else if overlay?.type === "help" && settings}
-    <Help keys={settings.keys} hotkey={settings.hotkey} switcherHotkey={settings.switcherHotkey} {settingsPath} vaults={settings.vaults} {vaultPaths} />
+    <Help keys={settings.keys} hotkey={settings.hotkey} switcherHotkey={settings.switcherHotkey} {settingsPath} vaults={settings.vaults} {vaultPaths} onClose={closeOverlay} />
   {:else if overlay?.type === "prompt"}
-    <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} onSubmit={overlay.submit} />
+    <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} onSubmit={overlay.submit} onClose={closeOverlay} />
   {:else if overlay?.type === "status" && settings}
     {@const o = overlay}
-    <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} onChoose={(st) => applyStatus(o.path, st)} />
+    <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} onChoose={(st) => applyStatus(o.path, st)} onClose={closeOverlay} />
   {:else if overlay?.type === "tags" && settings}
     {@const o = overlay}
     <TagPicker
@@ -1460,7 +1466,7 @@
       onClose={closeOverlay}
     />
   {:else if overlay?.type === "picker"}
-    <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} />
+    <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} onClose={closeOverlay} />
   {/if}
 
   {#if chordPending && settings}
