@@ -121,21 +121,126 @@
 </div>
 
 <style>
-  .backdrop { position: fixed; inset: 0; z-index: 25; display: flex; justify-content: center; align-items: flex-start; padding: 14vh 16px 16px; background: var(--scrim); }
-  .file-dialog { width: min(480px, 100%); max-height: 80vh; overflow: auto; padding: 18px; color: var(--fg); background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
-  .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  h2 { margin: 0; font-size: 16px; }
-  p { margin: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-  .hint { margin-top: 8px; color: var(--fg-muted); font-size: 12px; }
-  label { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; }
-  button, select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
-  select { width: 100%; font-size: 14px; }
-  button { cursor: pointer; font-size: 13px; }
-  .close { display: grid; place-items: center; padding: 4px; border: none; background: transparent; }
-  .buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-  .primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-  .danger, .error { color: var(--c-red); }
-  .error { margin-top: 12px; }
-  button:disabled, select:disabled { opacity: .5; cursor: default; }
-  :is(button, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: var(--scrim);
+  }
+  .file-dialog {
+    width: 100%;
+    max-width: 400px;
+    max-height: calc(100dvh - 40px);
+    overflow: auto;
+    padding: 20px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+  .dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  p {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  strong { font-weight: 600; }
+  .hint {
+    margin-top: 8px;
+    color: var(--fg-muted);
+    font-size: 12px;
+  }
+  button, select { font: inherit; color: inherit; }
+  button {
+    min-height: 34px;
+    padding: 6px 13px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    background: var(--hover);
+    border-color: var(--fg-muted);
+  }
+  .close {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    min-height: 26px;
+    padding: 0;
+    color: var(--fg-muted);
+    background: transparent;
+    border-color: transparent;
+  }
+  .close:hover:not(:disabled) { color: var(--fg); border-color: transparent; }
+  .buttons {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 24px;
+  }
+  .primary {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 85%, var(--fg));
+    border-color: var(--accent);
+  }
+  .danger {
+    color: var(--c-red);
+    background: transparent;
+    border-color: color-mix(in srgb, var(--c-red) 35%, var(--border));
+  }
+  .danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--c-red) 8%, var(--bg));
+    border-color: var(--c-red);
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  select {
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  select:hover:not(:disabled) { border-color: var(--fg-muted); }
+  :is(button, select):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button:disabled, select:disabled { opacity: 0.5; cursor: default; }
+  .error { margin-top: 12px; color: var(--c-red); font-size: 12px; }
 </style>
