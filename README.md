@@ -6,20 +6,21 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 
 - **Instant summon.** The window is created once at login and only ever shown or hidden.
 - **Vaults.** Keep personal notes and each project's notes in their own folders, switch between them in a keystroke, and search them all at once.
-- **Ticket notes when you want them.** A vault can follow Jira, GitHub or GitLab issues: one note per key (`PROJ-123`), and Gerrit changes, pull requests or wiki pages attached to notes. A personal vault can stay plain notes.
+- **Links, collected.** Paste a link into a note (a ticket, a review, a video, a page) and it's in the note's **Links** panel, with every vault's links one tab away. Optional link rules label a service's links and make a note from a link or key, such as one note per Jira ticket.
 - **Statuses and tags.** Mark notes todo, open, blocked, backlog or closed, and tag them `#bug`, `#research` or anything else.
 - **Live markdown.** Headings, bold, lists and checkboxes are styled as you type, and the file stays plain markdown.
 - **Embedded images.** Paste a screenshot, drop image files into a note, or use the header's **Insert image** button. Images display inline, including in pinned notes and expanded note previews.
 - **Sidebar and Notes view.** See what you're working on at a glance, and scan, sort and filter every note.
 - **Quick switcher pop-up** (`Alt+J`). Search, open or create a note from any app without bringing up the full window first.
 - **Pinned notes.** Pop any note out into a small always-on-top window beside your code.
-- **One fuzzy switcher** (`Ctrl+K`). Find notes by ticket key, title, date or text, filter with `@status`, `#tag` and `in:vault`, and create new ones.
+- **One fuzzy switcher** (`Ctrl+K`). Find notes by ticket key, title, date or text, filter with `@status`, `#tag` and `in:vault`, and create new ones, including from a pasted link.
 - **Fully usable without the mouse.** Press `Ctrl+/` to see every shortcut.
 
 ---
 
 ## Contents
 
+- [What's new in 0.7](#whats-new-in-07)
 - [What's new in 0.6](#whats-new-in-06)
 - [What's new in 0.5](#whats-new-in-05)
 - [Installation](#installation)
@@ -37,7 +38,7 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
   - [Sidebar](#sidebar)
   - [Notes view](#notes-view)
   - [Links, backlinks and history](#links-backlinks-and-history)
-  - [Tickets, attached links and smart paste](#tickets-attached-links-and-smart-paste)
+  - [Links and link rules](#links-and-link-rules)
   - [Quick switcher pop-up](#quick-switcher-pop-up)
   - [Pinned notes](#pinned-notes)
   - [Daily notes and todos](#daily-notes-and-todos)
@@ -51,6 +52,21 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 - [Design notes and decisions](#design-notes-and-decisions)
 
 ---
+
+## What's new in 0.7
+
+- **Links, in one place, in every vault.** Every link in a note is collected without any setup: bare URLs, Markdown links, autolinks and links in front matter, but not code, comments or image sources. The header's **Links (N)** button (or `Ctrl+Shift+L`) opens the **Links panel** beside the editor, and it updates as you type.
+  - **This note** lists each link once, with how often and where it appears: **Open**, **Copy**, **Go to source**, make it the note's **primary link**, or **Add link** for one that isn't in the text.
+  - **All notes** (also the sidebar's **Links** row) lists the links of every vault with the notes that use them, filtered by text, vault and archive.
+  - Pinned notes have the same panel.
+- **Link rules replace per-vault ticket systems and attached link types.** Settings → **Links** holds one list for every vault. Rules are optional: a rule recognises a service's links (start from a preset and paste an example link), labels them (`PROJ-123`, `PR 42`), can format a pasted link as `[PROJ-123](https://…)`, can read bare keys, and can offer a **note template**.
+- **Create a note from a link.** Paste a link, or type a key, into `Ctrl+K`, the `Alt+J` pop-up or the Notes view, then choose **Create note from link**. You see the vault, an editable title and the template's result first, and notes already about that link are offered instead. The note keeps the link as its `primary_link`.
+- **One header button for the primary link** (**Open PROJ-123**) instead of a button per ticket system and link type. `Ctrl+J` opens the primary link, `Ctrl+G` any of the note's links, and `Ctrl+Shift+G` adds any link.
+- **Upgrading from 0.6:**
+  - Settings are backed up as `settings.json.bak`, then each vault's ticket systems and link types become link rules. Identical ones are merged; different services stay separate, named by vault (*Jira (Work)*).
+  - Nothing in your notes is renamed, moved or rewritten. `tickets/KEY.md` notes, `jira:` overrides and `gerrit:`, `prs:`, `mrs:`, `docs:` or custom fields keep opening where they did, and show in the Links panel.
+  - Your shortcuts keep their keys. If smart paste was on, pasted ticket links now go in as `[PROJ-123](link)` (the key, still linked) instead of the bare key.
+  - **Pasting a Gerrit, PR or wiki link no longer moves it into the front matter.** It stays where you paste it and appears in the Links panel. Use **Add link** to attach one without putting it in the text.
 
 ## What's new in 0.6
 
@@ -150,16 +166,14 @@ Use **Settings → Apps → Installed apps → Stash Notes → Uninstall**. Your
 3. **Press `Esc`.** The window hides and focus goes back to the app you were using.
 4. **Press `Alt+N`** from anywhere. Stash Notes is back with the cursor where you left it. `Alt+N` again hides it.
 5. **Press `Ctrl+K`**, type a title like `Shopping list` and press `Enter` to create a note. Press `Ctrl+;` to insert a timestamp such as `2026-10-22 14:05 `.
-6. **Set up a work vault (optional).** Press `Ctrl+,` → **Vaults**:
-   - **Add a vault** named *Work* with its own folder.
-   - **Under Tickets**, choose **Add → Jira** (or GitHub / GitLab issues) and put in your site's URL.
-   - **Under Attached links**, add **Gerrit** or pull requests if you use them.
-
-   Your first vault, *Personal*, stays plain notes. (Upgrading from 0.4? Your Jira and Gerrit setup is already on your first vault.)
-7. **Press `Ctrl+K`** and type a ticket key like `PROJ-123`, then `Enter`. That creates the ticket's note in the vault whose tickets it is, with status *open* and the caret ready for you to type the ticket's name after `# PROJ-123`. **`Ctrl+J`** opens it in Jira.
-8. **Press `Ctrl+Shift+O`** to switch vault, and **`Ctrl+Shift+T`** to tag the note.
-9. **Press `Alt+J`** from any app. Type a few letters of any note in any vault and press `Enter` to open it, or type `PROJ-456 Fix the login page` and press `Enter` to create that ticket.
-10. **Press `Ctrl+/`** for the full list of shortcuts. That screen is the whole manual in brief.
+6. **Paste a link** into the note, any link. The header now says **Links (1)**; click it to see the Links panel.
+7. **Set up a work vault and Jira (optional).** Press `Ctrl+,`:
+   - **Vaults → Add a vault** named *Work* with its own folder.
+   - **Links → Add a rule → Jira**, and paste a link to one of your Jira issues. The rule works in every vault.
+8. **Press `Ctrl+K`**, type `PROJ-123 Rollout date` (or paste the issue's link) and choose **Create note from PROJ-123**. Check the preview and press `Enter`. **`Ctrl+J`** opens the issue in Jira.
+9. **Press `Ctrl+Shift+O`** to switch vault, and **`Ctrl+Shift+T`** to tag the note.
+10. **Press `Alt+J`** from any app. Type a few letters of any note in any vault and press `Enter` to open it, or paste a link to create a note about it.
+11. **Press `Ctrl+/`** for the full list of shortcuts. That screen is the whole manual in brief.
 
 Stash Notes starts automatically at login, hidden in the tray, unless you turn that off in Settings → General.
 
@@ -175,9 +189,9 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 
 ```
 +------+--------------------------------------------------------+
-|  ≡   | < >  PROJ-123  Rollout question  ◉ open  Jira  pin     |  header
+|  ≡   | < > PROJ-123 Rollout…  ◉ open  PROJ-123  Links (3)  pin |  header
 |  📅  +--------------------------------------------------------+
-|  ☰   |  ● open  Jira  Gerrit 2                     properties |
+|  ☰   |  ● open  PROJ-123  3 links                  properties |
 |  ──  |                                                        |
 |  ●   |  PROJ-123 Rollout date question                        |  editor
 |  ⊘   |  • 2026-10-22 14:05 asked about rollout, see Rollout…  |
@@ -190,7 +204,8 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 ```
 
 - **Sidebar** (left): a thin rail by default. The hamburger (or `Ctrl+\`) expands it. See [Sidebar](#sidebar).
-- **Header:** back and forward, the note's title, its status chip, its tags, a button for its ticket (**Jira**, …) and for each kind of attached link it has (**Gerrit**, **PR**, …), a button to attach a link, then **pin** and **archive**. Ticket and link buttons only appear in vaults that use them. Hover over any button to see its shortcut. A dot shows unsaved changes.
+- **Header:** back and forward, the note's title, its status chip, its tags, a button for its primary link (**PROJ-123**, when it has one), **Links (N)** for the [Links panel](#links-and-link-rules), then **pin** and **archive**. Hover over any button to see its shortcut. A dot shows unsaved changes.
+- **Links panel** (right, when open): the note's links, or every note's.
 - **Editor:** markdown that's styled as you type. See [The editor](#the-editor).
 - **Backlinks strip:** notes that link to or mention this one.
 - **Notes view** (`Ctrl+L`) and **Settings** (`Ctrl+,`) take over the main area. `Esc` goes back.
@@ -202,23 +217,22 @@ Every note is one markdown file in a **vault**: a notes folder (see [Vaults](#va
 | Kind | Path | Title | Created |
 |---|---|---|---|
 | Daily | `daily/2026-10-22.md` | The date | On first open each day (`Ctrl+D`) |
-| Ticket | `tickets/PROJ-123.md` | The first heading: the key plus the ticket name | From the switcher or `Alt+J` pop-up, or by following `PROJ-123` / `[[PROJ-123]]` |
+| Ticket | `tickets/PROJ-123.md` | The first heading: the key plus the ticket name | From a link rule whose template uses `tickets/` (rules made from 0.6 ticket systems do), or by following `[[PROJ-123]]` |
 | Note | `notes/<slug>.md` | First `# heading`, else the file name | From the switcher, or by following a `[[link]]` |
 | Archived | `archive/<original path>` | Same as before | `Ctrl+Shift+A`, or setting the status to *closed* |
 
 Markdown files anywhere else in the folder are treated as regular notes. Folders starting with `.` (such as `.git`) and the `templates` folder are ignored.
 
-**Ticket keys** come from the vault's ticket systems (see [Tickets, attached links and smart paste](#tickets-attached-links-and-smart-paste)). Jira's pattern `[A-Z][A-Z0-9]+-\d+` matches `PROJ-123` and `OPS-7`. In such a vault a bare key anywhere in a note is highlighted and works as a link. A vault without ticket systems has no ticket notes.
+**Keys** come from [link rules](#links-and-link-rules) that read bare keys: Jira's pattern `[A-Z][A-Z0-9]+-\d+` matches `PROJ-123` and `OPS-7`. A bare key anywhere in a note is then highlighted, works as a link, and shows in the Links panel. A note about a link doesn't need to be a ticket note: a rule's template can put it in `notes/` or anywhere else.
 
-**Ticket note format.** All front matter fields are optional:
+**Note format.** All front matter fields are optional:
 
 ```markdown
 ---
 status: open
 tags: [bug, rollout]
-jira: https://other.atlassian.net/browse/PROJ-123   # only to override where the ticket opens
-gerrit:                               # a link type's key (here Gerrit's)
-  - 12345                             # bare entries expand through the link type's URL
+primary_link: https://acme.atlassian.net/browse/PROJ-123   # what the note is about (Ctrl+J)
+links:                                                     # links not in the text (Add link)
   - https://gerrit.example.com/c/proj/+/12399
 ---
 
@@ -228,6 +242,8 @@ gerrit:                               # a link type's key (here Gerrit's)
 - 2026-10-22 16:40 fix pushed, waiting on review
 ```
 
+Notes from 0.6 may instead have `jira:` (where the ticket opens) and link lists such as `gerrit: [12345]`. They keep working as they are, and bare entries open where 0.6 sent them.
+
 The ticket's **name** is whatever follows the key in the first heading. It's shown beside the key in the header, sidebar, switcher and Notes view. The file name stays `PROJ-123.md`, so editing the name never breaks links. Notes from 0.1 that still carry `title:` in front matter keep showing that name until you add one to the heading.
 
 Any note can also list `aliases: [Plan B, launch]`. Links and search then match those names too.
@@ -236,8 +252,9 @@ Any note can also list `aliases: [Plan B, launch]`. Links and search then match 
 
 A **vault** is a folder of notes with a name and a color, for example *Personal* and one vault per project. Set them up in Settings → Vaults. Each vault has:
 - **its own folder** (any folder, including one in OneDrive or a Git repository);
-- **its own daily notes and template**;
-- **its own [links to other systems](#tickets-attached-links-and-smart-paste)**: a work vault can have Jira and Gerrit while a personal vault stays plain.
+- **its own daily notes and template**.
+
+[Link rules](#links-and-link-rules) are the same in every vault.
 
 - **One vault is current.** The sidebar, the Notes view, Today (`Ctrl+D`) and new notes belong to it.
   - It shows at the top of the sidebar as a colored badge with the vault's initial.
@@ -252,8 +269,8 @@ A **vault** is a folder of notes with a name and a color, for example *Personal*
   - **Same vault first:** `[[Plan]]` looks in the linking note's own vault, then in the others.
   - **Naming a vault:** `[[work:Plan]]` looks only in *work*, and picking a note from another vault in the `[[` picker writes it that way.
   - **Ticket keys** resolve in whichever vault has the ticket.
-  - **New notes from a link** go in the current vault.
-- **New ticket notes** go in the vault whose ticket systems claim the key, wherever you type it (for example `PROJ-123` in the pop-up while in *Personal*).
+  - **New notes from a `[[link]]`** go in the current vault.
+- **Notes created from a link or key** go in the current vault, or the one you pick in the create form.
 - **Removing a vault** in Settings only forgets it; its folder and notes are untouched. Each vault's id (`in:work`) is fixed when it's created; renaming changes only the name.
 
 ### Statuses
@@ -323,16 +340,17 @@ Every in-app shortcut can be changed in Settings → Shortcuts. In-app shortcuts
 |---|---|---|
 | `Alt+N` (global) | Show or hide the app | Works from any app |
 | `Alt+J` (global) | Quick switcher pop-up | See [Quick switcher pop-up](#quick-switcher-pop-up) |
-| `Esc` | Close overlay / view, else hide window | Closes the switcher, pickers, backlinks list, Notes view and Settings first |
+| `Esc` | Close overlay / view, else hide window | Closes the switcher, pickers, Links panel, backlinks list, Notes view and Settings first |
 | `Ctrl+K` | Quick switcher and search | Also creates notes. With text selected, links the selection |
 | `Ctrl+D` | Today's daily note | Creates it if missing |
 | `Ctrl+L` | Notes view | The current vault's notes |
 | `Ctrl+Shift+O` | Switch vault | Also from the sidebar and the tray |
-| `Ctrl+Enter` | Follow link under cursor | Note link, ticket key or URL. On a checkbox line with no link, toggles it |
+| `Ctrl+Enter` | Follow link under cursor | Note link, key or URL. A key without a note offers to create one. On a checkbox line with no link, toggles it |
 | `Alt+Left` / `Alt+Right` | Back / forward | |
-| `Ctrl+J` | Open the note's ticket | In its ticket system (Jira, GitHub, …): the note's own key, the key under the cursor, or the first key in the note |
-| `Ctrl+G` | Open an attached link | Gerrit change, PR, page, …; a picker when there are several (`1`–`9` pick directly) |
-| `Ctrl+Shift+G` | Attach a link | Paste a URL (prefilled from the clipboard); its site decides the link type |
+| `Ctrl+J` | Open the note's primary link | A 0.6 ticket note opens its ticket. Without a primary link: the only link, or a picker |
+| `Ctrl+G` | Open one of the note's links | A picker when there are several (`1`–`9` pick directly) |
+| `Ctrl+Shift+G` | Add a link | Any link, prefilled from the clipboard; it goes in the front matter's `links` |
+| `Ctrl+Shift+L` | Links panel | This note's links; again to close |
 | `Ctrl+;` | Insert timestamp | Format set in Settings → Editor |
 | `Ctrl+Shift+S` | Set status | On the note, focused sidebar row or selected Notes view row |
 | `Ctrl+Shift+T` | Add or remove tags | Same targets as status |
@@ -350,7 +368,7 @@ Also:
 |---|---|
 | `[[` | Link picker: type to filter, `Enter` inserts `[[Title]]` |
 | `Ctrl+B` / `Ctrl+I` | Bold / italic |
-| `Ctrl+Shift+V` | Paste without converting ticket or link URLs |
+| `Ctrl+Shift+V` | Paste as typed, without a link rule's formatting |
 | `Ctrl+Click` | Follow a link, key or URL with the mouse |
 | `F2` | Rename the current note (links to it are updated) |
 | `Ctrl+S` | Save now (not needed, since autosave runs anyway) |
@@ -364,13 +382,13 @@ Also:
 - **Closing:** click outside a popup or press `Esc`. Pressing `Ctrl+K` again also closes the switcher (or your configured switcher shortcut).
 - **Typing** updates the results on every keystroke. `↑`/`↓` move, `Enter` opens, `Esc` closes.
 - **Create.** When nothing matches exactly, the last row reads `Create "<query>"`.
-  - **Ticket keys:** a query that starts with a ticket key creates a ticket note, and any text after the key becomes its name. `PROJ-1234 Do this thing` creates `tickets/PROJ-1234.md` titled *PROJ-1234 Do this thing*, in the vault whose tickets `PROJ-` are. If that ticket already exists, it's the top result instead.
+  - **Links and keys:** a query that is a link, or starts with a key a link rule reads, offers **Create note from link** (any text after it is the title). See [Creating a note from a link](#creating-a-note-from-a-link). If the ticket's note already exists, it's the top result instead.
   - **Anything else** creates a regular note in the current vault, or in the vault you narrowed to.
   - **Filter words** (`#tag`, `@status`, `in:`) are left out of the title, and `#tags` are given to the new note.
 - **Every vault** is searched, the current one first; each result shows its vault. **`Tab`** cycles *All vaults → this vault → each other vault*, or completes a `#tag` while you're typing one.
 - **`Alt+A`** includes closed and archived notes, shown dimmed.
 - **`Alt+Enter`** *peeks* at a result without adding it to history.
-- **Pasting a ticket URL** (Jira, a GitHub issue, …) turns it into the ticket key.
+- **Pasting a link** keeps it as you pasted it.
 
 What matches, from strongest to weakest:
 
@@ -388,7 +406,7 @@ Typing **only digits** (for example `123`) matches every ticket key ending in th
 
 The sidebar starts as a thin rail. It shows **Today**, **Notes**, the status icons of your active notes and **Settings** — all for the current vault. With more than one vault, a colored badge under the hamburger shows which vault you're in; click it to switch. Hover over an icon to see the note's title. Click the hamburger (or press `Ctrl+\`) to expand it:
 
-- **Today** and **Notes** rows, each with its shortcut as a hint.
+- **Today**, **Notes** and **Links** rows. **Links** opens the Links panel on *All notes*.
 - **Active:** notes with an active status, ordered open, blocked, then todo, and by last edit within each. Up to 8 rows, then a **+N more** row that opens the Notes view filtered to `@active`.
 - **Recent:** the last 10 notes you opened, skipping daily notes and anything already listed.
 - Where you are is always highlighted with an accent bar and tint: **Today** on today's note, **Notes** in the Notes view, **Settings** in Settings, or the open note's row. A note not otherwise listed shows under **Open** while it's in the editor. Right-click a row to set its status.
@@ -415,7 +433,8 @@ Defaults for these are in Settings → Notes view.
 |---|---|---|
 | `[[Rollout plan]]` | The note titled "Rollout plan" (case-insensitive), in this note's vault first | Creates `notes/rollout-plan.md` in the current vault |
 | `[[work:Rollout plan]]` | That note in the *work* vault | Creates it there |
-| `[[PROJ-123]]` or bare `PROJ-123` | `tickets/PROJ-123.md`, in whichever vault has it | Creates it in the vault whose tickets `PROJ-` are |
+| `[[PROJ-123]]` | `tickets/PROJ-123.md`, in whichever vault has it | Creates it in the current vault |
+| Bare `PROJ-123` (a key a link rule reads) | Its note, if there is one | Offers to create one from the key's link |
 | `[[2026-10-22]]` | `daily/2026-10-22.md` | Creates it from the daily template |
 | `https://...` or `[text](https://...)` | Your default browser | – |
 
@@ -429,36 +448,51 @@ Previews refresh when the linked files change. You can expand further links insi
 
 **History** works like a browser. `Alt+Left` and `Alt+Right` restore each note's cursor and scroll position. It keeps the last 100 entries and is cleared when you quit.
 
-### Tickets, attached links and smart paste
+### Links and link rules
 
-Each vault can connect to the systems you use, in Settings → Vaults. A vault with neither kind is a plain notes vault: no ticket notes, no key highlighting, no extra buttons, and URLs paste as they are.
+**Every link is collected, with no setup.** A link in a note is anything Markdown reads as one: a bare `https://…` URL, `[text](https://…)`, `<https://…>`, a used `[text][ref]` reference, the front matter's `primary_link` and `links`, and a key a link rule reads (`PROJ-123`). Links in code, comments and image sources are left out, and so are internal `[[note links]]`, which work as before.
 
-**Ticket systems.** Items in these get a note each, named by key (`tickets/PROJ-123.md`). Each has a name, an icon, a **key pattern** (a regular expression) and a **URL**, where `{key}` is the key and `{n}` its number. Presets:
+**The Links panel** opens beside the editor from the header's **Links (N)** button, `Ctrl+Shift+L`, the properties row, or the sidebar's **Links** row.
 
-| Preset | Keys | URL |
-|---|---|---|
-| Jira | `[A-Z][A-Z0-9]+-\d+` (`PROJ-123`) | `https://yourco.atlassian.net/browse/{key}` |
-| GitHub issues | `GH-\d+` (`GH-42`) | `https://github.com/OWNER/REPO/issues/{n}` |
-| GitLab issues | `GL-\d+` | `https://gitlab.com/GROUP/PROJECT/-/issues/{n}` |
-| Custom | yours | yours |
+- **This note** shows the open note's links as you type, before anything is saved. Each row has a readable label (the Markdown label, else the rule's label or key, else the URL), the site and the full URL:
+  - **Open** in your browser, **Copy** the link, and **Go to source** (selects it in the text). An attached-only link has **Edit** instead.
+  - **…** makes it the **primary link** (what `Ctrl+J` opens), removes an attached link, or goes to any of the places it appears.
+  - The same URL appearing several times is one row, with a count. Case in the site name and default ports don't make a link different; anything else in the URL does.
+  - **Add link** (`Ctrl+Shift+G`) attaches any link to the note's front matter. Making another link primary keeps the old one attached unless the note still mentions it. These are edits to the note, so `Ctrl+Z` undoes them.
+- **All notes** shows the links of every vault and the notes that use them, most recently edited first. Filter by text and vault, and **Include archived** to see archived notes' links too. Click a note to open it.
+- `↑`/`↓` move between rows and `Esc` closes the panel, returning to the editor.
 
-A vault can have several. When patterns overlap, one with a fixed prefix (`GH-`) is checked first.
+**Link rules** (Settings → Links) are optional and work in every vault. Each rule recognises one service's links:
 
-**Attached links.** A note collects these in a front matter list. Each has a name, an icon, a **front matter key** and a **URL** for bare entries (`{n}` is the entry). Presets: **Gerrit** (`gerrit:`), **GitHub pull requests** (`prs:`), **GitLab merge requests** (`mrs:`), **Confluence / wiki** (`docs:`) and **Custom**.
+| Preset | Recognises | Label | Bare keys |
+|---|---|---|---|
+| Jira | `https://yourco.atlassian.net/browse/{key}`, and boards with `selectedIssue=` | `PROJ-123` | `[A-Z][A-Z0-9]+-\d+` |
+| GitHub issues / pull requests | `…/OWNER/REPO/issues/{n}`, `…/pull/{n}` | `GH-42`, `PR 42` | `GH-\d+` (issues) |
+| GitLab issues / merge requests | `…/-/issues/{n}`, `…/-/merge_requests/{n}` | `GL-42`, `MR 42` | `GL-\d+` (issues) |
+| Gerrit | `https://gerrit.example.com/c/{n}`, including `/c/project/+/{n}` | `Gerrit 12345` | – |
+| Confluence / wiki | page links with a number | `Page 123` | – |
+| YouTube (optional) | `youtube.com/watch?v=…`, `youtu.be/…` | `Video …` | – |
+| Custom | your link format | yours | optional |
 
-- **`Ctrl+J`** opens the note's ticket (or the note's `jira:` override URL).
-- **`Ctrl+Shift+G`** attaches a link: paste a URL and its site picks the link type (a bare id goes to the vault's only link type, or you pick one). **`Ctrl+G`** opens an attached link, with a picker if there are several.
-- The header and the properties row show a button for the ticket and for each kind of link the note has.
-- The app stays open behind the browser. If you'd rather it hide, turn on Settings → General → *Hide the window after opening a link*.
-- **New vaults** can start as plain notes or copy another vault's links.
+- **Setting one up:** choose a preset and paste an example link from your site; the rule adapts its link format (host, owner and repository) and shows what it recognises in **Try it**. `{key}` is the identifier and `{n}` its number. Regular expressions are under **Advanced**.
+- **More specific rules win**, so a pull request rule beats a rule for all of GitHub; ties go to the rule higher in the list. A rule never claims every page of a site just because the host matches.
+- **Bare keys** work when a rule has a key pattern. If a key could belong to two rules (say two Jira sites), you're asked which; nothing is guessed.
+- **Format pasted links** (off for new rules): pasting just one matching link inserts `[PROJ-123](https://…/PROJ-123)`. Text with several links, or anything pasted with `Ctrl+Shift+V`, goes in exactly as copied. The master switch is at the top of Settings → Links.
+- **Note template** (optional): a title, folder (default `notes`), file name, Markdown body, status and tags, using `{url}`, `{key}`, `{title}` and `{domain}`. Problems with the placeholders are shown before you save or create.
+- Editing or turning off a rule never changes links stored in notes.
 
-**Smart paste** (on by default; `Ctrl+Shift+V` always pastes as typed):
+#### Creating a note from a link
 
-| Where | You paste | Result |
-|---|---|---|
-| Switcher, `Alt+J` pop-up, Notes view search | A ticket URL from any vault (`…/browse/PROJ-123`, a Jira board link with `selectedIssue=PROJ-123`, `…/issues/42` for `GH-42`) | It becomes `PROJ-123 ` with the caret after it. If the ticket exists it's the top result. Otherwise keep typing its name, and **Create** makes `PROJ-123 <name>` |
-| Editor, any note | A ticket URL | Inserts the key, which links |
-| Editor, a ticket or general note | A URL of one of the vault's link types (same site as its URL) | Added to that list in the front matter, with an **Undo** toast |
+In `Ctrl+K`, the `Alt+J` pop-up or the Notes view, paste a link or type a key, optionally followed by a title (`PROJ-123 Investigate startup delay`), and choose **Create note from link**. Nothing is created until you confirm. The form shows:
+
+- the **vault** it goes in (the current one, or the one you narrowed to; change it here),
+- an editable **title** (from what you typed, else the key, else a name from the URL; no web requests are made),
+- the **template's result**: the heading, the file and the body. Without a template it's a plain note,
+- notes, in any vault, **already about this link** (with it as their primary link). `Enter` opens the first; **Create another note** (`Ctrl+Enter`) makes a new one anyway.
+
+The new note always keeps the link as its `primary_link`, and existing files are never overwritten (`PROJ-123-2.md`). A template is used only when creating a note: pasting a link into an existing note never changes its title, status or tags.
+
+The app stays open behind the browser when you open a link. If you'd rather it hide, turn on Settings → General → *Hide the window after opening a link*.
 
 ### Quick switcher pop-up
 
@@ -466,7 +500,7 @@ Press **`Alt+J`** from any app. A small search box appears near the top of the s
 
 - It's the same switcher as `Ctrl+K`: fuzzy search across every vault by ticket key, ticket name, title, date or text, with `@status`, `#tag` and `in:vault` filters, and your recent and active notes listed when it's empty. The vault you last used comes first, and `Tab` narrows to a vault.
 - **`Enter`** opens the selected note in the app.
-- When nothing matches, the **Create** row creates the note (in the vault you last used, or the one you narrowed to) and opens it. `PROJ-1234 Do this thing` creates a ticket with that name in the vault the key belongs to, and pasting a ticket URL gives you `PROJ-1234 ` to type the name after.
+- When nothing matches, the **Create** row creates the note (in the vault you last used, or the one you narrowed to) and opens it. A pasted link, or `PROJ-1234 Do this thing`, offers [Create note from link](#creating-a-note-from-a-link) in the pop-up first.
 - **`Esc`** (or clicking anywhere else) closes the pop-up and returns you to what you were doing.
 - `Alt+J` again while it's open closes it. You can change the key in Settings → General.
 
@@ -476,7 +510,8 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 
 - Both windows show the same live text. You can type in either, and the edits merge.
 - Drag it by its title bar. The pin icon turns always-on-top off and on, and **×** closes it. `Esc` does nothing here, so it can't be closed by accident.
-- `Ctrl+;`, `Ctrl+J`, `Ctrl+G`, `Ctrl+Shift+S`, `Ctrl+Shift+T` and `Ctrl+Enter` work inside it. Links open in the main window.
+- `Ctrl+;`, `Ctrl+J`, `Ctrl+G`, `Ctrl+Shift+G`, `Ctrl+Shift+S`, `Ctrl+Shift+T` and `Ctrl+Enter` work inside it. Note links open in the main window.
+- The link button in its title bar (or `Ctrl+Shift+L`) shows the note's Links panel over the text; `Esc` closes it.
 - Up to 5 notes can be pinned. Each window's position and size are remembered per note, and pinned windows come back at login (Settings → General).
 - The tray menu has a **Pinned notes** submenu to focus or close each one.
 - If the note is renamed or archived, the window follows it.
@@ -519,10 +554,11 @@ Press **`Ctrl+,`** (or click the sidebar's gear, or use **Settings** in the tray
 | Category | Options |
 |---|---|
 | General | Launch at login · Start hidden in tray · Restore pinned notes · What opens on summon · Show/hide hotkey and quick switcher hotkey (press the keys to set; a key another app owns is refused) · Hide after opening a link |
-| Vaults | Each vault's name, color and folder · Its ticket systems and attached link types (presets or custom; name, icon, key pattern or front matter key, URL with a live preview) · Open its folder · Reorder · Remove · Add a vault (plain, or with another vault's links) |
+| Vaults | Each vault's name, color and folder · Open its folder · Reorder · Remove · Add a vault |
+| Links | Format pasted links · Link rules for every vault: preset, name, icon, on/off, link format with **Try it**, bare keys, paste format and label, note template, advanced match pattern · Reorder · Remove (with Undo) |
 | Window | Show in taskbar · Always on top · Sidebar expanded |
-| Editor | Live formatting · Comfortable line width · Font and size · Line height · Spell check · Smart paste · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
-| Notes | Default status for new tickets · Daily note template (per vault) |
+| Editor | Live formatting · Comfortable line width · Font and size · Line height · Spell check · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
+| Notes | Default status for new key notes (from a `[[KEY]]` link) · Daily note template (per vault) |
 | Notes view | Show daily notes · Show closed notes · Default sort · Group by (none, status, tag) |
 | Statuses | Icon, name, color and *active* flag of each status · Reorder · Add · Remove |
 | Tags | Every tag with its note count · Color · Rename or remove on every note (with Undo) |
@@ -535,7 +571,9 @@ Most categories have **Reset to defaults**. The footer opens `settings.json` and
 
 | Key | Default |
 |---|---|
-| `vaults` | `[{ "id": "personal", "name": "Personal", "path": "", "color": "blue", "tickets": [], "links": [] }]`. `path` empty means `Documents\StashNotes`, and `~` is your user folder. `tickets` entries are `{ "name", "icon", "pattern", "url" }`, `links` entries are `{ "name", "icon", "field", "url" }` |
+| `vaults` | `[{ "id": "personal", "name": "Personal", "path": "", "color": "blue" }]`. `path` empty means `Documents\StashNotes`, and `~` is your user folder |
+| `linkRules` | `[]`. Each rule is `{ "id", "name", "icon", "enabled", "url", "pattern", "keyPattern", "label", "pasteFormat", "template": { "enabled", "title", "folder", "filename", "body", "status", "tags" } }` |
+| `legacyLinks` | Written by the 0.7 upgrade: each vault's 0.6 ticket systems and link types, kept so old links keep their destinations. Leave it alone |
 | `hotkey` / `switcherHotkey` | `Alt+N` / `Alt+J` |
 | `onSummon` | `last` (or `daily`) |
 | `startHidden`, `autostart`, `restorePinned` | `true` |
@@ -553,7 +591,7 @@ Most categories have **Reset to defaults**. The footer opens `settings.json` and
 | `keys.*` | see [Keyboard shortcuts](#keyboard-shortcuts). `pinNote` is a two-key chord like `"Ctrl+E P"` |
 | `schemaVersion` | managed by the app |
 
-Key patterns are regular expressions: escape backslashes in JSON (`"[A-Z]+-\\d+"`).
+Key and match patterns are regular expressions: escape backslashes in JSON (`"[A-Z]+-\\d+"`).
 
 `session.json` in the same folder holds the current vault, the last open note (overall and per vault), recently opened notes, pinned windows and the sidebar state. It's safe to delete.
 
@@ -567,7 +605,7 @@ Key patterns are regular expressions: escape backslashes in JSON (`"[A-Z]+-\\d+"
 - **Crash-safe writes:** each save goes to a temporary file that's then renamed over the original. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
 - **External changes:** if a note changes on disk while it has no unsaved edits, it reloads silently in every window. If it has unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
 - **Recoverable file actions.** Archiving and closing move files. Renaming rewrites links and offers **Undo**. Deleting asks for confirmation, offers **Undo**, and keeps a recovery copy in the vault's hidden `.trash/` folder.
-- **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten.
+- **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten (looking at a note's links never changes it).
 - **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside a vault folder. Only `http`/`https` URLs can be opened.
 
 ---
@@ -622,7 +660,7 @@ stash-notes/
 │   ├── App.svelte              Main window: navigation, views, keyboard handling
 │   ├── PinnedApp.svelte        A pinned note window
 │   ├── QuickApp.svelte         The Alt+J quick switcher pop-up
-│   ├── components/             Header, Sidebar, Switcher, NotesView, SettingsView, Backlinks,
+│   ├── components/             Header, Sidebar, Switcher, NotesView, SettingsView, Backlinks, LinksPanel, LinkCreate,
 │   │                           StatusPicker, KeyRecorder, Help, Prompt, Picker, StatusIcon,
 │   │                           Icon, Highlight, Toasts, EmptyState, TagPicker, TagChip, VaultTag
 │   └── lib/
@@ -631,12 +669,12 @@ stash-notes/
 │       ├── editor.ts           CodeMirror setup: decorations, theme, [[ link picker
 │       ├── live.ts             Live markdown formatting and the front matter row
 │       ├── page-links.ts/.css  Collapsible linked-page previews and their presentation
-│       ├── text.ts             Link/key detection, checkboxes, timestamps, smart paste
+│       ├── text.ts             Link/key under the cursor, checkboxes, timestamps
 │       ├── keys.ts             Shortcut parsing, matching, chords and recording
 │       ├── history.ts          Back/forward history
 │       ├── icons.ts            The Lucide icons the app uses, by name
 │       ├── highlight.ts        Which letters of a result to highlight
-│       ├── links.ts            Ticket systems and link types: presets, pasted URLs, URLs to open
+│       ├── links.ts            Link rule presets, example-link adaptation, keys to highlight
 │       ├── motion.ts           Animation setting and the shared pop-in transitions
 │       ├── toasts.svelte.ts    Toast queue (timers, pause on hover, sticky errors)
 │       ├── status.ts / appearance.ts
@@ -654,15 +692,16 @@ stash-notes/
 │   │   ├── hotkey.rs           Global hotkeys
 │   │   └── state.rs            Shared state and session persistence
 │   ├── core/                   `stash-core` (no Tauri dependency; unit tested)
-│   │   ├── src/                vault, index & search, query filters (@ # in:), notes,
-│   │   │                       front matter, statuses, change sets, dates, settings
+│   │   ├── src/                vault, index & search, query filters (@ # in:), notes, links
+│   │   │                       (extraction, rules, templates), front matter, statuses,
+│   │   │                       change sets, dates, settings (with migrations)
 │   │   └── tests/perf.rs       5,000-note performance check
 │   ├── capabilities/           Webview permissions (core events and window dragging only)
 │   └── tauri.conf.json         Windows, bundle and security config
 └── .github/workflows/          CI: tests on Linux, installer on Windows, releases
 ```
 
-**Architecture.** Rust owns the files, the search index, the windows and the text of every open note. The web UI draws and sends commands. At startup, Rust scans the notes folder into an in-memory index in a background thread, then watches the folder (and `settings.json`) for changes. Each window opens a note with `buffer_open` and pushes its edits as CodeMirror change sets (`buffer_push`). Rust applies them to the one buffer, broadcasts them to every window showing the note (`buffer-updates`) and autosaves. Other commands cover search (`search`, `list_notes`, `sidebar`, `backlinks`), notes (`create_note`, `set_status`, `archive_note`, `rename_note`), pinned notes, the pop-up and settings. Fuzzy matching uses the [`nucleo`](https://github.com/helix-editor/nucleo) matcher.
+**Architecture.** Rust owns the files, the search index, the windows and the text of every open note. The web UI draws and sends commands. At startup, Rust scans the notes folder into an in-memory index in a background thread, then watches the folder (and `settings.json`) for changes. Each window opens a note with `buffer_open` and pushes its edits as CodeMirror change sets (`buffer_push`). Rust applies them to the one buffer, broadcasts them to every window showing the note (`buffer-updates`) and autosaves. Other commands cover search (`search`, `list_notes`, `sidebar`, `backlinks`), notes (`create_note`, `set_status`, `archive_note`, `rename_note`), links (`note_links`, `all_links`, `link_meta_edit`, `link_preview`, `create_from_link`), pinned notes, the pop-up and settings. Links are read from the Markdown with [`pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark). Fuzzy matching uses the [`nucleo`](https://github.com/helix-editor/nucleo) matcher.
 
 ### Useful commands
 
@@ -699,9 +738,11 @@ To publish a new version, bump `version` in `package.json`, `src-tauri/Cargo.tom
 
 **The window appears but typing goes to the previous app.** Windows sometimes refuses focus to a window brought up by a background process. Stash Notes works around this. If it still happens, press the hotkey once more, and please open an issue.
 
-**Jira/Gerrit open the wrong site.** Set the URLs of the vault's ticket systems and link types in Settings → Vaults (each shows a preview).
+**A key or link opens the wrong site.** Check the rule's link format in Settings → Links; **Try it** shows where a key or link goes. Links written into notes as full URLs always open exactly as written.
 
-**My ticket keys aren't highlighted, or `Ctrl+J` does nothing.** Ticket keys only exist in vaults with a ticket system, and must match its key pattern (Settings → Vaults). Lower-case keys typed in the switcher are upper-cased for you.
+**My keys aren't highlighted, or `Ctrl+J` does nothing.** Keys need a link rule with **Recognise bare keys** on (Settings → Links). `Ctrl+J` opens the note's primary link, else its only link; a note with none says so.
+
+**My link isn't in the Links panel.** Links in code (`` `…` `` or fenced blocks), comments and image sources are left out on purpose, and a URL needs `https://` or `http://`.
 
 **A note I know exists isn't in the sidebar or Notes view.** They show the current vault. Search (`Ctrl+K`) covers every vault; opening the note switches to its vault.
 
@@ -723,7 +764,7 @@ Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. W
 - **Closed notes are archived.** Setting *closed* also moves the note into `archive/`, and reopening moves it back (owner's choice on the spec's open question).
 - **Sidebar.** A thin rail with a hamburger that expands into the full sidebar (owner's choice). The expanded state is remembered.
 - **No in-app updater.** The spec's auto-update section is left out at the owner's request. Installing a newer version replaces the old one in place, and only the per-user NSIS installer is shipped, so there's never a second copy. The update-related settings (*Check for updates*, *Install automatically*) and the pre-update vault snapshot are therefore not present.
-- **Jira and Gerrit are presets, not built in** (owner's request for 0.5): each vault chooses its ticket systems and link types, so a personal vault can be plain notes. Their URLs default to placeholders; set yours in Settings → Vaults.
+- **Links are collected, not configured** (0.7 spec): any link works without setup, and link rules (global, in Settings → Links) only add labels, paste formatting and templates. Jira and the rest are presets with placeholder URLs; an example link adapts them to your site. The 0.6 per-vault configuration is kept read-only so old links never change destination.
 - **Vaults** (0.5, owner's design): one current vault drives the sidebar, Notes view, Today and new notes; opening a note from another vault switches with it; search covers all vaults (current first) and narrows with `in:` or `Tab`. Daily notes are per vault. Notes can be moved between vaults through file actions, and statuses are shared by all vaults.
 - **Vault ids** are fixed when a vault is created so that `in:work`, `[[work:Note]]` and saved note paths keep working after a rename.
 - **Switching vault is `Ctrl+Shift+O`**, not `Ctrl+Shift+V`, which is plain paste.
