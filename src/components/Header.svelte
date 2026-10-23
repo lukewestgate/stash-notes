@@ -19,6 +19,8 @@
     onBack: () => void;
     onForward: () => void;
     onPrimary: () => void;
+    /** The Links panel shows this note's links. */
+    linksOn: boolean;
     onLinks: () => void;
     onSwitcher: () => void;
     /** The current note is open in a pinned window. */
@@ -41,6 +43,7 @@
     onBack,
     onForward,
     onPrimary,
+    linksOn,
     onLinks,
     onSwitcher,
     pinned,
@@ -107,7 +110,7 @@
       </button>
     {/if}
     {#if meta}
-      <button class="action" onclick={onLinks} title="This note's links ({formatKey(keys.linksPanel)})" aria-label="Links ({links.length})">
+      <button class="action" class:on={linksOn} onclick={onLinks} title="This note's links ({formatKey(keys.linksPanel)})" aria-label="Links ({links.length})" aria-pressed={linksOn}>
         <Icon name="link" size={15} /><span>Links ({links.length})</span>
       </button>
       <button class="action icon" onclick={onImage} title="Insert image (or paste / drop an image)" aria-label="Insert image">

@@ -5,9 +5,11 @@
   import { EditorState, type Extension } from "@codemirror/state";
   import { EditorView } from "@codemirror/view";
   import { completionStatus } from "@codemirror/autocomplete";
+  import { undo } from "@codemirror/commands";
   import Header from "./components/Header.svelte";
   import Switcher from "./components/Switcher.svelte";
   import Backlinks from "./components/Backlinks.svelte";
+  import LinksPanel from "./components/LinksPanel.svelte";
   import Help from "./components/Help.svelte";
   import Prompt from "./components/Prompt.svelte";
   import NoteActions from "./components/NoteActions.svelte";
@@ -19,7 +21,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import { applyAppearance } from "./lib/appearance";
-  import { api, on, onWindowFocus, type Keys, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type LinkSource, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import {
@@ -67,6 +69,10 @@
   let dirty = $state(false);
   /** The open note's links, as its text is now (see refreshLinks). */
   let noteLinks = $state<NoteLink[]>([]);
+  /** The Links panel beside the editor, and which links it shows. */
+  let linksOpen = $state(false);
+  let linksScope = $state<"note" | "all">("note");
+  let linksPanel = $state<LinksPanel>();
   /** Paths of notes open in pinned windows. */
   let pinnedPaths = $state<string[]>([]);
   let backlinkItems = $state<SearchHit[]>([]);
@@ -554,6 +560,86 @@
     };
   }
 
+  // ---------- the Links panel ----------
+
+  /** Show the panel on `scope`; again (from the header or its shortcut) hides it. */
+  function toggleLinks(scope: "note" | "all", toggle = true) {
+    if (toggle && linksOpen && linksScope === scope) return closeLinks();
+    linksScope = scope;
+    linksOpen = true;
+    if (scope === "note") refreshLinks(true);
+    requestAnimationFrame(() => linksPanel?.focusFirst());
+  }
+
+  function closeLinks() {
+    linksOpen = false;
+    requestAnimationFrame(() => !overlay && focusMain());
+  }
+
+  /** Put the caret on a link where it appears in the note. */
+  function goToSource(s: LinkSource) {
+    if (!currentPath) return;
+    screen = "editor";
+    if (sideOverlay) linksOpen = false;
+    const len = view.state.doc.length;
+    view.dispatch({ selection: { anchor: Math.min(s.from, len), head: Math.min(s.to, len) }, effects: EditorView.scrollIntoView(Math.min(s.from, len), { y: "center" }) });
+    view.focus();
+  }
+
+  async function copyLink(url: string) {
+    try {
+      await api.writeClipboard(url);
+      done("Link copied");
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** Change an attached (front matter only) link. */
+  function editAttached(link: NoteLink) {
+    overlay = {
+      type: "prompt",
+      title: "Edit attached link",
+      value: link.url,
+      submit: async (value) => {
+        closeOverlay();
+        if (!isUrl(value)) return toast("That isn't a link — it needs to start with https:// or http://", undefined, "warn");
+        try {
+          await editLinks({ op: "replace", url: [link.url, value.trim()] });
+        } catch (e) {
+          fail(e);
+        }
+      },
+    };
+  }
+
+  /** Primary link, removal and every place a link appears. */
+  function linkActions(link: NoteLink) {
+    const run = (edit: MetaEdit, said: string) => async () => {
+      closeOverlay();
+      const path = currentPath;
+      try {
+        if (!(await editLinks(edit))) return;
+        done(said, { label: "Undo", run: () => path === currentPath && (undo(view), flush()) });
+      } catch (e) {
+        fail(e);
+      }
+    };
+    const items: { label: string; detail?: string; run: () => void }[] = [];
+    if (!link.primary) items.push({ label: "Make it the primary link", detail: `${formatKey(settings?.keys.openTicket ?? "")} opens it`, run: run({ op: "primary", url: link.url }, "Primary link set") });
+    else if (link.sources.some((s) => s.kind === "primary")) items.push({ label: "Stop using it as the primary link", run: run({ op: "clearPrimary" }, "No primary link") });
+    if (link.sources.every((s) => s.kind === "attached")) {
+      items.push({ label: "Edit attached link", run: () => editAttached(link) });
+      items.push({ label: "Remove from this note", run: run({ op: "remove", url: link.url }, "Link removed") });
+    }
+    for (const s of link.sources) {
+      const kind = { body: "in the text", key: "key", attached: "attached link", primary: "primary link", legacy: "front matter", ticket: "the ticket's own key" }[s.kind];
+      items.push({ label: `Go to line ${s.line}`, detail: s.field ? `${kind} · ${s.field}` : kind, run: () => (closeOverlay(), goToSource(s)) });
+    }
+    items.push({ label: "Copy link", detail: link.url, run: () => (closeOverlay(), copyLink(link.url)) });
+    overlay = { type: "picker", title: link.label, items, choose: (i) => items[i].run() };
+  }
+
   // ---------- paste ----------
 
   /** Set by Ctrl+Shift+V: the next paste goes in as typed. */
@@ -994,7 +1080,7 @@
     openTicket: openPrimary,
     openLink,
     addLink,
-    linksPanel: openLink,
+    linksPanel: () => toggleLinks("note"),
     timestamp: insertTimestamp,
     backlinks: () => {
       backlinksOpen = !backlinksOpen;
@@ -1083,6 +1169,11 @@
     if (is("hide")) {
       // Let the link picker close itself first.
       if (view && completionStatus(view.state) !== null) return;
+      if (linksOpen && document.activeElement?.closest(".links")) {
+        stop();
+        closeLinks();
+        return;
+      }
       stop();
       if (sidebarHasFocus()) {
         if (sideOverlay) sideExpanded = false;
@@ -1095,6 +1186,10 @@
       }
       if (screen === "notes") {
         leaveNotesView();
+        return;
+      }
+      if (linksOpen) {
+        closeLinks();
         return;
       }
       if (backlinksOpen) {
@@ -1170,7 +1265,7 @@
       onTag: showTag,
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onPrimary: openPrimary,
-      onLinks: openLink,
+      onLinks: () => toggleLinks("note", false),
       links: () => {
         const p = noteLinks.find((l) => l.primary);
         return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
@@ -1293,6 +1388,8 @@
       onResize={setSideWidth}
       onToday={openDaily}
       onNotes={(q) => openNotesView(q)}
+      linksOn={linksOpen && linksScope === "all"}
+      onLinks={() => toggleLinks("all")}
       onSettings={() => toggleSettings()}
       onOpen={(p) => navigate(p)}
       onActions={noteActions}
@@ -1316,7 +1413,8 @@
       onBack={back}
       onForward={forward}
       onPrimary={openPrimary}
-      onLinks={openLink}
+      linksOn={linksOpen && linksScope === "note"}
+      onLinks={() => toggleLinks("note")}
       onSwitcher={openSwitcher}
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}
@@ -1391,6 +1489,32 @@
     />
   {/if}
   </div>
+
+  {#if linksOpen && settings}
+    <div class="linkside" class:float={sideOverlay}>
+      <LinksPanel
+        bind:this={linksPanel}
+        scope={linksScope}
+        links={noteLinks}
+        noteTitle={currentPath && meta ? (meta.label ? `${meta.title} ${meta.label}` : meta.title) : null}
+        vaults={settings.vaults}
+        keys={settings.keys}
+        version={listVersion}
+        onScope={(sc) => toggleLinks(sc, false)}
+        onOpenUrl={openExternal}
+        onCopy={copyLink}
+        onGoTo={goToSource}
+        onEdit={editAttached}
+        onMore={linkActions}
+        onAdd={addLink}
+        onOpenNote={(p) => {
+          if (sideOverlay) linksOpen = false;
+          navigate(p);
+        }}
+        onClose={closeLinks}
+      />
+    </div>
+  {/if}
 
   {#if overlay?.type === "noteActions"}
     {@const target = overlay.target}
@@ -1476,6 +1600,18 @@
   .editor :global(.cm-editor) {
     flex: 1;
     min-width: 0;
+  }
+  .linkside {
+    display: flex;
+    min-height: 0;
+  }
+  .linkside.float {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 16;
+    box-shadow: var(--shadow);
   }
   .conflict {
     display: flex;

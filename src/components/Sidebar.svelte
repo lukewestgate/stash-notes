@@ -29,6 +29,9 @@
     onResize: (width: number) => void;
     onToday: () => void;
     onNotes: (query?: string) => void;
+    /** The Links panel shows every note's links. */
+    linksOn: boolean;
+    onLinks: () => void;
     onSettings: () => void;
     onOpen: (path: string) => void;
     onActions: (hit: SearchHit) => void;
@@ -54,6 +57,8 @@
     onResize,
     onToday,
     onNotes,
+    linksOn,
+    onLinks,
     onSettings,
     onOpen,
     onActions,
@@ -64,6 +69,7 @@
   type Item =
     | { kind: "today" }
     | { kind: "notes" }
+    | { kind: "links" }
     | { kind: "more" }
     | { kind: "settings" }
     | { kind: "note"; hit: SearchHit };
@@ -81,6 +87,7 @@
   const items = $derived<Item[]>([
     { kind: "today" },
     { kind: "notes" },
+    { kind: "links" },
     ...(openHit ? [{ kind: "note" as const, hit: openHit }] : []),
     ...active.map((hit) => ({ kind: "note" as const, hit })),
     ...(more > 0 ? [{ kind: "more" as const }] : []),
@@ -109,6 +116,8 @@
         return onToday();
       case "notes":
         return onNotes();
+      case "links":
+        return onLinks();
       case "more":
         return onNotes("@active");
       case "settings":
@@ -156,7 +165,7 @@
 </script>
 
 {#snippet icon(kind: string)}
-  <Icon name={{ today: "calendar", notes: "list" }[kind] ?? kind} size={18} />
+  <Icon name={{ today: "calendar", notes: "list", links: "link" }[kind] ?? kind} size={18} />
 {/snippet}
 
 {#snippet row(it: Item, label: string, ico: string, hint: string, isCurrent: boolean)}
@@ -244,12 +253,13 @@
     {/if}
     {@render row(items[0], "Today", "today", formatKey(keys.dailyNote), isToday)}
     {@render row(items[1], "Notes", "notes", formatKey(keys.notesView), screen === "notes")}
+    {@render row(items[2], "Links", "links", "all notes", linksOn)}
   </div>
 
   <div class="groups">
     {#if openHit}
       {#if expanded}<div class="group">Open</div>{:else}<div class="sep"></div>{/if}
-      {@render noteRow(items[2] as Item & { kind: "note" })}
+      {@render noteRow(items[3] as Item & { kind: "note" })}
     {/if}
     {#if active.length}
       {#if expanded}<div class="group">Active</div>{:else}<div class="sep"></div>{/if}

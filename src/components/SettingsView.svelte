@@ -1113,9 +1113,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .tryit .lpreview {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: min(380px, 50vw);
+  }
   .lpreview :global(.icon) {
     color: var(--ok);
-    vertical-align: -2px;
+    flex-shrink: 0;
   }
   .lpreview .bad {
     color: var(--c-red);

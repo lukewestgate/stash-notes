@@ -9,7 +9,9 @@
   import StatusPicker from "./components/StatusPicker.svelte";
   import TagPicker from "./components/TagPicker.svelte";
   import Picker from "./components/Picker.svelte";
-  import { api, on, type NoteLink, type NoteMeta, type Settings, type TagCount } from "./lib/api";
+  import Prompt from "./components/Prompt.svelte";
+  import LinksPanel from "./components/LinksPanel.svelte";
+  import { api, on, type LinkSource, type MetaEdit, type NoteLink, type NoteMeta, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import { decoConfig, editorExtensions, editorState, refreshDecorations, setEditorDark, setSpellCheck } from "./lib/editor";
@@ -31,8 +33,12 @@
     | { type: "status" }
     | { type: "tags"; all: TagCount[] }
     | { type: "links"; items: { label: string; detail?: string }[]; urls: string[] }
+    | { type: "actions"; title: string; items: { label: string; detail?: string; run: () => void }[] }
+    | { type: "prompt"; title: string; value: string; submit: (v: string) => void }
     | null
   >(null);
+  /** The Links panel, over the editor (this window is small). */
+  let linksOpen = $state(false);
   let chordPending = false;
   /** The note's links, as its text is now. */
   let noteLinks = $state<NoteLink[]>([]);
@@ -162,6 +168,79 @@
     else say("No links in this note yet");
   }
 
+  // ---------- the Links panel ----------
+
+  function toggleLinks() {
+    linksOpen = !linksOpen;
+    if (linksOpen) refreshLinks(true);
+    else view.focus();
+  }
+
+  function closeLinks() {
+    linksOpen = false;
+    view.focus();
+  }
+
+  async function editLinks(edit: MetaEdit): Promise<boolean> {
+    if (!path) return false;
+    const change = await api.linkMetaEdit(path, view.state.doc.toString(), edit);
+    if (!change) return false;
+    view.dispatch({ changes: change, userEvent: "input.links" });
+    await sync?.drain();
+    refreshLinks(true);
+    return true;
+  }
+
+  function goToSource(s: LinkSource) {
+    linksOpen = false;
+    const len = view.state.doc.length;
+    view.dispatch({ selection: { anchor: Math.min(s.from, len), head: Math.min(s.to, len) }, effects: EditorView.scrollIntoView(Math.min(s.from, len), { y: "center" }) });
+    view.focus();
+  }
+
+  function copyLink(url: string) {
+    api.writeClipboard(url).then(() => say("Link copied"), (e) => say(String(e)));
+  }
+
+  function addLink() {
+    overlay = {
+      type: "prompt",
+      title: "Add a link to this note",
+      value: "",
+      submit: (value) => {
+        overlay = null;
+        if (!isUrl(value)) return say("That isn't a link (https://…)");
+        editLinks({ op: "add", url: value.trim() }).then((added) => say(added ? "Link added" : "Already there"), (e) => say(String(e)));
+      },
+    };
+  }
+
+  function editAttached(link: NoteLink) {
+    overlay = {
+      type: "prompt",
+      title: "Edit attached link",
+      value: link.url,
+      submit: (value) => {
+        overlay = null;
+        if (!isUrl(value)) return say("That isn't a link (https://…)");
+        editLinks({ op: "replace", url: [link.url, value.trim()] }).catch((e) => say(String(e)));
+      },
+    };
+  }
+
+  function linkActions(link: NoteLink) {
+    const run = (edit: MetaEdit) => () => {
+      overlay = null;
+      editLinks(edit).then((changed) => changed && say("Done — Ctrl+Z undoes it"), (e) => say(String(e)));
+    };
+    const items: { label: string; detail?: string; run: () => void }[] = [];
+    if (!link.primary) items.push({ label: "Make it the primary link", run: run({ op: "primary", url: link.url }) });
+    else if (link.sources.some((s) => s.kind === "primary")) items.push({ label: "Stop using it as the primary link", run: run({ op: "clearPrimary" }) });
+    if (link.sources.every((s) => s.kind === "attached")) items.push({ label: "Remove from this note", run: run({ op: "remove", url: link.url }) });
+    for (const s of link.sources) items.push({ label: `Go to line ${s.line}`, detail: s.field ?? s.kind, run: () => ((overlay = null), goToSource(s)) });
+    overlay = { type: "actions", title: link.label, items };
+  }
+
   async function setStatus(status: string | null) {
     overlay = null;
     if (!path) return;
@@ -214,6 +293,11 @@
       }
       return;
     }
+    if (linksOpen && e.key === "Escape") {
+      stop();
+      closeLinks();
+      return;
+    }
     const chord = parseChord(k.pinNote);
     if (chordPending) {
       chordPending = false;
@@ -245,6 +329,12 @@
     } else if (is(k.openLink)) {
       stop();
       openLink();
+    } else if (is(k.linksPanel)) {
+      stop();
+      toggleLinks();
+    } else if (is(k.addLink)) {
+      stop();
+      addLink();
     } else if (is(k.setStatus)) {
       stop();
       if (meta?.kind !== "daily") overlay = { type: "status" };
@@ -294,7 +384,10 @@
       onTag: (t) => api.openInMain(`::notes#${t}`),
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onPrimary: openPrimary,
-      onLinks: openLink,
+      onLinks: () => {
+        linksOpen = true;
+        refreshLinks(true);
+      },
       links: () => {
         const p = noteLinks.find((l) => l.primary);
         return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
@@ -355,6 +448,9 @@
         <b data-tauri-drag-region>{meta.title}</b>{#if meta.label}<span class="label" data-tauri-drag-region> {meta.label}</span>{/if}
       {/if}
     </span>
+    <button class="links-btn" class:on={linksOpen} onclick={toggleLinks} title="This note's links" aria-label="Links ({noteLinks.length})" aria-pressed={linksOpen} disabled={!path}>
+      <Icon name="link" size={13} />{noteLinks.length}
+    </button>
     <button class="icon" onclick={() => pickImages(view, { path: () => path, imageError: say })} title="Insert image (or paste / drop an image)" aria-label="Insert image" disabled={!path}>
       <Icon name="image-plus" size={14} />
     </button>
@@ -382,6 +478,29 @@
 
   <div class="editor" bind:this={editorEl}></div>
 
+  {#if linksOpen && settings}
+    <div class="panel">
+      <LinksPanel
+        compact
+        scope="note"
+        links={noteLinks}
+        noteTitle={meta?.title ?? null}
+        vaults={settings.vaults}
+        keys={settings.keys}
+        version={0}
+        onScope={() => {}}
+        onOpenUrl={(url) => api.openUrl(url).catch((e) => say(String(e)))}
+        onCopy={copyLink}
+        onGoTo={goToSource}
+        onEdit={editAttached}
+        onMore={linkActions}
+        onAdd={addLink}
+        onOpenNote={(p) => api.openInMain(p)}
+        onClose={closeLinks}
+      />
+    </div>
+  {/if}
+
   {#if message}<div class="message">{message}</div>{/if}
 
   {#if overlay?.type === "status" && settings}
@@ -399,11 +518,18 @@
   {:else if overlay?.type === "links"}
     {@const o = overlay}
     <Picker title="Open link" items={o.items} onChoose={(i) => { overlay = null; api.openUrl(o.urls[i]); }} onClose={closeOverlay} />
+  {:else if overlay?.type === "actions"}
+    {@const o = overlay}
+    <Picker title={o.title} items={o.items} onChoose={(i) => o.items[i].run()} onClose={closeOverlay} />
+  {:else if overlay?.type === "prompt"}
+    {@const o = overlay}
+    <Prompt title={o.title} value={o.value} placeholder="https://…" onSubmit={o.submit} onClose={closeOverlay} />
   {/if}
 </main>
 
 <style>
   .pinned {
+    position: relative;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -450,6 +576,38 @@
   }
   .icon.off {
     opacity: 0.45;
+  }
+  .links-btn {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    height: 22px;
+    padding: 0 5px;
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--fg-muted);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .links-btn:hover,
+  .links-btn.on {
+    background: var(--hover);
+    color: var(--fg);
+  }
+  .panel {
+    position: absolute;
+    top: 28px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    z-index: 5;
+    background: var(--bg-raised);
+  }
+  .panel > :global(.links) {
+    flex: 1;
   }
   .editor {
     flex: 1;

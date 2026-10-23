@@ -2,7 +2,7 @@
 // imported one by one so only these end up in the bundle.
 
 import {
-  BookOpen, FileCode, FolderInput, GitBranch, GitMerge, Globe, Link, MessageSquare, Ellipsis, Pencil,
+  BookOpen, Copy, CornerDownRight, FileCode, FolderInput, GitBranch, GitMerge, Globe, Link, MessageSquare, Ellipsis, Pencil,
   Archive, ArrowDown, ArrowUp, Bookmark, Bug, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleHelp, CirclePause, CirclePlay, CircleSlash,
   CircleX, Clock, Diamond, ExternalLink, Eye, FilePlus, FileText, Flag, Flame, GitPullRequest, Hourglass,
@@ -20,6 +20,8 @@ const ICONS = {
   "arrow-up": ArrowUp,
   bookmark: Bookmark,
   "book-open": BookOpen,
+  copy: Copy,
+  "corner-down-right": CornerDownRight,
   "file-code": FileCode,
   "git-branch": GitBranch,
   "git-merge": GitMerge,
