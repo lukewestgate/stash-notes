@@ -7,6 +7,7 @@ description = "Vault, index and search logic for Stash Notes (no UI or Tauri dep
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 nucleo-matcher = "0.3"
+pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
