@@ -1,6 +1,6 @@
 [package]
 name = "stash-notes"
-version = "0.5.0"
+version = "0.6.0"
 description = "Keyboard-first, always-resident notepad for work"
 authors = ["Luke Westgate"]
 edition = "2021"
