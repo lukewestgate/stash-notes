@@ -315,13 +315,13 @@ fn ticket_vault(state: &AppState, key: &str, preferred: &str) -> String {
 /// Get the path for `target` (ticket key, date or title), creating the note
 /// in vault `vault` if needed. Existing notes are looked up there first,
 /// then in the other vaults; `work:Target` names the vault.
-pub fn ensure_note(state: &AppState, target: &str, vault: &str) -> Res<String> {
+fn ensure_note(state: &AppState, target: &str, vault: &str) -> Res<CreatedNote> {
     let target = target.trim();
     if target.is_empty() {
         return Err("empty note name".into());
     }
     if let Some(p) = state.index.read().unwrap().resolve(target, vault) {
-        return Ok(p);
+        return Ok(CreatedNote { path: p, created: false });
     }
     let (qualified, target) = note::split_target(target);
     let vault = qualified.filter(|v| state.vault(v).is_some()).unwrap_or(vault);
@@ -346,27 +346,43 @@ fn key_anywhere(state: &AppState, text: &str) -> Option<String> {
     ids.iter().find_map(|id| index.tickets_for(id).as_key(text))
 }
 
-/// Create `rel` in vault `id` with `content` unless it exists (the index may
-/// still be building; never overwrite a file), index it, and return its path.
-fn create_file(state: &AppState, id: &str, rel: &str, content: &str) -> Res<String> {
+/// Distinguish a newly created file from an existing note that was opened.
+struct CreatedNote {
+    path: String,
+    created: bool,
+}
+
+/// Create and index a note, retaining whether a file was actually created.
+fn create_file(state: &AppState, id: &str, rel: &str, content: &str) -> Res<CreatedNote> {
     let v = vault_or_err(state, id)?;
     let path = note::join_path(id, rel);
-    let text = if v.create_if_missing(rel, content).map_err(err)? { content.to_string() } else { v.read(rel).map_err(err)? };
+    let created = v.create_if_missing(rel, content).map_err(err)?;
+    let text = if created { content.to_string() } else { v.read(rel).map_err(err)? };
     state.index.write().unwrap().upsert(&path, &text, v.mtime(rel));
-    Ok(path)
+    Ok(CreatedNote { path, created })
+}
+
+fn announce_creation(app: &AppHandle, state: &AppState, note: &CreatedNote) {
+    if note.created {
+        if let Ok(text) = state.read_note(&note.path) {
+            let _ = app.emit_to(window::MAIN, "note-created", meta_for(state, &note.path, &text));
+        }
+    }
 }
 
 /// Follow a `[[link]]` or ticket key in the note at `from`: the existing
 /// note, or a new one in the current vault.
 #[tauri::command]
-pub fn resolve_link(state: State<AppState>, target: String, from: Option<String>) -> Res<String> {
+pub fn resolve_link(app: AppHandle, state: State<AppState>, target: String, from: Option<String>) -> Res<String> {
     let from_vault = from.as_deref().map(|p| note::split_path(p).0.to_string()).filter(|v| !v.is_empty());
     let current = state.current_vault();
     // Look in the linking note's vault first; a new note goes in the current vault.
     if let Some(p) = state.index.read().unwrap().resolve(&target, from_vault.as_deref().unwrap_or(&current)) {
         return Ok(p);
     }
-    ensure_note(&state, &target, &current)
+    let note = ensure_note(&state, &target, &current)?;
+    announce_creation(&app, &state, &note);
+    Ok(note.path)
 }
 
 #[derive(Serialize)]
@@ -403,17 +419,17 @@ pub fn note_preview(state: State<AppState>, buffers: State<buffers::Buffers>, ta
 #[tauri::command]
 pub fn create_note(app: AppHandle, state: State<AppState>, title: String, vault: String) -> Res<String> {
     let q = stash_core::query::Query::parse(&title);
-    let existed = state.index.read().unwrap().resolve(q.text.trim(), &vault).is_some();
-    let path = create_titled(&state, q.text.trim(), &vault)?;
-    if !existed && !q.tags.is_empty() {
-        let _ = edit_note(&app, &state, &path, |content, meta| {
+    let note = create_titled(&state, q.text.trim(), &vault)?;
+    if note.created && !q.tags.is_empty() {
+        let _ = edit_note(&app, &state, &note.path, |content, meta| {
             Ok((meta.kind != stash_core::NoteKind::Daily).then(|| frontmatter::set_inline_list(content, "tags", &q.tags)).flatten())
         });
     }
-    Ok(path)
+    announce_creation(&app, &state, &note);
+    Ok(note.path)
 }
 
-fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<String> {
+fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<CreatedNote> {
     // `PROJ-1234 Do this thing`: a ticket note named in its heading
     // (the file stays PROJ-1234.md so links never break).
     let named = state.tickets_for(vault).split_named(title).or_else(|| {
@@ -441,7 +457,7 @@ pub fn daily_note(state: State<AppState>, date: String, vault: String) -> Res<St
     if !v.exists(&rel) && v.exists(&archived) {
         return Ok(note::join_path(&vault, &archived));
     }
-    create_file(&state, &vault, &rel, &v.daily_content(d))
+    Ok(create_file(&state, &vault, &rel, &v.daily_content(d))?.path)
 }
 
 /// Archive a note, or unarchive it if it is already archived. Returns the new path.

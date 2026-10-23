@@ -10,11 +10,12 @@
     path: string;
     vaults: VaultDef[];
     onMove: (vault: string) => Promise<void>;
+    onArchive: () => Promise<void>;
     onDelete: () => Promise<void>;
     onClose: () => void;
   }
 
-  let { mode, title, path, vaults, onMove, onDelete, onClose }: Props = $props();
+  let { mode, title, path, vaults, onMove, onArchive, onDelete, onClose }: Props = $props();
   const initialVault = $derived(path.slice(0, path.indexOf(":")));
   const sourceVault = $derived(vaults.find((v) => v.id === initialVault));
   const destinations = $derived(vaults.filter((v) => v.id !== initialVault));
@@ -26,12 +27,12 @@
   let box: HTMLFormElement;
 
   onMount(() => box.querySelector<HTMLElement>(
-    mode === "move" ? "select:not(:disabled), .cancel" : ".cancel",
+    mode === "move" ? "select:not(:disabled), .cancel" : ".archive",
   )?.focus());
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    await run(mode === "move" ? "move" : "delete");
+    await run(mode === "move" ? "move" : "archive");
   }
 
   async function run(action: "move" | "archive" | "delete") {
@@ -40,6 +41,7 @@
     error = "";
     try {
       if (action === "move") await onMove(vault);
+      else if (action === "archive") await onArchive();
       else await onDelete();
     } catch (e) {
       error = String(e);
@@ -86,7 +88,9 @@
       {:else}
         <p>Are you sure you want to delete <strong>{title}</strong>?</p>
         <p class="hint">
-          You can undo this after deleting.
+          {archived
+            ? "This note is already archived. You can keep it there instead."
+            : "Archiving is recommended if you want to keep this note."}
         </p>
       {/if}
 
@@ -97,6 +101,12 @@
         {#if mode === "move"}
           <button type="submit" class="primary" disabled={busy || !vault}>{pending === "move" ? "Moving…" : "Move note"}</button>
         {:else}
+          <button
+            type="submit"
+            class="archive primary"
+            disabled={busy}
+            aria-label="{archived ? 'Keep archived' : 'Archive note'} Recommended"
+          >{pending === "archive" ? "Working…" : archived ? "Keep archived" : "Archive"}</button>
           <button
             type="button"
             class="danger"

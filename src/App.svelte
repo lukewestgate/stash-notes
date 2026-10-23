@@ -103,6 +103,8 @@
   let extensions: Extension[];
   const hist = new History();
   let currentPath = $state<string | null>(null);
+  /** The newest explicitly created note can be discarded directly from its notice. */
+  let recentCreation: { target: NoteTarget; toast: number } | null = null;
   /** Sync with the Rust-owned buffer of the open note. */
   let sync: NoteSync | null = null;
   /** The buffer has edits not yet written to disk. */
@@ -611,6 +613,7 @@
 
   function moved(from: string, to: string) {
     hist.rename(from, to);
+    if (recentCreation?.target.path === from) recentCreation.target.path = to;
     if (sync?.path === from) sync.path = to;
     if (currentPath === from) {
       currentPath = to;
@@ -640,7 +643,26 @@
     done(`Moved to ${name}`);
   }
 
+  function clearCreation(path?: string) {
+    if (recentCreation && (!path || recentCreation.target.path === path)) {
+      toaster.dismiss(recentCreation.toast);
+      recentCreation = null;
+    }
+  }
+
+  function noteCreated(target: NoteTarget) {
+    clearCreation();
+    const creation = { target: { ...target }, toast: 0 };
+    recentCreation = creation;
+    creation.toast = toaster.show(`Created ${target.title}`, "done", { label: "Delete", run: async () => {
+      if (recentCreation !== creation) return;
+      try { await deleteNote(creation.target); }
+      catch (e) { fail(e); }
+    } }, 10000);
+  }
+
   function deleted(path: string) {
+    clearCreation(path);
     hist.remove(path);
     if (currentPath === path) {
       sync?.close();
@@ -676,25 +698,34 @@
   async function toggleArchive() {
     if (!currentPath) return;
     try {
-      await flush();
-      const from = currentPath;
-      const to = await api.archiveNote(from);
-      moved(from, to);
-      const archived = to.slice(to.indexOf(":") + 1).startsWith("archive/");
-      done(archived ? "Archived" : "Unarchived", {
-        label: "Undo",
-        run: async () => {
-          try {
-            await flush();
-            moved(to, await api.archiveNote(to));
-          } catch (e) {
-            fail(e);
-          }
-        },
-      });
+      await archivePath(currentPath);
     } catch (e) {
       fail(e);
     }
+  }
+
+  async function archivePath(from: string) {
+    await flush();
+    const to = await api.archiveNote(from);
+    moved(from, to);
+    clearCreation(to);
+    const archived = to.slice(to.indexOf(":") + 1).startsWith("archive/");
+    done(archived ? "Archived" : "Unarchived", {
+      label: "Undo",
+      run: async () => {
+        try {
+          await flush();
+          moved(to, await api.archiveNote(to));
+        } catch (e) {
+          fail(e);
+        }
+      },
+    });
+  }
+
+  async function archiveInstead(target: NoteTarget) {
+    if (!target.path.slice(target.path.indexOf(":") + 1).startsWith("archive/")) await archivePath(target.path);
+    closeOverlay();
   }
 
   function startRename(target: NoteTarget | null = meta) {
@@ -1180,6 +1211,7 @@
       on<{ path: string; deleted: boolean }>("buffer-conflict", onBufferConflict),
       on<{ from: string; to: string }>("note-moved", (m) => moved(m.from, m.to)),
       on<string>("note-deleted", deleted),
+      on<NoteMeta>("note-created", noteCreated),
       // `::notes#tag` (from a pinned window's tag chip) opens the Notes view on that tag.
       on<string>("open-note", (p) => (p.startsWith(`${NOTES}#`) ? showTag(p.slice(NOTES.length + 1)) : navigate(p))),
       on<string[]>("pins-changed", (p) => (pinnedPaths = p)),
@@ -1396,7 +1428,7 @@
   {:else if overlay?.type === "file"}
     {@const o = overlay}
     <FileDialog mode={o.mode} title={o.target.title} path={o.target.path} vaults={settings?.vaults ?? []}
-      onMove={(vault) => moveNote(o.target, vault)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
+      onMove={(vault) => moveNote(o.target, vault)} onArchive={() => archiveInstead(o.target)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
   {:else if overlay?.type === "switcher"}
     <Switcher
       mode={overlay.mode}

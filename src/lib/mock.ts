@@ -235,7 +235,7 @@ function slug(s: string) {
   return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "untitled";
 }
 
-function ensure(target: string, vault: string): string {
+function ensure(target: string, vault: string, announce = false): string {
   const found = resolve(target, vault);
   if (found) return found;
   const t = target.trim();
@@ -256,6 +256,7 @@ function ensure(target: string, vault: string): string {
   if (notes.has(path)) return path;
   notes.set(path, body);
   mtimes.set(path, Date.now());
+  if (announce) mockEmit("note-created", meta(path, body));
   return path;
 }
 
@@ -424,7 +425,7 @@ export function handle(cmd: string, a: A): unknown {
       mockEmit("open-note", a.path);
       return;
     case "quick_create": {
-      const path = ensure(plain(a.title), a.vault ?? current);
+      const path = ensure(plain(a.title), a.vault ?? current, true);
       mockEmit("open-note", path);
       return path;
     }
@@ -432,14 +433,14 @@ export function handle(cmd: string, a: A): unknown {
       mockEmit("open-note", a.path);
       return;
     case "resolve_link":
-      return ensure(a.target, a.from ? vaultOf(a.from) : current);
+      return ensure(a.target, a.from ? vaultOf(a.from) : current, true);
     case "note_preview": {
       const path = resolve(a.target, a.from ? vaultOf(a.from) : current);
       if (!path) throw new Error("Linked note not found");
       return { path, text: notes.get(path)! };
     }
     case "create_note": {
-      const path = ensure(plain(a.title), a.vault);
+      const path = ensure(plain(a.title), a.vault, true);
       const tags = String(a.title).split(/\s+/).filter((w) => w.startsWith("#")).map((w) => normalizeTag(w)).filter((t): t is string => !!t);
       if (tags.length) notes.set(path, setTagsIn(notes.get(path)!, tags));
       return path;

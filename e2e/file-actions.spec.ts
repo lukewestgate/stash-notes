@@ -124,7 +124,7 @@ test("deletes the open note only after confirmation and restores it with Undo", 
   await page.getByRole("button", { name: "Note actions", exact: true }).click();
   await page.getByRole("button", { name: "Delete…", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
-  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Archive note Recommended", exact: true })).toBeFocused();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.locator(".header .main")).toHaveText("File actions");
   await page.getByRole("button", { name: "Note actions", exact: true }).click();
@@ -144,5 +144,77 @@ test("sidebar right-click can delete a different note without closing the editor
   await page.getByRole("button", { name: "Delete…", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete note", exact: true }).click();
   await expect(page.getByRole("button", { name: "Actions for Sidebar subject", exact: true })).toHaveCount(0);
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+});
+
+test("recommends archiving, preserves edits and offers Undo", async ({ page }) => {
+  await page.evaluate(() => {
+    const view = (window as any).__view();
+    view.dispatch({ changes: { from: view.state.doc.length, insert: "Keep this work\n" } });
+  });
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
+  const archive = dialog.getByRole("button", { name: "Archive note Recommended", exact: true });
+  await expect(archive).toBeFocused();
+  await expect(dialog).toContainText("Archiving is recommended");
+  await archive.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".header .tag")).toHaveText("archived");
+  expect(await noteText(page, "personal:archive/notes/file-actions.md")).toContain("Keep this work");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".header .tag")).toHaveCount(0);
+  expect(await noteText(page, "personal:notes/file-actions.md")).toContain("Keep this work");
+});
+
+test("archives the sidebar target without switching the open note", async ({ page }) => {
+  await page.getByTitle(/Expand sidebar/).click();
+  await page.getByRole("button", { name: "Actions for Sidebar subject", exact: true }).click();
+  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Archive note Recommended", exact: true }).click();
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+  await expect(page.getByRole("button", { name: "Actions for Sidebar subject", exact: true })).toHaveCount(0);
+  expect(await noteText(page, "personal:archive/notes/sidebar-subject.md")).toContain("# Sidebar subject");
+});
+
+test("keeps an already archived note archived from the recommended action", async ({ page }) => {
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Keep archived Recommended", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".header .tag")).toHaveText("archived");
+});
+
+test("quickly discards an accidental switcher creation and can restore it", async ({ page }) => {
+  await page.keyboard.press("Control+k");
+  await page.getByRole("dialog", { name: "Quick switcher" }).getByRole("textbox").fill("Accidental note");
+  await page.getByRole("button", { name: /Create "Accidental note"/ }).click();
+  await expect(page.locator(".header .main")).toHaveText("Accidental note");
+  const notice = page.locator(".toast").filter({ hasText: "Created Accidental note" });
+  await notice.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".pane")).toHaveClass(/hidden/);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".header .main")).toHaveText("Accidental note");
+});
+
+test("offers the same quick delete after creating from the Notes view", async ({ page }) => {
+  await page.keyboard.press("Control+l");
+  await page.getByPlaceholder(/^Search notes/).fill("Wrong name");
+  await page.getByRole("option", { name: /Create "Wrong name"/ }).click();
+  await expect(page.locator(".header .main")).toHaveText("Wrong name");
+  await page.locator(".toast").filter({ hasText: "Created Wrong name" }).getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.locator(".pane")).toHaveClass(/hidden/);
+});
+
+test("opening an existing note does not offer to discard it as a new creation", async ({ page }) => {
+  await page.locator(".toast").filter({ hasText: "Created File actions" }).getByRole("button", { name: "Dismiss" }).click();
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    await api.createNote("File actions", "personal");
+  });
+  await expect(page.locator(".toast").filter({ hasText: "Created File actions" })).toHaveCount(0);
   await expect(page.locator(".header .main")).toHaveText("File actions");
 });
