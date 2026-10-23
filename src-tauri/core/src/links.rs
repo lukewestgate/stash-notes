@@ -427,10 +427,21 @@ pub struct KeyTarget {
     pub url: String,
 }
 
+/// The bare keys read in one vault, compiled once (notes are read often).
+struct VaultKeys {
+    regex: Option<Regex>,
+    /// For telling `tickets/KEY.md` notes apart.
+    tickets: note::TicketMatcher,
+    /// Only the vault's 0.6 ticket keys need a finder of their own.
+    legacy_finder: Option<Regex>,
+}
+
 /// The link rules, ready to match, and the preserved 0.6 configuration.
 pub struct Rules {
     compiled: Vec<Compiled>,
     legacy: LegacyLinks,
+    /// By vault id; "" for vaults without 0.6 ticket systems.
+    keys: std::collections::HashMap<String, VaultKeys>,
 }
 
 impl Default for Rules {
@@ -443,7 +454,23 @@ impl Rules {
     /// Invalid parts of a rule are skipped, so a broken rule never stops
     /// ordinary links from being collected.
     pub fn new(rules: &[LinkRule], legacy: &LegacyLinks) -> Rules {
-        Rules { compiled: rules.iter().map(Compiled::new).collect(), legacy: legacy.clone() }
+        let mut r = Rules { compiled: rules.iter().map(Compiled::new).collect(), legacy: legacy.clone(), keys: Default::default() };
+        let vaults: Vec<String> = std::iter::once(String::new()).chain(legacy.vaults.keys().cloned()).collect();
+        for v in vaults {
+            let regex = r.build_key_regex(&v);
+            let has_legacy = legacy.vaults.get(&v).is_some_and(|l| !l.tickets.is_empty());
+            let keys = VaultKeys {
+                tickets: regex.as_ref().map(note::TicketMatcher::new).unwrap_or_else(note::TicketMatcher::none),
+                legacy_finder: regex.as_ref().filter(|_| has_legacy).and_then(|re| Regex::new(&format!(r"\b(?:{})\b", re.as_str())).ok()),
+                regex,
+            };
+            r.keys.insert(v, keys);
+        }
+        r
+    }
+
+    fn vault_keys(&self, vault: &str) -> &VaultKeys {
+        self.keys.get(vault).unwrap_or_else(|| &self.keys[""])
     }
 
     pub fn rule(&self, i: usize) -> &LinkRule {
@@ -508,6 +535,10 @@ impl Rules {
     /// Every bare key pattern in use: the enabled rules', then those of the
     /// vault's preserved 0.6 ticket systems (for its `tickets/KEY.md` files).
     pub fn key_regex(&self, vault: &str) -> Option<Regex> {
+        self.vault_keys(vault).regex.clone()
+    }
+
+    fn build_key_regex(&self, vault: &str) -> Option<Regex> {
         let mut pats: Vec<String> = self.enabled().map(|(_, c)| c.rule.key_pattern.trim().to_string()).filter(|p| !p.is_empty()).collect();
         if let Some(l) = self.legacy.vaults.get(vault) {
             pats.extend(l.tickets.iter().map(|t| t.pattern.trim().to_string()));
@@ -890,8 +921,7 @@ pub fn extract(content: &str, cx: &NoteContext) -> Vec<NoteLink> {
     let body = &content[body_start..];
     // A 0.6 ticket note opens at its ticket: `jira:` if set, else where its
     // vault's ticket system sent it, else the rules.
-    let tickets = rules.key_regex(vault).map(|re| note::TicketMatcher::new(&re)).unwrap_or_else(note::TicketMatcher::none);
-    let (kind, _) = note::classify(cx.path, &tickets);
+    let (kind, _) = note::classify(cx.path, &rules.vault_keys(vault).tickets);
     if kind == NoteKind::Ticket && primary.is_none() {
         let key = note::stem(cx.path).to_string();
         let heading = body.lines().scan(body_start, |pos, l| {
@@ -912,8 +942,7 @@ pub fn extract(content: &str, cx: &NoteContext) -> Vec<NoteLink> {
     }
 
     // The body, as Markdown.
-    let legacy_keys = rules.legacy.vaults.get(vault).map(|l| !l.tickets.is_empty()).unwrap_or(false);
-    let legacy_finder = if legacy_keys { rules.key_regex(vault).and_then(|re| Regex::new(&format!(r"\b(?:{})\b", re.as_str())).ok()) } else { None };
+    let legacy_finder = rules.vault_keys(vault).legacy_finder.clone();
     let finders: Vec<&Regex> = rules.key_finders().into_iter().chain(legacy_finder.as_ref()).collect();
     let prose = |from: usize, to: usize, found: &mut Vec<Found>| {
         let src = &content[from..to];
@@ -1361,6 +1390,11 @@ mod tests {
         let l = extract("---\njira: https://x.atlassian.net/browse/PROJ-1\n---\n# PROJ-1\n", &cx);
         assert_eq!(l[0].url, "https://x.atlassian.net/browse/PROJ-1");
         assert!(l[0].primary);
+        // With no rule for it, a bare key still opens where its vault's 0.6 ticket system sent it.
+        let only_legacy = Rules::new(&[], &legacy);
+        let l = extract("see PROJ-9, not XPROJ-9x\n", &NoteContext { path: "work:notes/a.md", rules: &only_legacy });
+        assert_eq!(l.iter().map(|x| x.url.as_str()).collect::<Vec<_>>(), ["https://old.atlassian.net/browse/PROJ-9"]);
+        assert!(extract("see PROJ-9\n", &NoteContext { path: "home:notes/a.md", rules: &only_legacy }).is_empty());
         // Another vault reads gerrit: through the only definition there is.
         let cx = NoteContext { path: "home:notes/a.md", rules: &r };
         assert_eq!(extract("---\ngerrit: [5]\n---\n", &cx)[0].url, "https://gerrit.old.com/c/5");
