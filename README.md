@@ -20,6 +20,7 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 
 ## Contents
 
+- [What's new in 0.6](#whats-new-in-06)
 - [What's new in 0.5](#whats-new-in-05)
 - [Installation](#installation)
 - [Getting started](#getting-started)
@@ -50,6 +51,16 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 - [Design notes and decisions](#design-notes-and-decisions)
 
 ---
+
+## What's new in 0.6
+
+- **Embedded pages.** Hover or Tab to a note link and click its arrow to expand the linked note beneath that line, read-only, in a rounded panel. Previews refresh when the file changes, nest (with circular links stopped), work across vaults and in pinned notes, and never create a missing note. Hover a preview for **Open note**.
+- **Embedded images.** Paste a screenshot, drop image files, or click **Insert image** in the note header. Images display inline, including in pinned notes and expanded previews, and are copied into the vault's `assets/` folder.
+- **File actions.** Click **…** beside a sidebar note (or right-click its row), or **…** in the note header, to **Rename**, **Move**, **Set status** or **Delete**.
+  - **Move between vaults.** The note keeps its filename and folder, links to it are updated, its images come along, and open editors and pinned windows follow it. Existing files are never overwritten.
+  - **Delete.** Stash Notes can now delete notes, which earlier versions never did. Deleting always asks first and recommends **Archive** instead. **Undo** is available for 5 seconds, and a recovery copy stays in the vault's hidden `.trash/` folder after that.
+  - **Created a note by mistake?** The creation notice has a **Delete** button for 10 seconds.
+- **Popups close the way you'd expect.** Click outside any popup or confirmation to dismiss it, and press `Ctrl+K` (or your switcher shortcut) again to close the switcher. Focus returns to where you were.
 
 ## What's new in 0.5
 
@@ -487,7 +498,7 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 - **`F2`** renames a regular note: the file, its `# heading` and every `[[link]]` to it. **Undo** is available for 5 seconds. Ticket names are edited in the heading after the key. Daily notes are named by their date.
 - **File actions:** click **…** beside a sidebar note (or right-click its row), or click **…** in the open note's header. Choose **Rename**, **Move**, **Set status** or **Delete**. `F2` also renames the focused sidebar or Notes view note.
 - **Move:** choose another vault. The note keeps its filename and relative folder, including when the vaults are on different drives. Existing files are never overwritten. Links to the note are updated, local images are copied into the destination vault, and open editors and pinned windows follow the move. Moving the open note switches its sidebar to the destination vault.
-- **Delete:** the confirmation offers **Cancel**, **Archive** (recommended) and **Delete**. An already archived note offers **Keep archived**. After deleting, **Undo** is available for 5 seconds. A recovery copy remains in the original vault's hidden `.trash/` folder, with its original relative path. Restore it manually from there if the Undo notice has expired. Shared image files are kept.
+- **Delete:** the confirmation offers **Cancel**, **Archive** (recommended) and **Delete**. An already archived note offers **Keep archived**. After deleting, **Undo** is available for 5 seconds. A recovery copy remains in the original vault's hidden `.trash/` folder, with its original relative path. Restore it manually from there if the Undo notice has expired. Shared image files are kept. Nothing empties `.trash/` automatically, so delete its contents in Explorer when you no longer need them.
 - **Created a note by mistake?** The creation notice has a **Delete** button for 10 seconds. It discards that new note immediately, with **Undo** available afterward. This works for notes created in the switcher, Notes view, quick pop-up, or by following a missing link. Opening an existing note never offers this shortcut.
 
 ### Window, tray and startup
