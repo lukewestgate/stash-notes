@@ -10,6 +10,9 @@
   import Switcher from "./components/Switcher.svelte";
   import Backlinks from "./components/Backlinks.svelte";
   import LinksPanel from "./components/LinksPanel.svelte";
+  import LinkCreate from "./components/LinkCreate.svelte";
+  import { dim, pop } from "./lib/motion";
+  import { dismissOnBackdrop } from "./lib/popup";
   import Help from "./components/Help.svelte";
   import Prompt from "./components/Prompt.svelte";
   import NoteActions from "./components/NoteActions.svelte";
@@ -34,7 +37,7 @@
     setSpellCheck,
   } from "./lib/editor";
   import { liveConfig, propertiesHooks } from "./lib/live";
-  import { isKey, isUrl, keyRegex } from "./lib/links";
+  import { isKey, isLinkInput, isUrl, keyRegex } from "./lib/links";
   import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
   import { formatKey, keyCapture, matches, matchesChordTail, parseChord, parseKey, type KeySpec } from "./lib/keys";
@@ -55,6 +58,7 @@
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void }
     | { type: "picker"; title: string; items: { label: string; detail?: string; color?: string }[]; choose: (i: number) => void }
+    | { type: "linkCreate"; input: string; vault: string }
     | { type: "status"; path: string; current: string | null; title: string }
     | { type: "tags"; path: string; tags: string[]; all: TagCount[]; title: string };
 
@@ -166,9 +170,9 @@
     if (view) refreshDecorations(view);
   }
 
-  /** `PROJ-1234` or `PROJ-1234 Do this thing`: creates a ticket note. */
-  function startsWithTicket(q: string) {
-    return isTicketKey(q.trim().split(/\s+/)[0] ?? "");
+  /** `PROJ-1234 Do this thing` or `https://… Title`: creates a note from the link. */
+  function isLink(q: string) {
+    return isLinkInput(settings, q);
   }
 
   function applySettings(s: Settings) {
@@ -461,8 +465,28 @@
     const ref = refAt(line.text, pos - line.from, tickets);
     if (!ref) return false;
     if (ref.kind === "url") openExternal(ref.target);
+    else if (ref.kind === "ticket") followKey(ref.target);
     else api.resolveLink(ref.target, currentPath).then((p) => navigate(p), fail);
     return true;
+  }
+
+  /** A bare key: its note, if there is one, else offer to create it from the key's link. */
+  async function followKey(key: string) {
+    try {
+      const p = await api.linkPreview(key, meta?.vault ?? currentVault);
+      if (p.existing.length === 1) return navigate(p.existing[0].path);
+      if (!p.url && !p.choices.length) return navigate(await api.resolveLink(key, currentPath));
+      overlay = { type: "linkCreate", input: key, vault: currentVault };
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** A note was created from a link: open it, or link the selection to it. */
+  function createdFromLink(path: string, sel?: { from: number; to: number; text: string }) {
+    closeOverlay();
+    if (sel) insertLink(path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, ""), sel);
+    else navigate(path);
   }
 
   function followOrToggle() {
@@ -974,7 +998,7 @@
       const path = await api.createNote(query, vault ?? currentVault);
       if (o?.type === "switcher" && o.mode === "link" && o.sel) {
         const title = query.split(/\s+/).filter((w) => w && !/^(@|#|in:)./.test(w)).join(" ");
-        insertLink(startsWithTicket(title) ? title.split(/\s+/)[0].toUpperCase() : title, o.sel);
+        insertLink(isTicketKey(title.split(/\s+/)[0] ?? "") ? title.split(/\s+/)[0].toUpperCase() : title, o.sel);
       } else {
         navigate(path);
       }
@@ -1160,6 +1184,8 @@
           (e.shiftKey ? last : first).focus();
         }
       }
+      // The switcher's link form goes back to the results first.
+      if (overlay.type === "switcher" && is("hide") && document.activeElement?.closest(".create")) return;
       if (is("hide") || (overlay.type === "help" && is("help")) || (overlay.type === "switcher" && is("quickSwitcher"))) {
         stop();
         if (!e.repeat || is("hide")) closeOverlay();
@@ -1477,7 +1503,8 @@
       vaults={settings.vaults}
       keys={settings.keys}
       version={listVersion}
-      isTicket={startsWithTicket}
+      isLink={isLink}
+      onCreateLink={(input) => (overlay = { type: "linkCreate", input, vault: currentVault })}
       onOpen={(p) => navigate(p)}
       onCreate={async (q) => {
         try {
@@ -1531,7 +1558,12 @@
     <Switcher
       mode={overlay.mode}
       current={currentPath}
-      isTicket={startsWithTicket}
+      {isLink}
+      createLink={(input, vault, title, rule) => api.createFromLink(input, vault, title, rule)}
+      onCreatedLink={(path) => {
+        const o = overlay;
+        createdFromLink(path, o?.type === "switcher" && o.mode === "link" ? o.sel : undefined);
+      }}
       statuses={settings?.statuses ?? []}
       tagColors={settings?.tagColors ?? {}}
       vaults={settings?.vaults ?? []}
@@ -1557,6 +1589,24 @@
       onChange={(t) => applyTags(o.path, t)}
       onClose={closeOverlay}
     />
+  {:else if overlay?.type === "linkCreate" && settings}
+    {@const o = overlay}
+    <div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={closeOverlay}>
+      <div class="dialog" in:pop role="dialog" aria-label="Create note from link">
+        <LinkCreate
+          input={o.input}
+          vaults={settings.vaults}
+          vault={o.vault}
+          create={(input, vault, title, rule) => api.createFromLink(input, vault, title, rule)}
+          onCreated={(path) => createdFromLink(path)}
+          onOpen={(h) => {
+            closeOverlay();
+            navigate(h.path);
+          }}
+          onCancel={closeOverlay}
+        />
+      </div>
+    </div>
   {:else if overlay?.type === "picker"}
     <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} onClose={closeOverlay} />
   {/if}
@@ -1600,6 +1650,23 @@
   .editor :global(.cm-editor) {
     flex: 1;
     min-width: 0;
+  }
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 12vh;
+    background: var(--scrim);
+    z-index: 25;
+  }
+  .dialog {
+    width: min(560px, calc(100vw - 32px));
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
   }
   .linkside {
     display: flex;

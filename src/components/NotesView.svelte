@@ -30,11 +30,13 @@
     keys: Keys;
     /** Bumped by the app when notes change, to reload the list. */
     version: number;
-    isTicket: (q: string) => boolean;
+    /** A link, or a key a link rule reads: creating offers the link form. */
+    isLink: (q: string) => boolean;
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;
+    onCreateLink: (input: string) => void;
   }
-  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isTicket, onOpen, onCreate }: Props = $props();
+  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isLink, onOpen, onCreate, onCreateLink }: Props = $props();
 
   let allTags = $state<TagCount[]>([]);
   $effect(() => {
@@ -181,6 +183,7 @@
     const r = rows[i];
     if (!r) return;
     if (r.type === "note") onOpen(r.hit.path);
+    else if (r.type === "create" && isLink(text)) onCreateLink(text);
     else if (r.type === "create") onCreate(r.query);
     else toggleGroup(r.key);
   }
@@ -331,8 +334,13 @@
             <span class="hcount">{row.count}</span>
           {:else}
             <span class="sym new"><Icon name="plus" size={14} /></span>
-            <span class="main"><span class="name">Create "{row.query}"</span></span>
-            <span class="label">{isTicket(row.query) ? "ticket note" : "note"}</span>
+            {#if isLink(text)}
+              <span class="main"><span class="name">Create note from {text.split(/\s+/)[0]}</span></span>
+              <span class="label">link</span>
+            {:else}
+              <span class="main"><span class="name">Create "{row.query}"</span></span>
+              <span class="label">note</span>
+            {/if}
           {/if}
         </div>
       {/each}

@@ -1044,6 +1044,8 @@ pub fn paste_format(state: State<AppState>, text: String) -> Option<String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkPreview {
+    /// The vault it would go in.
+    vault: String,
     /// The link the note is about (None: the input isn't a link or a key, or
     /// the key needs a choice first).
     url: Option<String>,
@@ -1071,7 +1073,7 @@ fn split_link_input(input: &str) -> Option<(String, String)> {
 
 fn preview(state: &AppState, input: &str, vault: &str, title: Option<&str>, rule: Option<&str>) -> Res<LinkPreview> {
     let rules = state.rules();
-    let mut p = LinkPreview { url: None, key: None, rule: None, choices: Vec::new(), title: String::new(), plan: None, path: None, template: false, existing: Vec::new() };
+    let mut p = LinkPreview { vault: vault.to_string(), url: None, key: None, rule: None, choices: Vec::new(), title: String::new(), plan: None, path: None, template: false, existing: Vec::new() };
     let Some((first, rest)) = split_link_input(input) else { return Ok(p) };
     p.title = title.map(str::to_string).unwrap_or(rest);
     if links::is_url(&first) {
@@ -1137,14 +1139,16 @@ fn preview(state: &AppState, input: &str, vault: &str, title: Option<&str>, rule
 /// by a title) would do in `vault`. `title` replaces the typed title; `rule`
 /// picks between rules that read the same key. Nothing is written.
 #[tauri::command]
-pub fn link_preview(state: State<AppState>, input: String, vault: String, title: Option<String>, rule: Option<String>) -> Res<LinkPreview> {
+pub fn link_preview(state: State<AppState>, input: String, vault: Option<String>, title: Option<String>, rule: Option<String>) -> Res<LinkPreview> {
+    let vault = vault.filter(|v| !v.is_empty()).unwrap_or_else(|| state.current_vault());
     preview(&state, &input, &vault, title.as_deref(), rule.as_deref())
 }
 
 /// Create a note about a link (see `link_preview`). It always keeps the
 /// link as its primary link and never overwrites a file.
 #[tauri::command]
-pub fn create_from_link(app: AppHandle, state: State<AppState>, input: String, vault: String, title: Option<String>, rule: Option<String>) -> Res<String> {
+pub fn create_from_link(app: AppHandle, state: State<AppState>, input: String, vault: Option<String>, title: Option<String>, rule: Option<String>) -> Res<String> {
+    let vault = vault.filter(|v| !v.is_empty()).unwrap_or_else(|| state.current_vault());
     let p = preview(&state, &input, &vault, title.as_deref(), rule.as_deref())?;
     if !p.choices.is_empty() {
         return Err("Choose which link this key is".into());
@@ -1166,7 +1170,6 @@ pub fn create_from_link(app: AppHandle, state: State<AppState>, input: String, v
 /// Create a note about a link from the pop-up and open it in the main window.
 #[tauri::command]
 pub async fn quick_create_from_link(app: AppHandle, input: String, vault: Option<String>, title: Option<String>, rule: Option<String>) -> Res<String> {
-    let vault = vault.unwrap_or_else(|| app.state::<AppState>().current_vault());
     let path = create_from_link(app.clone(), app.state(), input, vault, title, rule)?;
     crate::quick::open_in_main(&app, &path);
     Ok(path)

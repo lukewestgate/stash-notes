@@ -3,6 +3,7 @@
   import { dismissOnBackdrop } from "../lib/popup";
   import { api, type SearchHit, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import VaultTag from "./VaultTag.svelte";
+  import LinkCreate from "./LinkCreate.svelte";
   import { completeTag, tagSuggestions, typingTag } from "../lib/text";
   import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
@@ -15,7 +16,8 @@
     /** "open" navigates; "link" turns the editor selection into a link. */
     mode: "open" | "link";
     current: string | null;
-    isTicket: (q: string) => boolean;
+    /** A link, or a key a link rule reads, then maybe a title: create a note from it. */
+    isLink: (q: string) => boolean;
     statuses: StatusDef[];
     tagColors: Record<string, string>;
     vaults: VaultDef[];
@@ -24,6 +26,9 @@
     onChoose: (hit: SearchHit, peek: boolean) => void;
     /** Create from the query, in `vault` (the narrowed scope; null for the default). */
     onCreate: (query: string, vault: string | null) => void;
+    /** Create a note from a link (see LinkCreate); resolves to its path. */
+    createLink: (input: string, vault: string | null, title: string, rule: string | null) => Promise<string>;
+    onCreatedLink: (path: string) => void;
     /** Fill a window of its own (the Alt+J pop-up) instead of floating over the app. */
     embedded?: boolean;
     /** Dismiss the overlay, or hide the embedded window. */
@@ -34,13 +39,15 @@
   let {
     mode,
     current,
-    isTicket,
+    isLink,
     statuses,
     tagColors,
     vaults,
     currentVault,
     onChoose,
     onCreate,
+    createLink,
+    onCreatedLink,
     embedded = false,
     onClose,
     onSize,
@@ -73,7 +80,7 @@
   let sel = $state(0);
   let includeArchived = $state(false);
   let input: HTMLInputElement;
-  let list: HTMLDivElement;
+  let list = $state<HTMLDivElement>();
   let seq = 0;
   let allTags = $state<TagCount[]>([]);
   api.listTags().then((t) => (allTags = t), () => {});
@@ -87,6 +94,10 @@
   const title = $derived(query.split(/\s+/).filter((w) => w && !isFilter(w)).join(" "));
 
   const showCreate = $derived(title !== "" && !exact);
+  /** The query is a link or a known key: creating shows the link form. */
+  const linkish = $derived(isLink(title));
+  /** Showing the form to create a note from the link in the query. */
+  let linking = $state(false);
   const newTags = $derived(query.split(/\s+/).filter((w) => w.length > 1 && w.startsWith("#")).map((w) => w.slice(1).toLowerCase()));
   const rowCount = $derived(hits.length + (showCreate ? 1 : 0));
 
@@ -115,6 +126,7 @@
 
   function choose(i: number, peek: boolean) {
     if (i < hits.length) onChoose(hits[i], peek);
+    else if (showCreate && linkish) linking = true;
     else if (showCreate) onCreate(query.trim(), scope);
   }
 
@@ -153,6 +165,7 @@
       <input
         bind:this={input}
         bind:value={query}
+        oninput={() => (linking = false)}
         onkeydown={keydown}
         placeholder={mode === "link" ? "Link selection to…" : "Find or create a note — key, title, date, text or @status"}
         spellcheck="false"
@@ -171,6 +184,20 @@
         {#each suggestions as t}<TagChip tag={t} colors={tagColors} onclick={() => { query = completeTag(query, t); input.focus(); }} />{/each}
       </div>
     {/if}
+    {#if linking}
+      <LinkCreate
+        input={title}
+        {vaults}
+        vault={scope ?? currentVault}
+        create={createLink}
+        onCreated={onCreatedLink}
+        onOpen={(h) => onChoose(h, false)}
+        onCancel={() => {
+          linking = false;
+          input.focus();
+        }}
+      />
+    {:else}
     <div class="results" bind:this={list}>
       {#each hits as hit, i (hit.path)}
         <button
@@ -204,10 +231,10 @@
           <span class="line">
             <span class="kind new">new</span>
             <span class="sym new"><Icon name="plus" size={14} /></span>
-            {#if isTicket(title)}
-              {@const [key, ...name] = title.split(/\s+/)}
-              <span class="name">Create {key.toUpperCase()}</span>
-              <span class="label">{name.length ? `"${name.join(" ")}"` : "ticket note"}</span>
+            {#if linkish}
+              {@const [link, ...name] = title.split(/\s+/)}
+              <span class="name">Create note from {link}</span>
+              <span class="label">{name.length ? `"${name.join(" ")}"` : "link"}</span>
             {:else}
               <span class="name">Create "{title}"</span>
               <span class="label">note</span>
@@ -233,6 +260,7 @@
       <span><kbd>Alt+A</kbd> {includeArchived ? "hide" : "include"} closed</span>
       <span><kbd>Esc</kbd> close</span>
     </div>
+    {/if}
   </div>
 </div>
 

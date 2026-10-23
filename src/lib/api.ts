@@ -315,6 +315,8 @@ export interface NotePlan {
 
 /** What creating a note from a link or key would do. */
 export interface LinkPreview {
+  /** The vault it would go in. */
+  vault: string;
   url: string | null;
   key: string | null;
   rule: RuleRef | null;
@@ -414,9 +416,10 @@ export const api = {
   /** The editor edit for a link metadata change (null: nothing to change). */
   linkMetaEdit: (path: string, content: string, edit: MetaEdit) => call<TextEdit | null>("link_meta_edit", { path, content, edit }),
   pasteFormat: (text: string) => call<string | null>("paste_format", { text }),
-  linkPreview: (input: string, vault: string, title: string | null = null, rule: string | null = null) =>
+  /** `vault` null: the current vault. */
+  linkPreview: (input: string, vault: string | null, title: string | null = null, rule: string | null = null) =>
     call<LinkPreview>("link_preview", { input, vault, title, rule }),
-  createFromLink: (input: string, vault: string, title: string | null, rule: string | null) =>
+  createFromLink: (input: string, vault: string | null, title: string | null, rule: string | null) =>
     call<string>("create_from_link", { input, vault, title, rule }),
   quickCreateFromLink: (input: string, vault: string | null, title: string | null, rule: string | null) =>
     call<string>("quick_create_from_link", { input, vault, title, rule }),

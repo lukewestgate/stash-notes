@@ -451,10 +451,11 @@ function metaEdit(text: string, edit: MetaEdit): string | null {
   }
 }
 
-function linkPreview(input: string, vault: string, title: string | null, ruleId: string | null): LinkPreview {
+function linkPreview(input: string, vaultId: string | null, title: string | null, ruleId: string | null): LinkPreview {
+  const vault = vaultId || current;
   const [first = "", ...rest] = String(input).trim().split(/\s+/);
   const typed = title ?? rest.join(" ");
-  const empty: LinkPreview = { url: null, key: null, rule: null, choices: [], title: typed, plan: null, path: null, template: false, existing: [] };
+  const empty: LinkPreview = { vault, url: null, key: null, rule: null, choices: [], title: typed, plan: null, path: null, template: false, existing: [] };
   let url: string | null = null;
   let key: string | null = null;
   if (/^https?:\/\/\S+$/.test(first)) url = first;
@@ -594,10 +595,10 @@ export function handle(cmd: string, a: A): unknown {
       return r && r.rule.pasteFormat && r.key ? `[${ruleLabel(r.rule, r.key)}](${url})` : null;
     }
     case "link_preview":
-      return linkPreview(a.input, a.vault, a.title, a.rule);
+      return linkPreview(a.input, a.vault ?? null, a.title, a.rule);
     case "create_from_link":
     case "quick_create_from_link": {
-      const p = linkPreview(a.input, a.vault ?? current, a.title, a.rule);
+      const p = linkPreview(a.input, a.vault ?? null, a.title, a.rule);
       if (!p.plan || !p.path) throw new Error("Paste or type a link (or a key a link rule knows)");
       notes.set(p.path, p.plan.content);
       mtimes.set(p.path, Date.now());

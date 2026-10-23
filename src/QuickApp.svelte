@@ -5,15 +5,15 @@
   import Switcher from "./components/Switcher.svelte";
   import { api, on, type SearchHit, type Settings } from "./lib/api";
   import { applyAppearance } from "./lib/appearance";
-  import { isKey } from "./lib/links";
+  import { isLinkInput } from "./lib/links";
 
   let settings = $state<Settings | null>(null);
   /** Bumped each time the pop-up is shown, to start from an empty query. */
   let shown = $state(0);
   let error = $state("");
 
-  function isTicket(q: string) {
-    return isKey(settings, q.trim().split(/\s+/)[0] ?? "");
+  function isLink(q: string) {
+    return isLinkInput(settings, q);
   }
 
   async function choose(hit: SearchHit) {
@@ -57,13 +57,15 @@
         embedded
         mode="open"
         current={null}
-        {isTicket}
+        {isLink}
         statuses={settings.statuses}
         tagColors={settings.tagColors}
         vaults={settings.vaults}
         currentVault={null}
         onChoose={choose}
         onCreate={create}
+        createLink={(input, vault, title, rule) => api.quickCreateFromLink(input, vault, title, rule)}
+        onCreatedLink={() => {}}
         onClose={() => api.quickHide()}
         onSize={(h) => api.quickResize(h + (error ? 24 : 0) + 2)}
       />
