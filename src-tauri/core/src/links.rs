@@ -1075,6 +1075,98 @@ pub fn to_utf16(links: &mut [NoteLink], text: &str) {
     }
 }
 
+/// A change to a note's link metadata (its front matter).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "op", content = "url")]
+pub enum MetaEdit {
+    /// Attach a link (to the `links` list).
+    Add(String),
+    /// Make a link the note's `primary_link`.
+    Primary(String),
+    /// The note is no longer about one link in particular.
+    ClearPrimary,
+    /// Remove an attached link.
+    Remove(String),
+    /// Change an attached link: `[old, new]`.
+    Replace((String, String)),
+}
+
+/// Apply a link metadata change to `content`. None: nothing to change. The
+/// rest of the note, front matter included, is kept as it is. A primary
+/// link that is replaced or cleared stays attached unless the note still
+/// mentions it elsewhere.
+pub fn edit_metadata(content: &str, edit: &MetaEdit, cx: &NoteContext) -> Result<Option<String>, String> {
+    let check = |url: &str| if is_url(url.trim()) { Ok(url.trim().to_string()) } else { Err(format!("`{}` isn't an http or https link", url.trim())) };
+    let fm = frontmatter::parse(content);
+    let entries = front_matter_entries(content, &fm);
+    let attached = |id: &str| entries.iter().filter(|e| e.key == LINKS_FIELD && identity(&e.value).as_deref() == Some(id)).collect::<Vec<_>>();
+    let old_primary = entries.iter().find(|e| e.key == PRIMARY_FIELD).map(|e| e.value.clone());
+    // After dropping the old primary link, keep it attached if nothing else mentions it.
+    let keep_old = |next: String| -> String {
+        let Some(old) = old_primary.as_deref().filter(|o| is_url(o)) else { return next };
+        let id = identity(old);
+        if extract(&next, cx).iter().any(|l| Some(&l.identity) == id.as_ref()) {
+            next
+        } else {
+            frontmatter::add_list_item(&next, LINKS_FIELD, old).apply(&next)
+        }
+    };
+    Ok(match edit {
+        MetaEdit::Add(url) => {
+            let url = check(url)?;
+            let id = identity(&url).unwrap_or_default();
+            if !attached(&id).is_empty() {
+                return Ok(None);
+            }
+            Some(frontmatter::add_list_item(content, LINKS_FIELD, &url).apply(content))
+        }
+        MetaEdit::Primary(url) => {
+            let url = check(url)?;
+            if old_primary.as_deref().and_then(identity) == identity(&url) {
+                return Ok(None);
+            }
+            let next = frontmatter::set_scalar(content, PRIMARY_FIELD, Some(&url)).map(|e| e.apply(content)).unwrap_or_else(|| content.to_string());
+            Some(keep_old(next))
+        }
+        MetaEdit::ClearPrimary => {
+            let Some(e) = frontmatter::set_scalar(content, PRIMARY_FIELD, None) else { return Ok(None) };
+            Some(keep_old(e.apply(content)))
+        }
+        MetaEdit::Remove(url) => {
+            let id = identity(url.trim()).ok_or_else(|| format!("`{url}` isn't a link"))?;
+            let gone = attached(&id);
+            let Some(first) = gone.first() else { return Ok(None) };
+            let line_start = content[..first.from].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            if content[line_start..first.from].trim_start().starts_with('-') {
+                // Block list items: drop their lines, last first.
+                let mut out = content.to_string();
+                for e in gone.iter().rev() {
+                    let a = content[..e.from].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                    let b = content[e.to..].find('\n').map(|i| e.to + i + 1).unwrap_or(content.len());
+                    out.replace_range(a..b, "");
+                }
+                Some(out)
+            } else {
+                let rest: Vec<String> = entries.iter().filter(|e| e.key == LINKS_FIELD && identity(&e.value).as_deref() != Some(id.as_str())).map(|e| e.value.clone()).collect();
+                frontmatter::set_inline_list(content, LINKS_FIELD, &rest).map(|e| e.apply(content))
+            }
+        }
+        MetaEdit::Replace((old, new)) => {
+            let new = check(new)?;
+            let id = identity(old.trim()).ok_or_else(|| format!("`{old}` isn't a link"))?;
+            let mut out = content.to_string();
+            let found = attached(&id);
+            if found.is_empty() {
+                return Err("That link isn't attached in the front matter; edit it where it is in the note".into());
+            }
+            for e in found.iter().rev() {
+                out.replace_range(e.from..e.to, &new);
+            }
+            Some(out)
+        }
+    })
+}
+
 /// How a single pasted URL is written when its rule formats pastes:
 /// `[PROJ-123](https://…/PROJ-123)`. None: paste it as it is.
 pub fn paste_format(text: &str, rules: &Rules) -> Option<String> {
@@ -1313,6 +1405,38 @@ mod tests {
         assert!(!p.errors.is_empty());
         assert_eq!(template_errors(&NoteTemplate { title: "{nope}".into(), ..t.clone() }, true).len(), 1);
         assert_eq!(safe_stem(" a/b:c? "), "a-b-c");
+    }
+
+    #[test]
+    fn metadata_edits() {
+        let r = rules();
+        let cx = NoteContext { path: "work:notes/x.md", rules: &r };
+        let edit = |text: &str, e: MetaEdit| edit_metadata(text, &e, &cx).unwrap();
+        let add = |u: &str| MetaEdit::Add(u.into());
+        let text = "# Note\n\nsee https://b.com/\n";
+        let one = edit(text, add("https://a.com/x")).unwrap();
+        assert_eq!(one, "---\nlinks:\n  - https://a.com/x\n---\n\n# Note\n\nsee https://b.com/\n");
+        assert_eq!(edit(&one, add("HTTPS://A.com:443/x")), None);
+        assert!(edit_metadata(&one, &add("notaurl"), &cx).is_err());
+        // A new primary link keeps the old one attached, unless the note mentions it.
+        let p = edit(&one, MetaEdit::Primary("https://b.com/".into())).unwrap();
+        assert_eq!(p, "---\nprimary_link: https://b.com/\nlinks:\n  - https://a.com/x\n---\n\n# Note\n\nsee https://b.com/\n");
+        let p2 = edit(&p, MetaEdit::Primary("https://a.com/x".into())).unwrap();
+        assert!(p2.starts_with("---\nprimary_link: https://a.com/x\nlinks:\n  - https://a.com/x\n---"));
+        let p3 = edit("---\nprimary_link: https://c.com/\n---\n", MetaEdit::Primary("https://d.com/".into())).unwrap();
+        assert_eq!(p3, "---\nprimary_link: https://d.com/\nlinks:\n  - https://c.com/\n---\n");
+        let cleared = edit("---\nprimary_link: https://c.com/\ntags: [a]\n---\n", MetaEdit::ClearPrimary).unwrap();
+        assert_eq!(cleared, "---\ntags: [a]\nlinks:\n  - https://c.com/\n---\n");
+        // Removing and replacing attached links, in block and inline lists.
+        let two = edit(&one, add("https://c.com/")).unwrap();
+        assert_eq!(edit(&two, MetaEdit::Remove("https://a.com/x".into())).unwrap(), "---\nlinks:\n  - https://c.com/\n---\n\n# Note\n\nsee https://b.com/\n");
+        let inline = "---\nlinks: [https://a.com/, https://c.com/]\nstatus: open\n---\n";
+        assert_eq!(edit(inline, MetaEdit::Remove("https://a.com".into())).unwrap(), "---\nlinks: [https://c.com/]\nstatus: open\n---\n");
+        assert_eq!(edit(inline, MetaEdit::Replace(("https://c.com/".into(), "https://e.com/".into()))).unwrap(), "---\nlinks: [https://a.com/, https://e.com/]\nstatus: open\n---\n");
+        assert!(edit_metadata(text, &MetaEdit::Replace(("https://b.com/".into(), "https://e.com/".into())), &cx).is_err());
+        assert_eq!(edit(text, MetaEdit::Remove("https://b.com/".into())), None);
+        let crlf = "---\r\nlinks:\r\n  - https://a.com/\r\n---\r\nx\r\n";
+        assert_eq!(edit(crlf, MetaEdit::Remove("https://a.com/".into())).unwrap(), "---\r\nlinks:\r\n---\r\nx\r\n");
     }
 
     #[test]

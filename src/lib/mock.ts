@@ -2,7 +2,7 @@
 // browser (`npm run dev`). Search and linking are simplified, but every
 // command answers so the whole UI can be exercised without Tauri.
 
-import type { NoteKind, NoteMeta, SearchHit, Settings, Startup } from "./api";
+import type { LinkPreview, LinkRule, LinkSource, LinkUse, MetaEdit, NoteKind, NoteLink, NoteMeta, SearchHit, Settings, Startup } from "./api";
 import { mockEmit } from "./api";
 import { ChangeSet, Text } from "@codemirror/state";
 import { isoDate, normalizeTag } from "./text";
@@ -10,17 +10,10 @@ import { isoDate, normalizeTag } from "./text";
 const today = isoDate();
 
 const settings: Settings = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   vaults: [
-    { id: "personal", name: "Personal", path: "", color: "blue", tickets: [], links: [] },
-    {
-      id: "work",
-      name: "Work",
-      path: "",
-      color: "orange",
-      tickets: [{ name: "Jira", icon: "ticket", pattern: "[A-Z][A-Z0-9]+-\\d+", url: "https://yourco.atlassian.net/browse/{key}" }],
-      links: [{ name: "Gerrit", icon: "git-pull-request", field: "gerrit", url: "https://gerrit.example.com/c/{n}" }],
-    },
+    { id: "personal", name: "Personal", path: "", color: "blue" },
+    { id: "work", name: "Work", path: "", color: "orange" },
   ],
   hotkey: "Alt+N",
   switcherHotkey: "Alt+J",
@@ -41,6 +34,35 @@ const settings: Settings = {
   animations: "system",
   liveFormatting: true,
   smartPaste: true,
+  linkRules: [
+    {
+      id: "jira",
+      name: "Jira",
+      icon: "ticket",
+      enabled: true,
+      url: "https://yourco.atlassian.net/browse/{key}",
+      pattern: "",
+      keyPattern: "[A-Z][A-Z0-9]+-\\d+",
+      label: "{key}",
+      pasteFormat: true,
+      template: { enabled: true, title: "{key} {title}", folder: "tickets", filename: "{key}", body: "# {key} {title}\n\n", status: "open", tags: [] },
+    },
+    {
+      id: "gerrit",
+      name: "Gerrit",
+      icon: "git-pull-request",
+      enabled: true,
+      url: "https://gerrit.example.com/c/{n}",
+      pattern: "",
+      keyPattern: "",
+      label: "{name} {key}",
+      pasteFormat: false,
+      template: { enabled: false, title: "{title}", folder: "notes", filename: "", body: "", status: "", tags: [] },
+    },
+  ],
+  legacyLinks: {
+    vaults: { work: { tickets: [], links: [{ name: "Gerrit", icon: "git-pull-request", field: "gerrit", url: "https://gerrit.example.com/c/{n}" }] } },
+  },
   restorePinned: true,
   notesView: { showDaily: false, showClosed: false, sort: "edited", groupBy: "none" },
   statuses: [
@@ -62,6 +84,7 @@ const settings: Settings = {
     openTicket: "Ctrl+J",
     openLink: "Ctrl+G",
     addLink: "Ctrl+Shift+G",
+    linksPanel: "Ctrl+Shift+L",
     timestamp: "Ctrl+;",
     backlinks: "Ctrl+Shift+B",
     archive: "Ctrl+Shift+A",
@@ -281,6 +304,194 @@ function changed(path: string) {
 }
 
 type A = Record<string, any>;
+
+// ---------- links (a simplified version of core/src/links.rs) ----------
+
+function identity(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    return url;
+  }
+}
+
+function formatRegex(format: string): RegExp | null {
+  if (!/\{(key|n)\}/.test(format)) return null;
+  const esc = format.replace(/^https?:\/\//, "").replace(/[.*+?^$()|[\]\\]/g, "\\$&");
+  return new RegExp(`^https?://${esc.replace("{key}", "([^/?#&]+)").replace("{n}", "(?:[^?#]*?/)??(\\d+)")}(?:[/?#&].*)?$`, "i");
+}
+
+function recognise(rules: LinkRule[], url: string): { rule: LinkRule; key: string | null } | null {
+  for (const rule of rules.filter((r) => r.enabled)) {
+    const re = rule.pattern ? new RegExp(rule.pattern, "i") : formatRegex(rule.url);
+    const m = re?.exec(url);
+    if (m) return { rule, key: m[1] ? decodeURIComponent(m[1]) : null };
+  }
+  return null;
+}
+
+function ruleLabel(rule: LinkRule, key: string | null): string {
+  const n = /(\d+)$/.exec(key ?? "")?.[1] ?? key ?? "";
+  return (rule.label || "{key}").replace("{key}", key ?? "").replace("{n}", n).replace("{name}", rule.name);
+}
+
+function keyUrl(rules: LinkRule[], key: string): string | null {
+  const rule = rules.find((r) => r.enabled && r.keyPattern && new RegExp(`^(?:${r.keyPattern})$`).test(key));
+  return rule ? rule.url.replace("{key}", key).replace("{n}", /(\d+)$/.exec(key)?.[1] ?? key) : null;
+}
+
+function keyRegexSource(): string | null {
+  const pats = settings.linkRules.filter((r) => r.enabled && r.keyPattern).map((r) => `(?:${r.keyPattern})`);
+  return pats.length ? pats.join("|") : null;
+}
+
+function noteLinks(_path: string, text: string): NoteLink[] {
+  const out: NoteLink[] = [];
+  const add = (url: string, kind: LinkSource["kind"], from: number, to: number, label: string | null, field: string | null = null) => {
+    const id = identity(url);
+    const line = text.slice(0, from).split("\n").length;
+    const source: LinkSource = { kind, from, to, line, field, text: text.slice(from, to) };
+    const found = out.find((l) => l.identity === id);
+    if (found) {
+      found.sources.push(source);
+      if (label && found.label === found.url) found.label = label;
+      found.primary ||= kind === "primary";
+      return;
+    }
+    const r = recognise(settings.linkRules, url);
+    out.push({
+      url,
+      identity: id,
+      label: label ?? (r?.key ? ruleLabel(r.rule, r.key) : url),
+      domain: new URL(url).host.replace(/^www\./, ""),
+      rule: r ? { id: r.rule.id, name: r.rule.name, icon: r.rule.icon } : null,
+      key: r?.key ?? null,
+      primary: kind === "primary",
+      sources: [source],
+    });
+  };
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  if (fm) {
+    let list: string | null = null;
+    let at = text.indexOf("\n") + 1;
+    for (const line of fm[1].split("\n")) {
+      const kv = /^(\w+):\s*(.*)$/.exec(line);
+      const item = /^\s+-\s+(\S+)/.exec(line);
+      if (kv) list = kv[2] ? null : kv[1];
+      if (kv?.[1] === "primary_link" && kv[2]) {
+        const v = kv[2].trim();
+        add(v, "primary", at + line.indexOf(v), at + line.indexOf(v) + v.length, null, "primary_link");
+      } else if (item && list && /^https?:/.test(item[1])) {
+        add(item[1], list === "links" ? "attached" : "legacy", at + line.indexOf(item[1]), at + line.indexOf(item[1]) + item[1].length, null, list);
+      }
+      at += line.length + 1;
+    }
+  }
+  const body = fm ? fm[0].length : 0;
+  const masked = text.slice(body).replace(/```[\s\S]*?```|`[^`\n]*`|!\[[^\]]*\]\([^)]*\)/g, (m) => " ".repeat(m.length));
+  const taken: [number, number][] = [];
+  for (const m of masked.matchAll(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)|<(https?:\/\/[^>\s]+)>/g)) {
+    const from = body + m.index!;
+    taken.push([from, from + m[0].length]);
+    add(m[2] ?? m[3], "body", from, from + m[0].length, m[1] ?? null);
+  }
+  for (const m of masked.matchAll(/https?:\/\/[^\s<>()[\]"'`]+/g)) {
+    const from = body + m.index!;
+    const url = m[0].replace(/[.,;:!?]+$/, "");
+    if (taken.some(([a, b]) => from < b && from + url.length > a)) continue;
+    taken.push([from, from + url.length]);
+    add(url, "body", from, from + url.length, null);
+  }
+  const keys = keyRegexSource();
+  if (keys) {
+    for (const m of masked.matchAll(new RegExp(`\\b(?:${keys})\\b`, "g"))) {
+      const from = body + m.index!;
+      const url = keyUrl(settings.linkRules, m[0]);
+      if (url && !taken.some(([a, b]) => from < b && from + m[0].length > a)) add(url, "key", from, from + m[0].length, m[0]);
+    }
+  }
+  out.sort((x, y) => Number(y.primary) - Number(x.primary) || x.sources[0].from - y.sources[0].from);
+  return out;
+}
+
+function metaEdit(text: string, edit: MetaEdit): string | null {
+  const fm = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+  const body = fm ? text.slice(fm[0].length) : `\n${text}`;
+  const lines = fm ? fm[1].split("\n") : [];
+  const write = (ls: string[]) => (ls.length ? `---\n${ls.join("\n")}\n---\n${body}` : body.replace(/^\n/, ""));
+  const addLink = (url: string) => {
+    if (lines.some((l) => l.trim() === `- ${url}`)) return;
+    const i = lines.findIndex((l) => /^links:\s*$/.test(l));
+    if (i < 0) lines.push("links:", `  - ${url}`);
+    else {
+      let j = i + 1;
+      while (j < lines.length && /^\s+-/.test(lines[j])) j++;
+      lines.splice(j, 0, `  - ${url}`);
+    }
+  };
+  switch (edit.op) {
+    case "add":
+      if (lines.some((l) => l.trim() === `- ${edit.url}`)) return null;
+      addLink(edit.url);
+      return write(lines);
+    case "primary":
+    case "clearPrimary": {
+      const i = lines.findIndex((l) => l.startsWith("primary_link:"));
+      const old = i >= 0 ? lines[i].slice("primary_link:".length).trim() : null;
+      if (i >= 0) lines.splice(i, 1);
+      if (edit.op === "primary") lines.unshift(`primary_link: ${edit.url}`);
+      if (old && (edit.op === "clearPrimary" || old !== edit.url) && !body.includes(old)) addLink(old);
+      return write(lines);
+    }
+    case "remove":
+      return write(lines.filter((l) => l.trim() !== `- ${edit.url}`));
+    case "replace":
+      return write(lines.map((l) => (l.trim() === `- ${edit.url[0]}` ? `  - ${edit.url[1]}` : l)));
+  }
+}
+
+function linkPreview(input: string, vault: string, title: string | null, ruleId: string | null): LinkPreview {
+  const [first = "", ...rest] = String(input).trim().split(/\s+/);
+  const typed = title ?? rest.join(" ");
+  const empty: LinkPreview = { url: null, key: null, rule: null, choices: [], title: typed, plan: null, path: null, template: false, existing: [] };
+  let url: string | null = null;
+  let key: string | null = null;
+  if (/^https?:\/\/\S+$/.test(first)) url = first;
+  else {
+    key = first.replace(/[:,]$/, "").toUpperCase();
+    url = keyUrl(settings.linkRules.filter((x) => !ruleId || x.id === ruleId), key);
+  }
+  if (!url) return empty;
+  const r = recognise(settings.linkRules, url);
+  key = r?.key ?? key;
+  const t = r?.rule.template.enabled ? r.rule.template : null;
+  const k = key ?? "";
+  const host = new URL(url).host;
+  const fill = (s: string, v: string) => s.replaceAll("{key}", k).replaceAll("{title}", v).replaceAll("{url}", url!).replaceAll("{domain}", host);
+  let value = k ? typed.replace(new RegExp(`^${k}\\s*`, "i"), "") : typed;
+  if (!value && !(t?.title.includes("{key}") && k)) value = k || host;
+  const name = fill(t?.title || "{title}", value).trim() || k || host;
+  const body = t?.body ? fill(t.body, value) : `# ${name}\n\n`;
+  const stem = t?.filename ? fill(t.filename, value) : slug(name);
+  const folder = t?.folder || "notes";
+  let path = `${vault}:${folder}/${stem}.md`;
+  for (let n = 2; notes.has(path); n++) path = `${vault}:${folder}/${stem}-${n}.md`;
+  const status = t?.status ? `status: ${t.status}\n` : "";
+  const existing = [...notes.keys()]
+    .filter((p) => noteLinks(p, notes.get(p)!).some((l) => l.primary && l.identity === identity(url!)) || (k && stem === k && notes.has(p) && p.endsWith(`/${k}.md`)))
+    .map((p) => hit(p));
+  return {
+    ...empty,
+    url,
+    key,
+    rule: r ? { id: r.rule.id, name: r.rule.name, icon: r.rule.icon } : null,
+    plan: { title: /^# (.+)$/m.exec(body)?.[1]?.trim() ?? name, folder, stem, content: `---\nprimary_link: ${url}\n${status}---\n\n${body}`, errors: [] },
+    path,
+    template: !!t,
+    existing,
+  };
+}
 const images = new Map<string, Uint8Array>();
 
 function followMove(from: string, to: string) {
@@ -329,6 +540,7 @@ export function handle(cmd: string, a: A): unknown {
         currentVault: current,
         settingsPath: "settings.json",
         warnings: [],
+        notices: [],
         lastPath: null,
         lastAnchor: null,
         indexReady: true,
@@ -345,10 +557,57 @@ export function handle(cmd: string, a: A): unknown {
     case "test_hotkey":
       if (/^(Ctrl\+Alt\+Del)$/i.test(a.spec)) throw new Error(`\`${a.spec}\` is taken by another app`);
       return;
-    case "test_ticket_pattern": {
-      const re = new RegExp(`\\b(?:${a.pattern})\\b`, "g");
-      return [...String(a.sample).matchAll(re)].map((m) => m[0]);
+    case "test_link_rule": {
+      const rule: LinkRule = { ...a.rule, enabled: true };
+      const sample = String(a.sample).trim();
+      const url = /^https?:\/\//.test(sample) ? sample : keyUrl([rule], sample);
+      const r = url ? recognise([rule], url) : null;
+      const error = rule.name.trim() ? null : "every link rule needs a name";
+      return { error, url, recognised: !!r, key: r?.key ?? null, label: r ? ruleLabel(rule, r.key) : null, plan: null };
     }
+    case "note_links":
+      return noteLinks(a.path, a.text);
+    case "all_links": {
+      const uses = new Map<string, LinkUse>();
+      const paths = [...notes.keys()]
+        .filter((p) => (a.includeArchived || !rel(p).startsWith("archive/")) && (!a.vault || vaultOf(p) === a.vault))
+        .sort((x, y) => (mtimes.get(y) ?? 0) - (mtimes.get(x) ?? 0));
+      for (const p of paths) {
+        for (const l of noteLinks(p, notes.get(p)!)) {
+          const u = uses.get(l.identity) ?? { url: l.url, identity: l.identity, label: l.label, domain: l.domain, rule: l.rule, key: l.key, notes: [] };
+          u.notes.push(hit(p));
+          uses.set(l.identity, u);
+        }
+      }
+      const words = String(a.query).toLowerCase().split(/\s+/).filter(Boolean);
+      const hay = (u: LinkUse) => `${u.url} ${u.label} ${u.notes.map((n) => n.title).join(" ")}`.toLowerCase();
+      return [...uses.values()].filter((u) => words.every((w) => hay(u).includes(w)));
+    }
+    case "link_meta_edit": {
+      const text: string = a.content;
+      const next = metaEdit(text, a.edit);
+      return next === null || next === text ? null : { from: 0, to: text.length, insert: next };
+    }
+    case "paste_format": {
+      const url = String(a.text).trim();
+      const r = settings.smartPaste && /^https?:\/\/\S+$/.test(url) ? recognise(settings.linkRules, url) : null;
+      return r && r.rule.pasteFormat && r.key ? `[${ruleLabel(r.rule, r.key)}](${url})` : null;
+    }
+    case "link_preview":
+      return linkPreview(a.input, a.vault, a.title, a.rule);
+    case "create_from_link":
+    case "quick_create_from_link": {
+      const p = linkPreview(a.input, a.vault ?? current, a.title, a.rule);
+      if (!p.plan || !p.path) throw new Error("Paste or type a link (or a key a link rule knows)");
+      notes.set(p.path, p.plan.content);
+      mtimes.set(p.path, Date.now());
+      mockEmit("note-created", meta(p.path, p.plan.content));
+      if (cmd === "quick_create_from_link") mockEmit("open-note", p.path);
+      return p.path;
+    }
+    case "write_clipboard":
+      navigator.clipboard?.writeText(a.text).catch(() => {});
+      return;
     case "pick_folder":
       return "C:\\Users\\me\\Notes";
     case "get_vault_paths":
@@ -672,16 +931,6 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "archived_names":
       return [...notes.keys()].filter((p) => vaultOf(p) === a.vault && rel(p).startsWith("archive/")).map((p) => meta(p, notes.get(p)!).title.toLowerCase());
-    case "link_edit": {
-      const content: string = a.content;
-      const m = new RegExp(`^---\\n[\\s\\S]*?\\n${a.field}:[^\\n]*\\n((?:\\s+-[^\\n]*\\n)*)`).exec(content);
-      if (m) {
-        const at = m.index + m[0].length;
-        return { from: at, to: at, insert: `  - ${a.item}\n` };
-      }
-      if (content.startsWith("---\n")) return { from: 4, to: 4, insert: `${a.field}:\n  - ${a.item}\n` };
-      return { from: 0, to: 0, insert: `---\n${a.field}:\n  - ${a.item}\n---\n\n` };
-    }
     case "open_url":
       window.open(a.url, "_blank", "noopener");
       return;

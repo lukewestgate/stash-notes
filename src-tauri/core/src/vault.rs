@@ -259,6 +259,24 @@ impl Vault {
         }
     }
 
+    /// A free `folder/stem.md` for a new note (`stem-2`, ... when the name is
+    /// taken here or in the archive). Never an existing file.
+    pub fn free_path(&self, folder: &str, stem: &str) -> Result<String> {
+        let folder = folder.trim().trim_matches('/');
+        let first = folder.split('/').next().unwrap_or("");
+        if [TEMPLATES_DIR, ARCHIVE_DIR].contains(&first) || first.starts_with('.') {
+            return Err(VaultError::BadPath(format!("{folder}/")));
+        }
+        for n in 1.. {
+            let name = if n == 1 { stem.to_string() } else { format!("{stem}-{n}") };
+            let rel = Self::clean(&if folder.is_empty() { format!("{name}.md") } else { format!("{folder}/{name}.md") })?;
+            if !self.exists(&rel) && !self.exists(&format!("{ARCHIVE_DIR}/{rel}")) {
+                return Ok(rel);
+            }
+        }
+        unreachable!()
+    }
+
     pub fn note_stub(title: &str) -> String {
         format!("# {}\n\n", title.trim())
     }
@@ -465,6 +483,11 @@ mod tests {
         assert_eq!(v.new_note_path("Rollout plan"), "notes/rollout-plan.md");
         v.write("notes/rollout-plan.md", "").unwrap();
         assert_eq!(v.new_note_path("Rollout Plan"), "notes/rollout-plan-2.md");
+        v.write("archive/tickets/PROJ-1.md", "").unwrap();
+        assert_eq!(v.free_path("tickets", "PROJ-1").unwrap(), "tickets/PROJ-1-2.md");
+        assert_eq!(v.free_path("/notes/", "x").unwrap(), "notes/x.md");
+        assert!(v.free_path("templates", "x").is_err());
+        assert!(v.free_path("../out", "x").is_err());
     }
 
     #[test]

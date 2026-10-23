@@ -3,13 +3,13 @@
   // and is written to settings.json, which stays the source of truth: hand
   // edits to the file show up here live.
   import { onMount } from "svelte";
-  import { api, type Keys, type Settings, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
+  import { api, type Keys, type LinkRule, type RuleTest, type Settings, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import { toaster } from "../lib/toasts.svelte";
   import TagChip from "./TagChip.svelte";
   import { sameKeys } from "../lib/keys";
   import { COLORS } from "../lib/status";
   import { timestamp } from "../lib/text";
-  import { LINK_PRESETS, TICKET_PRESETS, linkUrl, ticketUrl } from "../lib/links";
+  import { RULE_PRESETS, adaptFormat, ruleId } from "../lib/links";
   import { LINK_ICONS } from "../lib/icons";
   import KeyRecorder from "./KeyRecorder.svelte";
   import { STATUS_ICONS } from "../lib/icons";
@@ -31,6 +31,7 @@
   const CATEGORIES = [
     "General",
     "Vaults",
+    "Links",
     "Window",
     "Editor",
     "Notes",
@@ -46,8 +47,10 @@
   const FIELDS: Record<Category, (keyof Settings)[]> = {
     General: ["autostart", "startHidden", "hotkey", "switcherHotkey", "restorePinned", "onSummon", "hideAfterExternalLink"],
     Window: ["showInTaskbar", "alwaysOnTop"],
-    Editor: ["liveFormatting", "readableWidth", "fontFamily", "fontSize", "lineHeight", "spellCheck", "smartPaste", "timestampFormat"],
+    Editor: ["liveFormatting", "readableWidth", "fontFamily", "fontSize", "lineHeight", "spellCheck", "timestampFormat"],
     Vaults: [],
+    // Rules are yours: Reset only restores paste formatting.
+    Links: ["smartPaste"],
     Notes: ["defaultStatus"],
     "Notes view": ["notesView"],
     Statuses: ["statuses"],
@@ -63,9 +66,10 @@
     ["followLink", "Follow link / toggle checkbox"],
     ["back", "Back"],
     ["forward", "Forward"],
-    ["openTicket", "Open the note's ticket"],
-    ["openLink", "Open an attached link"],
-    ["addLink", "Attach a link"],
+    ["openTicket", "Open the note's primary link"],
+    ["openLink", "Open a link from the note"],
+    ["addLink", "Add a link to the note"],
+    ["linksPanel", "Links panel"],
     ["timestamp", "Insert timestamp"],
     ["setStatus", "Set status"],
     ["setTags", "Add or remove tags"],
@@ -94,7 +98,7 @@
   let defaults = $state<Settings | null>(null);
   let template = $state("");
   let templateSaved = $state("");
-  /** The ticket system / link type whose icon picker is open: `vault:kind:index`. */
+  /** The link rule whose icon picker is open (its id). */
   let linkIconFor = $state<string | null>(null);
   let saving = 0;
   let tags = $state<TagCount[]>([]);
@@ -158,8 +162,7 @@
   // svelte-ignore state_referenced_locally
   let templateVault = $state(currentVault);
   let defaultFolder = $state("");
-  /** `copyFrom`: a vault whose ticket systems and link types the new one starts with ("" for none). */
-  let newVault = $state({ name: "", path: "", copyFrom: "" });
+  let newVault = $state({ name: "", path: "" });
 
   $effect(() => {
     const v = templateVault;
@@ -195,11 +198,8 @@
     }
     const used = new Set(draft.vaults.map((v) => v.color));
     const color = COLORS.find((c) => !used.has(c)) ?? "teal";
-    const from = draft.vaults.find((v) => v.id === newVault.copyFrom);
-    const tickets = from ? structuredClone($state.snapshot(from.tickets)) : [];
-    const links = from ? structuredClone($state.snapshot(from.links)) : [];
-    await editVaults((l) => l.push({ id: vaultId(name), name, path: newVault.path.trim(), color, tickets, links }));
-    if (!errors.vaults) newVault = { name: "", path: "", copyFrom: "" };
+    await editVaults((l) => l.push({ id: vaultId(name), name, path: newVault.path.trim(), color }));
+    if (!errors.vaults) newVault = { name: "", path: "" };
   }
 
   async function removeVault(i: number) {
@@ -257,11 +257,66 @@
     }
   }
 
-  /** A key the ticket system makes, for its URL preview. */
-  function sampleKey(pattern: string): string {
-    const prefix = /^([A-Za-z][A-Za-z0-9_]*)-\\d\+$/.exec(pattern)?.[1];
-    return prefix ? `${prefix}-42` : "PROJ-123";
+  // ----- link rules -----
+
+  /** The preset being added, and the example link that adapts it to your site. */
+  let adding = $state<{ preset: number; example: string } | null>(null);
+  /** Per rule (by id): the link or key its preview tries, and what came of it. */
+  let samples = $state<Record<string, string>>({});
+  let tests = $state<Record<string, RuleTest>>({});
+  /** Rules whose template / advanced sections are open. */
+  let open = $state<Record<string, boolean>>({});
+
+  function editRules(change: (list: LinkRule[]) => void) {
+    return save("linkRules", (s) => change(s.linkRules));
   }
+
+  /** Something the rule should recognise: a key it reads, else a link it makes. */
+  function defaultSample(r: LinkRule): string {
+    const prefix = /^([A-Za-z][A-Za-z0-9_]*)-\\d\+$/.exec(r.keyPattern)?.[1];
+    if (r.keyPattern) return prefix ? `${prefix}-42` : "PROJ-123";
+    return r.url.replaceAll("{key}", "abc123").replaceAll("{n}", "42");
+  }
+
+  $effect(() => {
+    const rules = $state.snapshot(draft.linkRules) as LinkRule[];
+    const wanted = { ...samples };
+    for (const r of rules) {
+      const sample = wanted[r.id] ?? defaultSample(r);
+      api.testLinkRule(r, sample).then((t) => (tests = { ...tests, [r.id]: t }), () => {});
+    }
+  });
+
+  async function addRule() {
+    if (!adding) return;
+    const preset = RULE_PRESETS[adding.preset];
+    const rule = structuredClone(preset.rule) as LinkRule;
+    const example = adding.example.trim();
+    if (example) {
+      const url = adaptFormat(rule.url, example);
+      if (!url) {
+        errors = { ...errors, linkRules: "The example must be a link starting with https:// or http://" };
+        return;
+      }
+      rule.url = url;
+      samples = { ...samples, [ruleId(rule.name, draft.linkRules.map((x) => x.id))]: example };
+    }
+    rule.id = ruleId(rule.name, draft.linkRules.map((x) => x.id));
+    await editRules((l) => l.push(rule));
+    if (!errors.linkRules) adding = null;
+  }
+
+  async function removeRule(i: number) {
+    const before = structuredClone($state.snapshot(draft.linkRules)) as LinkRule[];
+    const gone = before[i];
+    await editRules((l) => l.splice(i, 1));
+    toaster.show(`Removed ${gone.name} — links in your notes are unchanged`, "done", {
+      label: "Undo",
+      run: () => save("linkRules", (s) => (s.linkRules = before)),
+    });
+  }
+
+  const vaultName = (id: string) => draft.vaults.find((v) => v.id === id)?.name ?? id;
 
   async function setHotkey(which: "hotkey" | "switcherHotkey", spec: string): Promise<string | null> {
     try {
@@ -402,7 +457,7 @@
           <span class="text">Quick switcher hotkey<span class="hint">global — search and open notes from any app</span></span>
           <KeyRecorder value={draft.switcherHotkey} onChange={(k) => setHotkey("switcherHotkey", k)} />
         </div>
-        {@render toggle("Hide the window after opening a link", draft.hideAfterExternalLink, (v) => set("hideAfterExternalLink", v), "a ticket, attached link or URL")}
+        {@render toggle("Hide the window after opening a link", draft.hideAfterExternalLink, (v) => set("hideAfterExternalLink", v), "any link opened in the browser")}
         <p class="note">New versions install by running the newer installer; your notes and settings are kept.</p>
       {:else if category === "Window"}
         {@render toggle("Show in taskbar", draft.showInTaskbar, (v) => set("showInTaskbar", v))}
@@ -441,7 +496,6 @@
           />
         </div>
         {@render toggle("Spell check", draft.spellCheck, (v) => set("spellCheck", v))}
-        {@render toggle("Smart paste of ticket and link URLs", draft.smartPaste, (v) => set("smartPaste", v), "uses each vault's links; Ctrl+Shift+V always pastes as typed")}
         <div class="row">
           <span class="text">Timestamp format<span class="hint">yyyy MM dd HH hh mm ss a</span></span>
           <span class="inline">
@@ -453,7 +507,7 @@
         <p class="note">
           A vault is a folder of notes. The sidebar, Notes view and Today show one vault at a time; search (<b>{draft.keys.quickSwitcher}</b>
           and the pop-up) covers all of them. Switch with <b>{draft.keys.switchVault}</b>, the sidebar or the tray. Removing a vault
-          here never deletes its files.
+          here never deletes its files. Link rules work in every vault: see <b>Links</b>.
         </p>
         {#each draft.vaults as v, i (v.id)}
           <div class="vcard" style:--vc="var(--c-{v.color})">
@@ -491,62 +545,6 @@
                 {/each}
               </span>
             </div>
-            <div class="links">
-              <div class="lhead">
-                <span class="text">Tickets<span class="hint">a note per item, named by its key; pasting its URL gives the key</span></span>
-                <select
-                  value=""
-                  onchange={(e) => {
-                    const p = TICKET_PRESETS[Number(e.currentTarget.value)];
-                    e.currentTarget.value = "";
-                    if (p) editVaults((l) => l[i].tickets.push(structuredClone(p.system)));
-                  }}
-                  aria-label="Add a ticket system"
-                >
-                  <option value="" disabled>Add…</option>
-                  {#each TICKET_PRESETS as p, k}<option value={k}>{p.label}</option>{/each}
-                </select>
-              </div>
-              {#each v.tickets as t, j}
-                {@render linkIcon(`${v.id}:t:${j}`, t.icon, (icon) => editVaults((l) => (l[i].tickets[j].icon = icon)))}
-                <div class="lrow">
-                  <input class="lname" value={t.name} onchange={(e) => editVaults((l) => (l[i].tickets[j].name = e.currentTarget.value.trim() || t.name))} aria-label="Name" />
-                  <input class="mono lpat" value={t.pattern} title="Key pattern (a regular expression)" onchange={(e) => editVaults((l) => (l[i].tickets[j].pattern = e.currentTarget.value.trim()))} aria-label="Key pattern" />
-                  <input class="mono wide" value={t.url} title={"URL: {key} is the key, {n} its number"} onchange={(e) => editVaults((l) => (l[i].tickets[j].url = e.currentTarget.value.trim()))} aria-label="URL" />
-                  <button class="mini" onclick={() => editVaults((l) => l[i].tickets.splice(j, 1))} title="Remove" aria-label="Remove"><Icon name="trash" size={14} /></button>
-                </div>
-                <div class="lpreview">{sampleKey(t.pattern)} → {ticketUrl(t, sampleKey(t.pattern))}</div>
-              {:else}
-                <div class="lnone">None — this vault's notes are plain notes.</div>
-              {/each}
-              <div class="lhead">
-                <span class="text">Attached links<span class="hint">a note collects them in front matter; pasting one adds it</span></span>
-                <select
-                  value=""
-                  onchange={(e) => {
-                    const p = LINK_PRESETS[Number(e.currentTarget.value)];
-                    e.currentTarget.value = "";
-                    if (p) editVaults((l) => l[i].links.push(structuredClone(p.type)));
-                  }}
-                  aria-label="Add a link type"
-                >
-                  <option value="" disabled>Add…</option>
-                  {#each LINK_PRESETS as p, k}<option value={k}>{p.label}</option>{/each}
-                </select>
-              </div>
-              {#each v.links as t, j}
-                {@render linkIcon(`${v.id}:l:${j}`, t.icon, (icon) => editVaults((l) => (l[i].links[j].icon = icon)))}
-                <div class="lrow">
-                  <input class="lname" value={t.name} onchange={(e) => editVaults((l) => (l[i].links[j].name = e.currentTarget.value.trim() || t.name))} aria-label="Name" />
-                  <input class="mono lpat" value={t.field} title="Front matter key" onchange={(e) => editVaults((l) => (l[i].links[j].field = e.currentTarget.value.trim().toLowerCase()))} aria-label="Front matter key" />
-                  <input class="mono wide" value={t.url} title={"URL for a bare entry: {n} is the entry; pasted URLs on this site are recognised"} onchange={(e) => editVaults((l) => (l[i].links[j].url = e.currentTarget.value.trim()))} aria-label="URL" />
-                  <button class="mini" onclick={() => editVaults((l) => l[i].links.splice(j, 1))} title="Remove" aria-label="Remove"><Icon name="trash" size={14} /></button>
-                </div>
-                <div class="lpreview">{t.field}: 12345 → {linkUrl(t, "12345")}</div>
-              {:else}
-                <div class="lnone">None.</div>
-              {/each}
-            </div>
           </div>
         {/each}
         {#if indexing}<div class="progress">Indexing notes in the background…</div>{/if}
@@ -556,17 +554,136 @@
             <input placeholder="Name, e.g. Work" bind:value={newVault.name} aria-label="New vault name" />
             <input class="wide" placeholder="Folder" bind:value={newVault.path} aria-label="New vault folder" />
             <button class="btn" onclick={() => chooseVaultFolder(null)}>Choose…</button>
-            <select bind:value={newVault.copyFrom} aria-label="Links for the new vault">
-              <option value="">Plain notes</option>
-              {#each draft.vaults.filter((x) => x.tickets.length || x.links.length) as x}<option value={x.id}>Links like {x.name}</option>{/each}
-            </select>
             <button class="btn primary" onclick={addVault}>Add vault</button>
           </span>
         </div>
         {@render error("vaults")}
+      {:else if category === "Links"}
+        <p class="note">
+          Every link you paste or type into a note is collected in its <b>Links</b> panel, in every vault, with no setup. Rules are
+          optional: they recognise a service's links (tickets, reviews, pages, videos), give them a short label, can format pasted links
+          and offer a template when you create a note from a link or key. They apply in all vaults.
+        </p>
+        {@render toggle("Format pasted links", draft.smartPaste, (v) => set("smartPaste", v), "for rules with paste formatting on; Ctrl+Shift+V always pastes as typed")}
+        {#each draft.linkRules as r, i (r.id)}
+          {@const t = tests[r.id]}
+          <div class="rcard" class:off={!r.enabled}>
+            <div class="vhead">
+              {@render linkIcon(r.id, r.icon, (icon) => editRules((l) => (l[i].icon = icon)))}
+              <input class="vname" value={r.name} onchange={(e) => editRules((l) => (l[i].name = e.currentTarget.value.trim() || l[i].name))} aria-label="Rule name" />
+              <span class="grow"></span>
+              <label class="inline small"><input type="checkbox" class="switch" checked={r.enabled} onchange={(e) => editRules((l) => (l[i].enabled = e.currentTarget.checked))} /> On</label>
+              <span class="ops">
+                <button class="mini" disabled={i === 0} onclick={() => editRules((l) => ([l[i - 1], l[i]] = [l[i], l[i - 1]]))} aria-label="Move {r.name} up" title="Earlier rules win ties"><Icon name="arrow-up" size={14} /></button>
+                <button class="mini" disabled={i === draft.linkRules.length - 1} onclick={() => editRules((l) => ([l[i], l[i + 1]] = [l[i + 1], l[i]]))} aria-label="Move {r.name} down"><Icon name="arrow-down" size={14} /></button>
+                <button class="mini" onclick={() => removeRule(i)} title="Remove (links in notes stay)" aria-label="Remove {r.name}"><Icon name="trash" size={14} /></button>
+              </span>
+            </div>
+            <div class="row">
+              <span class="text">Link format<span class="hint">{"{key}"} is the identifier (PROJ-123), {"{n}"} its number</span></span>
+              <input class="mono wide" value={r.url} onchange={(e) => editRules((l) => (l[i].url = e.currentTarget.value.trim()))} aria-label="{r.name} link format" />
+            </div>
+            <div class="row">
+              <span class="text">Try it<span class="hint">a link, or a key</span></span>
+              <span class="tryit">
+                <input
+                  class="mono wide"
+                  value={samples[r.id] ?? defaultSample(r)}
+                  oninput={(e) => (samples = { ...samples, [r.id]: e.currentTarget.value })}
+                  aria-label="Example link or key for {r.name}"
+                />
+                <span class="lpreview" role="status">
+                  {#if t?.recognised}
+                    <Icon name="check" size={13} /> {t.label ?? t.key ?? "recognised"}{#if t.url && t.url !== (samples[r.id] ?? defaultSample(r))}&nbsp;→ {t.url}{/if}
+                  {:else if t}
+                    Not recognised by this rule
+                  {/if}
+                </span>
+              </span>
+            </div>
+            {@render toggle(
+              "Recognise bare keys",
+              !!r.keyPattern,
+              (v) => editRules((l) => (l[i].keyPattern = v ? "[A-Z][A-Z0-9]+-\\d+" : "")),
+              "PROJ-123 in a note opens through the link format",
+            )}
+            {#if r.keyPattern}
+              <div class="row sub">
+                <span class="text">Key pattern<span class="hint">a regular expression</span></span>
+                <input class="mono" value={r.keyPattern} onchange={(e) => editRules((l) => (l[i].keyPattern = e.currentTarget.value.trim()))} aria-label="{r.name} key pattern" />
+              </div>
+            {/if}
+            {@render toggle("Format pasted links", r.pasteFormat, (v) => editRules((l) => (l[i].pasteFormat = v)), "a single pasted link becomes [label](link)")}
+            <div class="row sub">
+              <span class="text">Label<span class="hint">{"{key}"}, {"{n}"}, {"{name}"} — a Markdown label wins</span></span>
+              <input class="mono" value={r.label} onchange={(e) => editRules((l) => (l[i].label = e.currentTarget.value.trim() || "{key}"))} aria-label="{r.name} label" />
+            </div>
+            {@render toggle("Note template", r.template.enabled, (v) => editRules((l) => (l[i].template.enabled = v)), "offered when you create a note from one of these links")}
+            {#if r.template.enabled}
+              <div class="template">
+                <label>Title <input class="mono" value={r.template.title} onchange={(e) => editRules((l) => (l[i].template.title = e.currentTarget.value))} /></label>
+                <label>Folder <input class="mono" value={r.template.folder} onchange={(e) => editRules((l) => (l[i].template.folder = e.currentTarget.value.trim()))} /></label>
+                <label>File name <input class="mono" value={r.template.filename} placeholder="from the title" onchange={(e) => editRules((l) => (l[i].template.filename = e.currentTarget.value.trim()))} /></label>
+                <label>Status
+                  <select value={r.template.status} onchange={(e) => editRules((l) => (l[i].template.status = e.currentTarget.value))}>
+                    <option value="">none</option>
+                    {#each draft.statuses as st}<option value={st.name}>{st.name}</option>{/each}
+                  </select>
+                </label>
+                <label>Tags <input value={r.template.tags.join(", ")} placeholder="e.g. work, review" onchange={(e) => editRules((l) => (l[i].template.tags = e.currentTarget.value.split(/[\s,]+/).filter(Boolean)))} /></label>
+                <label class="full">Body <span class="hint">{"{url}"} {"{key}"} {"{title}"} {"{domain}"} — empty for just a heading</span>
+                  <textarea rows="6" spellcheck="false" value={r.template.body} onchange={(e) => editRules((l) => (l[i].template.body = e.currentTarget.value))}></textarea>
+                </label>
+                {#if t?.plan}
+                  <div class="full lpreview">
+                    {#if t.plan.errors.length}
+                      <span class="bad">{t.plan.errors.join("; ")}</span>
+                    {:else}
+                      Creates <b>{t.plan.folder}/{t.plan.stem}.md</b> titled <b>{t.plan.title}</b>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+            <button class="disclose" aria-expanded={!!open[r.id]} onclick={() => (open = { ...open, [r.id]: !open[r.id] })}>
+              <Icon name={open[r.id] ? "chevron-down" : "chevron-right"} size={13} /> Advanced
+            </button>
+            {#if open[r.id]}
+              <div class="row sub">
+                <span class="text">Match pattern<span class="hint">a regular expression for the whole link, used instead of the link format; group 1 is the identifier</span></span>
+                <input class="mono wide" value={r.pattern} placeholder="from the link format" onchange={(e) => editRules((l) => (l[i].pattern = e.currentTarget.value.trim()))} aria-label="{r.name} match pattern" />
+              </div>
+              <div class="lpreview">
+                Id <code>{r.id}</code>{#if r.legacyVaults?.length} · set up in {r.legacyVaults.map(vaultName).join(", ")} before 0.7; bare keys there prefer it{/if}
+              </div>
+            {/if}
+            {#if t?.error}<div class="error">{t.error}</div>{/if}
+          </div>
+        {:else}
+          <p class="note">No rules — links are still collected. Add one to label a service's links or create notes from them.</p>
+        {/each}
+        <div class="add-vault">
+          <span class="text">Add a rule</span>
+          <span class="inline">
+            <select
+              value={adding?.preset ?? ""}
+              onchange={(e) => (adding = { preset: Number(e.currentTarget.value), example: "" })}
+              aria-label="Add a link rule"
+            >
+              <option value="" disabled>Choose a service…</option>
+              {#each RULE_PRESETS as p, k}<option value={k}>{p.label}</option>{/each}
+            </select>
+            {#if adding}
+              <input class="wide" placeholder="Example link (optional)" bind:value={adding.example} aria-label="Example link" onkeydown={(e) => e.key === "Enter" && addRule()} />
+              <button class="btn primary" onclick={addRule}>Add rule</button>
+            {/if}
+          </span>
+          {#if adding}<span class="hint">Paste {RULE_PRESETS[adding.preset].hint}.</span>{/if}
+        </div>
+        {@render error("linkRules")}
       {:else if category === "Notes"}
         <div class="row">
-          <span class="text">Default status for new tickets</span>
+          <span class="text">Default status for new key notes<span class="hint">notes created by following a [[KEY]] link; link rule templates set their own</span></span>
           <select value={draft.defaultStatus} onchange={(e) => set("defaultStatus", e.currentTarget.value)}>
             <option value="">no status</option>
             {#each draft.statuses as s}<option value={s.name}>{s.name}</option>{/each}
@@ -988,41 +1105,7 @@
   .tags input {
     width: 160px;
   }
-  .links {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    column-gap: 8px;
-    padding: 4px 0 8px;
-  }
-  .lhead {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 10px 0 4px;
-  }
-  .lrow {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    min-width: 0;
-  }
-  .lrow .lname {
-    width: 110px;
-  }
-  .lrow .lpat {
-    width: 150px;
-  }
-  .lrow .wide {
-    flex: 1;
-    min-width: 0;
-    width: auto;
-  }
-  .lpreview,
-  .lnone {
-    grid-column: 2;
+  .lpreview {
     font-size: 11.5px;
     color: var(--fg-muted);
     padding: 2px 0 6px;
@@ -1030,8 +1113,63 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .lnone {
+  .lpreview :global(.icon) {
+    color: var(--ok);
+    vertical-align: -2px;
+  }
+  .lpreview .bad {
+    color: var(--c-red);
+    white-space: normal;
+  }
+  .rcard {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px 6px;
+    margin: 10px 0;
+  }
+  .rcard.off > :not(.vhead) {
+    opacity: 0.55;
+  }
+  .row.sub {
+    padding-left: 16px;
+  }
+  .tryit {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 0;
+  }
+  .template {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    padding: 8px 0 8px 16px;
+    font-size: 12.5px;
+  }
+  .template label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    color: var(--fg-muted);
+  }
+  .template .full {
     grid-column: 1 / -1;
+  }
+  .disclose {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--fg-muted);
+    background: transparent;
+    border: none;
+    padding: 6px 0 2px;
+    cursor: pointer;
+  }
+  .small {
+    font-size: 12px;
+    color: var(--fg-muted);
   }
   .licon {
     position: relative;

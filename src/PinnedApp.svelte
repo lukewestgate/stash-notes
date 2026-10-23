@@ -9,7 +9,7 @@
   import StatusPicker from "./components/StatusPicker.svelte";
   import TagPicker from "./components/TagPicker.svelte";
   import Picker from "./components/Picker.svelte";
-  import { api, on, type NoteMeta, type Settings, type TagCount } from "./lib/api";
+  import { api, on, type NoteLink, type NoteMeta, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import { decoConfig, editorExtensions, editorState, refreshDecorations, setEditorDark, setSpellCheck } from "./lib/editor";
@@ -18,8 +18,8 @@
   import { liveConfig, propertiesHooks } from "./lib/live";
   import { matches, matchesChordTail, parseChord, parseKey } from "./lib/keys";
   import { statusInfo } from "./lib/status";
-  import { firstTicket, refAt, ticketRegex, timestamp, checkboxToggle } from "./lib/text";
-  import { linkItems, systemForKey, ticketUrl, vaultTickets } from "./lib/links";
+  import { refAt, ticketRegex, timestamp, checkboxToggle } from "./lib/text";
+  import { isUrl, keyRegex } from "./lib/links";
 
   let settings = $state<Settings | null>(null);
   let path = $state<string | null>(null);
@@ -34,6 +34,10 @@
     | null
   >(null);
   let chordPending = false;
+  /** The note's links, as its text is now. */
+  let noteLinks = $state<NoteLink[]>([]);
+  /** Set by Ctrl+Shift+V: the next paste goes in as typed. */
+  let rawPaste = false;
 
   let editorEl: HTMLDivElement;
   let view: EditorView;
@@ -75,6 +79,45 @@
     sync = new NoteSync(path, view, load);
     view.dispatch({ selection: { anchor: data.text.length }, scrollIntoView: true });
     view.focus();
+    refreshLinks(true);
+  }
+
+  let linksTimer: ReturnType<typeof setTimeout> | undefined;
+  function refreshLinks(now = false) {
+    clearTimeout(linksTimer);
+    const run = async () => {
+      if (!path) return;
+      const text = view.state.doc.toString();
+      try {
+        const links = await api.noteLinks(path, text);
+        if (text !== view.state.doc.toString()) return;
+        noteLinks = links;
+        refreshDecorations(view);
+      } catch {
+        // keep the previous list
+      }
+    };
+    if (now) run();
+    else linksTimer = setTimeout(run, 150);
+  }
+
+  /** A single pasted link whose rule formats pastes goes in as `[label](link)`. */
+  function smartPaste(text: string): boolean {
+    if (rawPaste) {
+      rawPaste = false;
+      return false;
+    }
+    if (!settings?.smartPaste || !isUrl(text) || !settings.linkRules.some((r) => r.enabled && r.pasteFormat)) return false;
+    const doc = view.state.doc;
+    const sel = view.state.selection;
+    api
+      .pasteFormat(text)
+      .catch(() => null)
+      .then((formatted) => {
+        if (view.state.doc === doc) view.dispatch({ selection: sel });
+        view.dispatch(view.state.replaceSelection(formatted ?? text), { userEvent: "input.paste", scrollIntoView: true });
+      });
+    return true;
   }
 
   function followAt(pos: number): boolean {
@@ -86,38 +129,37 @@
     return true;
   }
 
-  function vault() {
-    return settings?.vaults.find((v) => v.id === meta?.vault);
-  }
-
-  /** Key highlighting and following for this note's vault. */
+  /** Key highlighting and following: the keys link rules read (and this vault's 0.6 ticket keys). */
   function applyTickets() {
-    const re = vaultTickets(vault());
+    const re = keyRegex(settings, meta?.vault ?? null);
     tickets = re ? ticketRegex(re.source) : /(?!)/g;
     decoConfig.tickets = tickets;
   }
 
-  function ticketKey(): string | null {
-    if (!meta || meta.kind === "daily") return null;
-    return meta.kind === "ticket" ? meta.key : firstTicket(view.state.doc.toString(), tickets);
+  async function currentLinks(): Promise<NoteLink[]> {
+    if (path) noteLinks = await api.noteLinks(path, view.state.doc.toString()).catch(() => noteLinks);
+    return noteLinks;
   }
 
-  function openTicket() {
-    if (!meta || !settings) return;
-    const key = ticketKey();
-    const sys = key ? systemForKey(vault(), key) : null;
-    if (meta.kind === "ticket" && meta.ticketUrl) api.openUrl(meta.ticketUrl);
-    else if (key && sys) api.openUrl(ticketUrl(sys, key));
-    else say("No ticket key in this note");
+  function pickLink(links: NoteLink[]) {
+    overlay = { type: "links", items: links.map((l) => ({ label: l.primary ? `${l.label} · primary` : l.label, detail: l.url })), urls: links.map((l) => l.url) };
+  }
+
+  /** The note's primary link (a 0.6 ticket's ticket), else its only link, else a choice. */
+  async function openPrimary() {
+    const links = await currentLinks();
+    const primary = links.find((l) => l.primary);
+    if (primary) api.openUrl(primary.url);
+    else if (links.length === 1) api.openUrl(links[0].url);
+    else if (links.length) pickLink(links);
+    else say("No links in this note yet");
   }
 
   async function openLink() {
-    if (!meta || !settings) return;
-    await sync?.drain();
-    const items = linkItems(meta, vault());
-    if (!items.length) say("No links in this note");
-    else if (items.length === 1) api.openUrl(items[0].url);
-    else overlay = { type: "links", items: items.map((l) => ({ label: `${l.type.name} · ${l.item}`, detail: l.url })), urls: items.map((l) => l.url) };
+    const links = await currentLinks();
+    if (links.length === 1) api.openUrl(links[0].url);
+    else if (links.length) pickLink(links);
+    else say("No links in this note yet");
   }
 
   async function setStatus(status: string | null) {
@@ -187,13 +229,19 @@
       setTimeout(() => (chordPending = false), 1500);
       return;
     }
+    if (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "V" || e.key === "v" || e.code === "KeyV")) {
+      // Paste as typed; the browser still performs the paste.
+      rawPaste = true;
+      setTimeout(() => (rawPaste = false), 1000);
+      return;
+    }
     const is = (spec: string) => matches(e, parseKey(spec));
     if (is(k.timestamp)) {
       stop();
       view.dispatch(view.state.replaceSelection(timestamp(new Date(), settings.timestampFormat)));
     } else if (is(k.openTicket)) {
       stop();
-      openTicket();
+      openPrimary();
     } else if (is(k.openLink)) {
       stop();
       openLink();
@@ -224,14 +272,17 @@
 
   onMount(() => {
     extensions = editorExtensions({
-      onChange: () => sync?.push(),
+      onChange: () => {
+        sync?.push();
+        refreshLinks();
+      },
       follow: followAt,
       path: () => path,
       openNote: (target) => { api.openInMain(target).catch((e) => say(String(e))); },
       linkSearch: (q) => api.search(q, false, path, 30, meta?.vault ?? null),
       vault: () => meta?.vault ?? null,
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
-      paste: () => false,
+      paste: smartPaste,
       imageError: say,
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
@@ -242,13 +293,12 @@
       // Tag searches happen in the main window.
       onTag: (t) => api.openInMain(`::notes#${t}`),
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
-      onTicket: openTicket,
-      onLink: openLink,
-      ticket: () => {
-        const key = ticketKey();
-        return key ? systemForKey(vault(), key) : null;
+      onPrimary: openPrimary,
+      onLinks: openLink,
+      links: () => {
+        const p = noteLinks.find((l) => l.primary);
+        return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
       },
-      linkTypes: () => vault()?.links ?? [],
     };
     window.addEventListener("keydown", onKeydown, true);
     darkQuery.addEventListener("change", applyDark);

@@ -19,7 +19,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import { applyAppearance } from "./lib/appearance";
-  import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import {
@@ -32,13 +32,12 @@
     setSpellCheck,
   } from "./lib/editor";
   import { liveConfig, propertiesHooks } from "./lib/live";
-  import { anyTickets, linkItems, linkTypeForUrl, systemForKey, ticketFromUrl, ticketUrl, vaultTickets } from "./lib/links";
+  import { isKey, isUrl, keyRegex } from "./lib/links";
   import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
   import { formatKey, keyCapture, matches, matchesChordTail, parseChord, parseKey, type KeySpec } from "./lib/keys";
   import {
     checkboxToggle,
-    firstTicket,
     isoDate,
     refAt,
     ticketRegex,
@@ -66,8 +65,8 @@
   let settingsPath = $state("");
   let meta = $state<NoteMeta | null>(null);
   let dirty = $state(false);
-  /** The open note's ticket key (its own, or the first one it mentions). */
-  let ticketKey = $state<string | null>(null);
+  /** The open note's links, as its text is now (see refreshLinks). */
+  let noteLinks = $state<NoteLink[]>([]);
   /** Paths of notes open in pinned windows. */
   let pinnedPaths = $state<string[]>([]);
   let backlinkItems = $state<SearchHit[]>([]);
@@ -148,20 +147,14 @@
     if (!overlay) view?.focus();
   }
 
-  /** A ticket key in any vault (new ticket notes go to the vault whose key it is). */
+  /** A key a link rule reads (`PROJ-123`). */
   function isTicketKey(q: string) {
-    const re = anyTickets(settings?.vaults ?? []);
-    return !!re && new RegExp(`^(?:${re.source})$`).test(q.trim().toUpperCase());
+    return isKey(settings, q);
   }
 
-  /** The settings of the vault the open note is in (else the current one). */
-  function noteVault() {
-    return settings?.vaults.find((v) => v.id === (meta?.vault ?? currentVault));
-  }
-
-  /** Point key highlighting and following at the open note's vault. */
+  /** Highlight and follow the keys link rules read (and the note's vault's 0.6 ticket keys). */
   function applyTickets() {
-    const re = vaultTickets(noteVault());
+    const re = keyRegex(settings, meta?.vault ?? currentVault);
     tickets = re ? ticketRegex(re.source) : /(?!)/g;
     decoConfig.tickets = tickets;
     if (view) refreshDecorations(view);
@@ -185,7 +178,7 @@
     if (view) {
       setLiveFormatting(view, s.liveFormatting);
       setSpellCheck(view, s.spellCheck);
-      ticketKey = computeTicketKey();
+      refreshLinks(true);
     }
   }
 
@@ -199,9 +192,25 @@
     if (view) setEditorDark(view, dark);
   }
 
-  function computeTicketKey(): string | null {
-    if (meta?.kind === "ticket" && meta.key) return meta.key;
-    return meta?.kind === "daily" ? null : firstTicket(docText(), tickets);
+  let linksTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Re-read the open note's links from its text (shortly after typing stops, or `now`). */
+  function refreshLinks(now = false) {
+    clearTimeout(linksTimer);
+    const run = async () => {
+      const path = currentPath;
+      if (!path || !view) return;
+      const text = docText();
+      try {
+        const links = await api.noteLinks(path, text);
+        if (path !== currentPath || text !== docText()) return;
+        noteLinks = links;
+        refreshDecorations(view);
+      } catch {
+        // keep the previous list
+      }
+    };
+    if (now) run();
+    else linksTimer = setTimeout(run, 150);
   }
 
   // ---------- saving ----------
@@ -221,6 +230,7 @@
   function onDocChange() {
     sync?.push().then(updateDirty);
     updateDirty();
+    refreshLinks();
   }
 
   // ---------- opening notes ----------
@@ -262,6 +272,7 @@
     screen = "editor";
     currentPath = path;
     meta = data.meta;
+    noteLinks = [];
     // The window follows the note into its vault (Rust records it too).
     if (data.meta.vault && data.meta.vault !== currentVault) enterVault(data.meta.vault);
     applyTickets();
@@ -277,9 +288,7 @@
       const top = entry.scroll;
       requestAnimationFrame(() => (view.scrollDOM.scrollTop = top));
     }
-    ticketKey = computeTicketKey();
-    // The properties row shows the ticket system, which needed the key first.
-    refreshDecorations(view);
+    refreshLinks(true);
     updateNav();
     refreshBacklinks();
     refreshSidebar();
@@ -467,141 +476,106 @@
     api.openUrl(url).catch(fail);
   }
 
-  /** Open the ticket this note is about (or the key under the cursor, or the first it mentions). */
-  function openTicket() {
-    if (!meta || !settings) return;
-    const v = noteVault();
-    if (meta.kind === "ticket" && meta.key) {
-      const sys = systemForKey(v, meta.key);
-      if (meta.ticketUrl) openExternal(meta.ticketUrl);
-      else if (sys) openExternal(ticketUrl(sys, meta.key));
-      return;
+  /** The open note's links now (not waiting for the next refresh). */
+  async function currentLinks(): Promise<NoteLink[]> {
+    if (!currentPath) return [];
+    try {
+      noteLinks = await api.noteLinks(currentPath, docText());
+    } catch {
+      // the last list will do
     }
-    const pos = head();
-    const line = view.state.doc.lineAt(pos);
-    const ref = refAt(line.text, pos - line.from, tickets);
-    let key: string | null = null;
-    if (ref?.kind === "ticket") key = ref.target;
-    else if (ref?.kind === "wiki" && isTicketKey(ref.target)) key = ref.target.toUpperCase();
-    key ??= firstTicket(docText(), tickets);
-    const sys = key ? systemForKey(v, key) : null;
-    if (key && sys) openExternal(ticketUrl(sys, key));
-    else toast(v?.tickets.length ? "No ticket key in this note" : "This vault has no ticket system — add one in Settings → Vaults");
+    return noteLinks;
   }
 
-  /** Open one of the note's attached links (a picker when there are several). */
-  async function openLink() {
-    if (!settings || !meta) return;
-    await flush();
-    const v = noteVault();
-    const items = linkItems(meta, v);
-    if (items.length === 0) {
-      toast(v?.links.length ? `No links yet — add one with ${formatKey(settings.keys.addLink)}` : "This vault has no link types — add one in Settings → Vaults");
-    } else if (items.length === 1) {
-      openExternal(items[0].url);
-    } else {
-      overlay = {
-        type: "picker",
-        title: "Open link",
-        items: items.map((l) => ({ label: `${l.type.name} · ${l.item}`, detail: l.url })),
-        choose: (i) => {
-          closeOverlay();
-          openExternal(items[i].url);
-        },
-      };
-    }
-  }
-
-  /** Ask for a link to attach: its URL picks the link type (or a picker, for a bare id). */
-  async function addLink() {
-    if (!settings || !currentPath || !meta) return;
-    const v = noteVault();
-    const types = v?.links ?? [];
-    if (!types.length) {
-      toast("This vault has no link types — add one in Settings → Vaults");
-      return;
-    }
-    const clip = (await api.readClipboard().catch(() => "")).trim();
-    const names = types.map((t) => t.name).join(", ");
+  function pickLink(title: string, links: NoteLink[]) {
     overlay = {
-      type: "prompt",
-      title: `Add a link (${names}) — paste a URL${types.length === 1 ? " or type an id" : ""}`,
-      placeholder: types.length === 1 ? `https://… or 12345` : "https://…",
-      value: linkTypeForUrl(clip, v) ? clip : "",
-      submit: (value) => {
+      type: "picker",
+      title,
+      items: links.map((l) => ({ label: l.primary ? `${l.label} · primary` : l.label, detail: l.url })),
+      choose: (i) => {
         closeOverlay();
-        const text = value.trim();
-        if (!text) return;
-        const type = linkTypeForUrl(text, v) ?? (types.length === 1 ? types[0] : null);
-        if (type) attachLink(type.field, type.name, text, false);
-        else
-          overlay = {
-            type: "picker",
-            title: `Which kind of link is ${text}?`,
-            items: types.map((t) => ({ label: t.name, detail: t.url.replaceAll("{n}", text) })),
-            choose: (i) => {
-              closeOverlay();
-              attachLink(types[i].field, types[i].name, text, false);
-            },
-          };
+        openExternal(links[i].url);
       },
     };
   }
 
-  /** Append `item` to the note's front matter list `field`, optionally with an Undo toast. */
-  async function attachLink(field: string, name: string, item: string, undoable: boolean) {
-    try {
-      const path = currentPath;
-      const edit = await api.linkEdit(docText(), field, item);
-      view.dispatch({ changes: edit });
-      await flush();
-      const msg = `Added ${name} link (${(meta?.fields[field]?.length ?? 0) || 1} total)`;
-      if (!undoable) return done(msg);
-      done(msg, {
-        label: "Undo",
-        run: () => {
-          if (currentPath !== path) return;
-          const doc = docText();
-          const at = doc.indexOf(edit.insert);
-          if (at >= 0 && doc.indexOf(edit.insert, at + 1) < 0) {
-            view.dispatch({ changes: { from: at, to: at + edit.insert.length } });
-            flush();
-          }
-        },
-      });
-    } catch (e) {
-      fail(e);
-    }
+  /** Open the link this note is about: its primary link (a 0.6 ticket's ticket), else its only link, else a choice. */
+  async function openPrimary() {
+    if (!meta || !settings) return;
+    const links = await currentLinks();
+    const primary = links.find((l) => l.primary);
+    if (primary) openExternal(primary.url);
+    else if (links.length === 1) openExternal(links[0].url);
+    else if (links.length) pickLink("Open which link?", links);
+    else toast(`No links in this note yet — paste one, or add one with ${formatKey(settings.keys.addLink)}`);
   }
 
-  // ---------- smart paste ----------
+  /** Open one of the note's links (a picker when there are several). */
+  async function openLink() {
+    if (!meta || !settings) return;
+    const links = await currentLinks();
+    if (links.length === 1) openExternal(links[0].url);
+    else if (links.length) pickLink("Open link", links);
+    else toast(`No links in this note yet — paste one, or add one with ${formatKey(settings.keys.addLink)}`);
+  }
+
+  /** Change the note's link metadata through the editor, so it joins undo and every window's copy. */
+  async function editLinks(edit: MetaEdit): Promise<boolean> {
+    const path = currentPath;
+    if (!path) return false;
+    const change = await api.linkMetaEdit(path, docText(), edit);
+    if (!change || path !== currentPath) return false;
+    view.dispatch({ changes: change, userEvent: "input.links" });
+    await flush();
+    refreshLinks(true);
+    return true;
+  }
+
+  /** Ask for any link and attach it to the note (front matter `links`). */
+  async function addLink() {
+    if (!settings || !currentPath) return;
+    const clip = (await api.readClipboard().catch(() => "")).trim();
+    overlay = {
+      type: "prompt",
+      title: "Add a link to this note",
+      placeholder: "https://…",
+      value: isUrl(clip) ? clip : "",
+      submit: async (value) => {
+        closeOverlay();
+        const url = value.trim();
+        if (!isUrl(url)) return toast("That isn't a link — it needs to start with https:// or http://", undefined, "warn");
+        try {
+          if (await editLinks({ op: "add", url })) done("Link added");
+          else toast("This note already has that link");
+        } catch (e) {
+          fail(e);
+        }
+      },
+    };
+  }
+
+  // ---------- paste ----------
 
   /** Set by Ctrl+Shift+V: the next paste goes in as typed. */
   let rawPaste = false;
 
-  /** A pasted ticket URL (in any vault) becomes its key. */
-  function pasteKey(text: string): string | null {
-    if (!settings?.smartPaste) return null;
-    return ticketFromUrl(text, settings.vaults)?.key ?? null;
-  }
-
+  /** A single pasted link whose rule formats pastes goes in as `[label](link)`. */
   function smartPaste(text: string): boolean {
-    if (rawPaste || !settings?.smartPaste) {
+    if (rawPaste) {
       rawPaste = false;
       return false;
     }
-    const key = pasteKey(text);
-    if (key) {
-      view.dispatch(view.state.replaceSelection(key));
-      return true;
-    }
-    // A link the vault collects (a Gerrit change, a PR, ...) goes in the front matter.
-    const type = meta && meta.kind !== "daily" ? linkTypeForUrl(text, noteVault()) : null;
-    if (type) {
-      attachLink(type.field, type.name, text.trim(), true);
-      return true;
-    }
-    return false;
+    if (!settings?.smartPaste || !isUrl(text) || !settings.linkRules.some((r) => r.enabled && r.pasteFormat)) return false;
+    const doc = view.state.doc;
+    const sel = view.state.selection;
+    api
+      .pasteFormat(text)
+      .catch(() => null)
+      .then((formatted) => {
+        if (view.state.doc === doc) view.dispatch({ selection: sel });
+        view.dispatch(view.state.replaceSelection(formatted ?? text), { userEvent: "input.paste", scrollIntoView: true });
+      });
+    return true;
   }
 
   function insertTimestamp() {
@@ -621,7 +595,7 @@
       if (meta) meta = { ...meta, path: to, vault, archived: to.slice(to.indexOf(":") + 1).startsWith("archive/") };
       if (vault !== currentVault) enterVault(vault);
       applyTickets();
-      ticketKey = computeTicketKey();
+      refreshLinks(true);
       conflict = null;
       refreshDecorations(view);
       refreshBacklinks();
@@ -673,6 +647,7 @@
       dirty = false;
       conflict = null;
       backlinkItems = [];
+      noteLinks = [];
       view.setState(EditorState.create({ doc: "", extensions }));
       if (screen === "editor") screen = "notes";
     }
@@ -958,14 +933,7 @@
   function onBufferState(ev: { path: string; dirty: boolean; meta: NoteMeta | null }) {
     if (ev.path !== currentPath) return;
     serverDirty = ev.dirty;
-    if (ev.meta) {
-      meta = ev.meta;
-      const key = computeTicketKey();
-      if (key !== ticketKey) {
-        ticketKey = key;
-        refreshDecorations(view);
-      }
-    }
+    if (ev.meta) meta = ev.meta;
     if (!ev.dirty && conflict && !conflict.deleted) conflict = null;
     updateDirty();
   }
@@ -1023,9 +991,10 @@
     followLink: followOrToggle,
     back,
     forward,
-    openTicket,
+    openTicket: openPrimary,
     openLink,
     addLink,
+    linksPanel: openLink,
     timestamp: insertTimestamp,
     backlinks: () => {
       backlinksOpen = !backlinksOpen;
@@ -1200,10 +1169,12 @@
       onTags: () => pickTags(),
       onTag: showTag,
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
-      onTicket: openTicket,
-      onLink: openLink,
-      ticket: () => (ticketKey ? systemForKey(noteVault(), ticketKey) : null),
-      linkTypes: () => noteVault()?.links ?? [],
+      onPrimary: openPrimary,
+      onLinks: openLink,
+      links: () => {
+        const p = noteLinks.find((l) => l.primary);
+        return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
+      },
     };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
@@ -1264,6 +1235,7 @@
         currentVault = s.currentVault;
         settingsPath = s.settingsPath;
         s.warnings.forEach((w) => toast(w, undefined, "warn"));
+        s.notices.forEach((n) => toaster.show(n, "info", undefined, 15000));
         let path = s.lastPath;
         const today = isoDate();
         const rel = path ? path.slice(path.indexOf(":") + 1) : "";
@@ -1336,17 +1308,15 @@
       {dirty}
       canBack={nav.canBack}
       canForward={nav.canForward}
-      ticket={ticketKey ? systemForKey(noteVault(), ticketKey) : null}
-      linkTypes={noteVault()?.links ?? []}
+      links={noteLinks}
       keys={settings.keys}
       statuses={settings.statuses}
       onStatus={() => pickStatus()}
       onTags={() => pickTags()}
       onBack={back}
       onForward={forward}
-      onTicket={openTicket}
-      onLink={openLink}
-      onAddLink={addLink}
+      onPrimary={openPrimary}
+      onLinks={openLink}
       onSwitcher={openSwitcher}
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}
@@ -1410,7 +1380,6 @@
       keys={settings.keys}
       version={listVersion}
       isTicket={startsWithTicket}
-      {pasteKey}
       onOpen={(p) => navigate(p)}
       onCreate={async (q) => {
         try {
@@ -1439,7 +1408,6 @@
       mode={overlay.mode}
       current={currentPath}
       isTicket={startsWithTicket}
-      {pasteKey}
       statuses={settings?.statuses ?? []}
       tagColors={settings?.tagColors ?? {}}
       vaults={settings?.vaults ?? []}

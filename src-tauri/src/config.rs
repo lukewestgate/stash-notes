@@ -15,27 +15,63 @@ use tauri::{AppHandle, Emitter, Manager};
 
 pub const DEFAULT_VAULT_DIR: &str = "StashNotes";
 
-/// Read settings.json, creating it with defaults on first run.
-pub fn load_settings(path: &Path) -> (Settings, Option<String>) {
-    match std::fs::read_to_string(path) {
-        Ok(text) => match stash_core::settings::migrate(&text) {
-            Some(migrated) => {
-                // Keep the old file next to it before rewriting.
-                let _ = std::fs::write(path.with_extension("json.bak"), &text);
-                let _ = std::fs::write(path, &migrated);
-                Settings::from_json(&migrated)
-            }
-            None => Settings::from_json(&text),
-        },
+/// Settings as read at startup, with anything to tell the user.
+pub struct Loaded {
+    pub settings: Settings,
+    pub warnings: Vec<String>,
+    /// Links moved from per-vault settings to global rules just now.
+    pub links_upgraded: bool,
+}
+
+/// Read settings.json, creating it with defaults on first run. An older
+/// file is backed up (`settings.json.bak`) before it is upgraded; if the
+/// backup or the upgrade can't be written, the file is left as it was and
+/// the upgraded settings are only used for this session.
+pub fn load_settings(path: &Path) -> Loaded {
+    let mut warnings = Vec::new();
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
         Err(_) => {
             let s = Settings::default();
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
             let _ = std::fs::write(path, s.to_json());
-            (s, None)
+            return Loaded { settings: s, warnings, links_upgraded: false };
         }
+    };
+    let old_version = stash_core::settings::schema_version(&text);
+    let Some(migrated) = stash_core::settings::migrate(&text) else {
+        let (s, err) = Settings::from_json(&text);
+        warnings.extend(err);
+        return Loaded { settings: s, warnings, links_upgraded: false };
+    };
+    let (settings, err) = Settings::from_json(&migrated);
+    warnings.extend(err);
+    if let Err(e) = std::fs::write(path.with_extension("json.bak"), &text) {
+        warnings.push(format!("Settings weren't upgraded on disk: settings.json couldn't be backed up ({e}). The upgraded settings are used until the app closes."));
+    } else if let Err(e) = write_atomic(path, &migrated) {
+        warnings.push(format!("Upgraded settings couldn't be saved ({e}); settings.json is unchanged and backed up as settings.json.bak."));
     }
+    Loaded { settings, warnings, links_upgraded: old_version < 6 && had_links(&text) }
+}
+
+/// Did settings from before 0.7 set up links (so there is news to tell)?
+fn had_links(text: &str) -> bool {
+    let v: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
+    let vault_links = v.get("vaults").and_then(|x| x.as_array()).is_some_and(|vs| {
+        vs.iter().any(|x| ["tickets", "links"].iter().any(|k| x.get(k).and_then(|l| l.as_array()).is_some_and(|l| !l.is_empty())))
+    });
+    vault_links || v.get("vaultPath").is_some()
+}
+
+/// Write via a temporary file renamed over the target, so a crash never leaves half a file.
+fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 /// A vault's folder: its `path`, with `~` expanded, or the default.
@@ -65,14 +101,17 @@ pub fn open_vaults(app: &AppHandle, settings: &Settings) -> Vec<(String, Vault)>
     settings.vaults.iter().map(|v| (v.id.clone(), Vault::new(vault_root(v, &default, home.as_deref())))).collect()
 }
 
-/// An empty index that knows the vaults and their ticket keys.
+/// An empty index that knows the vaults, the link rules and the keys they
+/// read (the same in every vault, plus a vault's 0.6 ticket keys).
 pub fn new_index(settings: &Settings) -> Index {
-    let mut index = Index::new(TicketMatcher::default_pattern());
+    let rules = settings.rules();
+    let keys = |vault: &str| rules.key_regex(vault).map(|re| TicketMatcher::new(&re)).unwrap_or_else(TicketMatcher::none);
+    let mut index = Index::new(keys(""));
     index.set_vaults(settings.vaults.iter().map(|v| VaultInfo { id: v.id.clone(), name: v.name.clone() }).collect());
     for v in &settings.vaults {
-        let tickets = settings.ticket_regex(&v.id).map(|re| TicketMatcher::new(&re)).unwrap_or_else(TicketMatcher::none);
-        index.set_tickets_for(&v.id, tickets);
+        index.set_tickets_for(&v.id, keys(&v.id));
     }
+    index.set_rules(std::sync::Arc::new(rules));
     index
 }
 
@@ -250,10 +289,10 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
     if changed(&|s| s.autostart.to_string()) {
         sync_autostart(app, new.autostart);
     }
-    // Folders or ticket keys changed: re-index everything. A renamed vault
+    // Folders or link rules changed: re-index everything. A renamed vault
     // only needs the index to know its new name (for `in:` searches).
     let folders = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.path)).collect::<Vec<_>>().join("\n");
-    let tickets = |s: &Settings| s.vaults.iter().map(|v| v.tickets.iter().map(|t| t.pattern.as_str()).collect::<Vec<_>>().join("|")).collect::<Vec<_>>().join("\n");
+    let tickets = |s: &Settings| serde_json::to_string(&(&s.link_rules, &s.legacy_links)).unwrap_or_default();
     if old.is_some() && !changed(&|s| format!("{}\n{}", folders(s), tickets(s))) {
         let names = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.name)).collect::<Vec<_>>().join("\n");
         if changed(&names) {

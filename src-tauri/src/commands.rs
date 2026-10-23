@@ -5,6 +5,7 @@ use crate::state::{now_ms, AppState};
 use crate::{buffers, window};
 use serde::Serialize;
 use stash_core::frontmatter;
+use stash_core::links;
 use stash_core::index::{SearchHit, SearchOptions, SearchResults};
 use stash_core::note::{self, NoteMeta};
 use stash_core::{dates, Settings, Vault};
@@ -40,6 +41,8 @@ pub struct Startup {
     current_vault: String,
     settings_path: String,
     warnings: Vec<String>,
+    /// One-off news (after an upgrade).
+    notices: Vec<String>,
     last_path: Option<String>,
     last_anchor: Option<usize>,
     index_ready: bool,
@@ -55,6 +58,7 @@ pub fn get_startup(state: State<AppState>) -> Startup {
         current_vault: state.current_vault(),
         settings_path: state.settings_path.display().to_string(),
         warnings: std::mem::take(&mut *state.warnings.lock().unwrap()),
+        notices: std::mem::take(&mut *state.notices.lock().unwrap()),
         last_path: session.last_path,
         last_anchor: session.last_anchor,
         index_ready: state.ready(),
@@ -99,7 +103,7 @@ pub fn get_settings(state: State<AppState>) -> Settings {
 /// Keys this version doesn't know are kept in the file.
 #[tauri::command]
 pub fn set_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> Res<()> {
-    if let Some(e) = settings.vault_error() {
+    if let Some(e) = settings.vault_error().or_else(|| settings.links_error()) {
         return Err(e);
     }
     let old = state.settings();
@@ -131,11 +135,41 @@ pub fn test_hotkey(app: AppHandle, state: State<AppState>, spec: String, which: 
     crate::hotkey::test(&app, &spec, current, other)
 }
 
-/// Check a ticket pattern and list the keys it finds in `sample`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleTest {
+    /// Why the rule can't be saved, if it can't.
+    error: Option<String>,
+    /// The sample (a link, or a key) and what the rule makes of it.
+    url: Option<String>,
+    recognised: bool,
+    key: Option<String>,
+    label: Option<String>,
+    /// The note its template would make for the sample.
+    plan: Option<links::NotePlan>,
+}
+
+/// Try a link rule on a sample link or key (Settings > Links previews).
 #[tauri::command]
-pub fn test_ticket_pattern(pattern: String, sample: String) -> Res<Vec<String>> {
-    let re = regex::Regex::new(&pattern).map_err(|e| e.to_string())?;
-    Ok(note::TicketMatcher::new(&re).keys_in(&sample))
+pub fn test_link_rule(state: State<AppState>, rule: links::LinkRule, sample: String) -> RuleTest {
+    let error = links::rule_error(&rule);
+    let rules = links::Rules::new(&[links::LinkRule { enabled: true, ..rule.clone() }], &Default::default());
+    let sample = sample.trim();
+    let (url, found) = if links::is_url(sample) {
+        (Some(sample.to_string()), rules.recognise(sample))
+    } else {
+        match rules.key_targets(sample, "").into_iter().next() {
+            Some(t) => (Some(t.url.clone()), rules.recognise(&t.url).or(Some(links::Recognised { rule: 0, key: Some(sample.to_string()) }))),
+            None => (None, None),
+        }
+    };
+    let key = found.as_ref().and_then(|f| f.key.clone());
+    let status = state.settings.read().unwrap().default_status.clone();
+    let plan = match (&url, rule.template.enabled) {
+        (Some(u), true) => Some(links::plan_note(u, key.as_deref(), "Example title", Some(&rule.template), &status)),
+        _ => None,
+    };
+    RuleTest { error, recognised: found.is_some(), label: found.as_ref().and_then(|f| rules.label(f)), key, url, plan }
 }
 
 /// Choose a folder (for the notes folder setting).
@@ -301,17 +335,6 @@ pub fn buffer_flush(app: AppHandle, path: Option<String>) {
     }
 }
 
-/// The vault a new ticket note for `key` goes in: `preferred` if its
-/// tickets read `key` as a ticket, else the first vault whose do.
-fn ticket_vault(state: &AppState, key: &str, preferred: &str) -> String {
-    let index = state.index.read().unwrap();
-    if index.tickets_for(preferred).as_key(key).is_some() {
-        return preferred.to_string();
-    }
-    let ids: Vec<String> = state.vaults.read().unwrap().iter().map(|(id, _)| id.clone()).collect();
-    ids.into_iter().find(|id| index.tickets_for(id).as_key(key).is_some()).unwrap_or_else(|| preferred.to_string())
-}
-
 /// Get the path for `target` (ticket key, date or title), creating the note
 /// in vault `vault` if needed. Existing notes are looked up there first,
 /// then in the other vaults; `work:Target` names the vault.
@@ -330,8 +353,7 @@ fn ensure_note(state: &AppState, target: &str, vault: &str) -> Res<CreatedNote> 
         let v = vault_or_err(state, vault)?;
         (vault.to_string(), Vault::daily_path(date), v.daily_content(date))
     } else if let Some(key) = tickets.as_key(target).or_else(|| key_anywhere(state, target)) {
-        let id = ticket_vault(state, &key, vault);
-        (id, Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, ""))
+        (vault.to_string(), Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, ""))
     } else {
         let v = vault_or_err(state, vault)?;
         (vault.to_string(), v.new_note_path(target), Vault::note_stub(target))
@@ -438,9 +460,8 @@ fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<CreatedNote>
     });
     if let Some((key, name)) = named {
         if !name.is_empty() && state.index.read().unwrap().resolve(&key, vault).is_none() {
-            let id = ticket_vault(state, &key, vault);
             let content = stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, &name);
-            return create_file(state, &id, &Vault::ticket_path(&key), &content);
+            return create_file(state, vault, &Vault::ticket_path(&key), &content);
         }
         return ensure_note(state, &key, vault);
     }
@@ -948,20 +969,213 @@ pub struct TextEdit {
     insert: String,
 }
 
-/// The edit that appends `item` to the note's front matter list `field`
-/// (a link type's key, e.g. `gerrit`). Offsets are UTF-16, as the editor counts them.
-#[tauri::command]
-pub fn link_edit(content: String, field: String, item: String) -> Res<TextEdit> {
-    let field = field.trim();
-    if field.is_empty() || !field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-        return Err(format!("`{field}` can't be a front matter key"));
+/// `old` -> `new` as one replacement, in editor (UTF-16) offsets.
+fn text_edit(old: &str, new: &str) -> TextEdit {
+    let pre = old.char_indices().zip(new.chars()).find(|((_, a), b)| a != b).map(|((i, _), _)| i).unwrap_or(old.len().min(new.len()));
+    let pre = (0..=pre).rev().find(|i| old.is_char_boundary(*i) && new.is_char_boundary(*i)).unwrap_or(0);
+    let max = (old.len() - pre).min(new.len() - pre);
+    let mut suf = old.bytes().rev().zip(new.bytes().rev()).take(max).take_while(|(a, b)| a == b).count();
+    while !old.is_char_boundary(old.len() - suf) || !new.is_char_boundary(new.len() - suf) {
+        suf -= 1;
     }
-    let e = frontmatter::add_list_item(&content, field, item.trim());
-    Ok(TextEdit {
-        from: frontmatter::utf16_offset(&content, e.from),
-        to: frontmatter::utf16_offset(&content, e.to),
-        insert: e.insert,
-    })
+    TextEdit {
+        from: frontmatter::utf16_offset(old, pre),
+        to: frontmatter::utf16_offset(old, old.len() - suf),
+        insert: new[pre..new.len() - suf].to_string(),
+    }
+}
+
+fn link_context<'a>(path: &'a str, rules: &'a links::Rules) -> links::NoteContext<'a> {
+    links::NoteContext { path, rules }
+}
+
+/// The links of the note at `path`, read from `text` (the editor's current
+/// text, so the list follows typing before any save). Offsets are UTF-16.
+#[tauri::command]
+pub fn note_links(state: State<AppState>, path: String, text: String) -> Res<Vec<links::NoteLink>> {
+    let path = state.qualify(&path)?;
+    let rules = state.rules();
+    let mut out = links::extract(&text, &link_context(&path, &rules));
+    links::to_utf16(&mut out, &text);
+    Ok(out)
+}
+
+/// Every link in every vault (or one), with the notes that reference it.
+/// Open notes count with their unsaved text.
+#[tauri::command]
+pub fn all_links(app: AppHandle, state: State<AppState>, query: String, vault: Option<String>, include_archived: bool, limit: Option<usize>) -> Vec<stash_core::index::LinkUse> {
+    let rules = state.rules();
+    let open: Vec<(String, String)> = {
+        let bufs = app.state::<buffers::Buffers>();
+        let map = bufs.map.lock().unwrap();
+        map.iter().filter(|(_, b)| b.dirty()).map(|(p, b)| (p.clone(), b.text.clone())).collect()
+    };
+    let overrides = open.iter().map(|(p, t)| (p.clone(), links::extract(t, &link_context(p, &rules)))).collect();
+    let filter = stash_core::index::LinkFilter {
+        vault: vault.as_deref().filter(|v| !v.is_empty()),
+        include_archived,
+        query: &query,
+        overrides: &overrides,
+        limit: limit.unwrap_or(2000),
+    };
+    state.index.read().unwrap().all_links(&filter)
+}
+
+/// The edit that changes the note's link metadata (attach, make primary,
+/// remove or change an attached link), for the editor to apply so it joins
+/// undo and every window's buffer. None: nothing to change.
+#[tauri::command]
+pub fn link_meta_edit(state: State<AppState>, path: String, content: String, edit: links::MetaEdit) -> Res<Option<TextEdit>> {
+    let path = state.qualify(&path)?;
+    let rules = state.rules();
+    let next = links::edit_metadata(&content, &edit, &link_context(&path, &rules))?;
+    Ok(next.map(|n| text_edit(&content, &n)))
+}
+
+/// A single pasted link as its rule's display form, when one asks for it.
+#[tauri::command]
+pub fn paste_format(state: State<AppState>, text: String) -> Option<String> {
+    if !state.settings.read().unwrap().smart_paste {
+        return None;
+    }
+    links::paste_format(&text, &state.rules())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkPreview {
+    /// The link the note is about (None: the input isn't a link or a key, or
+    /// the key needs a choice first).
+    url: Option<String>,
+    key: Option<String>,
+    rule: Option<links::RuleRef>,
+    /// A key several rules could own: where each would open.
+    choices: Vec<links::KeyTarget>,
+    /// What follows the link or key in the input: the title typed so far.
+    title: String,
+    /// The template's (or a plain note's) result, and where it would be saved.
+    plan: Option<links::NotePlan>,
+    path: Option<String>,
+    template: bool,
+    /// Notes already about this link (or named by the key), in every vault.
+    existing: Vec<SearchHit>,
+}
+
+/// `PROJ-123 Fix it` or `https://… Title`: the link, its key and the rest.
+fn split_link_input(input: &str) -> Option<(String, String)> {
+    let t = input.trim();
+    let (first, rest) = t.split_once(char::is_whitespace).unwrap_or((t, ""));
+    let first = first.trim_end_matches([':', ',']);
+    (!first.is_empty()).then(|| (first.to_string(), rest.trim().trim_start_matches(['-', '–', '—', ':']).trim().to_string()))
+}
+
+fn preview(state: &AppState, input: &str, vault: &str, title: Option<&str>, rule: Option<&str>) -> Res<LinkPreview> {
+    let rules = state.rules();
+    let mut p = LinkPreview { url: None, key: None, rule: None, choices: Vec::new(), title: String::new(), plan: None, path: None, template: false, existing: Vec::new() };
+    let Some((first, rest)) = split_link_input(input) else { return Ok(p) };
+    p.title = title.map(str::to_string).unwrap_or(rest);
+    if links::is_url(&first) {
+        let found = rules.recognise(&first);
+        p.rule = found.as_ref().map(|f| rules.rule_ref(f.rule));
+        p.key = found.and_then(|f| f.key);
+        p.url = Some(first);
+    } else {
+        let key = state.tickets_for(vault).as_key(&first).unwrap_or(first.clone());
+        let mut targets = rules.key_targets(&key, vault);
+        if targets.is_empty() {
+            targets = rules.key_targets(&key.to_uppercase(), vault);
+        }
+        if targets.is_empty() {
+            // A key only this vault's 0.6 ticket systems know.
+            if let Some((_, url)) = rules.legacy_ticket(vault, &key) {
+                p.url = Some(url);
+                p.key = Some(key.clone());
+            }
+        }
+        if let Some(chosen) = rule.and_then(|id| targets.iter().find(|t| t.rule.id == id)) {
+            targets = vec![chosen.clone()];
+        }
+        match targets.len() {
+            0 => {}
+            1 => {
+                p.key = Some(key.clone());
+                p.url = Some(targets[0].url.clone());
+                p.rule = Some(targets[0].rule.clone());
+            }
+            _ => {
+                p.key = Some(key.clone());
+                p.choices = targets;
+            }
+        }
+        if let Some(k) = &p.key {
+            // A note already named by the key (`tickets/PROJ-123.md`).
+            if let Some(path) = state.index.read().unwrap().resolve(k, vault) {
+                if note::stem(&path).eq_ignore_ascii_case(k) {
+                    if let Some(e) = state.index.read().unwrap().get(&path) {
+                        p.existing.push(e.hit());
+                    }
+                }
+            }
+        }
+    }
+    let Some(url) = p.url.clone() else { return Ok(p) };
+    for h in state.index.read().unwrap().primary_notes(&url) {
+        if !p.existing.iter().any(|x| x.path == h.path) {
+            p.existing.push(h);
+        }
+    }
+    let template = p.rule.as_ref().and_then(|r| rules.find(&r.id)).map(|i| rules.rule(i).template.clone()).filter(|t| t.enabled);
+    p.template = template.is_some();
+    let plan = links::plan_note(&url, p.key.as_deref(), &p.title, template.as_ref(), "");
+    let v = vault_or_err(state, vault)?;
+    p.path = Some(note::join_path(vault, &v.free_path(&plan.folder, &plan.stem).map_err(err)?));
+    p.plan = Some(plan);
+    Ok(p)
+}
+
+/// What creating a note from `input` (a link or a key, optionally followed
+/// by a title) would do in `vault`. `title` replaces the typed title; `rule`
+/// picks between rules that read the same key. Nothing is written.
+#[tauri::command]
+pub fn link_preview(state: State<AppState>, input: String, vault: String, title: Option<String>, rule: Option<String>) -> Res<LinkPreview> {
+    preview(&state, &input, &vault, title.as_deref(), rule.as_deref())
+}
+
+/// Create a note about a link (see `link_preview`). It always keeps the
+/// link as its primary link and never overwrites a file.
+#[tauri::command]
+pub fn create_from_link(app: AppHandle, state: State<AppState>, input: String, vault: String, title: Option<String>, rule: Option<String>) -> Res<String> {
+    let p = preview(&state, &input, &vault, title.as_deref(), rule.as_deref())?;
+    if !p.choices.is_empty() {
+        return Err("Choose which link this key is".into());
+    }
+    let (Some(plan), Some(path)) = (p.plan, p.path) else { return Err("Paste or type a link (or a key a link rule knows)".into()) };
+    if let Some(e) = plan.errors.first() {
+        return Err(format!("The template can't be used: {e}"));
+    }
+    let rel = note::split_path(&path).1.to_string();
+    let v = vault_or_err(&state, &vault)?;
+    if !v.create_if_missing(&rel, &plan.content).map_err(err)? {
+        return Err(format!("{rel} already exists"));
+    }
+    state.index.write().unwrap().upsert(&path, &plan.content, v.mtime(&rel));
+    announce_creation(&app, &state, &CreatedNote { path: path.clone(), created: true });
+    Ok(path)
+}
+
+/// Create a note about a link from the pop-up and open it in the main window.
+#[tauri::command]
+pub async fn quick_create_from_link(app: AppHandle, input: String, vault: Option<String>, title: Option<String>, rule: Option<String>) -> Res<String> {
+    let vault = vault.unwrap_or_else(|| app.state::<AppState>().current_vault());
+    let path = create_from_link(app.clone(), app.state(), input, vault, title, rule)?;
+    crate::quick::open_in_main(&app, &path);
+    Ok(path)
+}
+
+#[tauri::command]
+pub fn write_clipboard(app: AppHandle, text: String) -> Res<()> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard().write_text(text).map_err(err)
 }
 
 /// Open an http(s) URL in the default browser, then hide if configured.

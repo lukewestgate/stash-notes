@@ -161,24 +161,22 @@ export interface PropertiesHooks {
   /** Show the notes with this tag. */
   onTag(tag: string): void;
   tagColor(tag: string): string | null;
-  /** Open the note's ticket / its attached links. */
-  onTicket(): void;
-  onLink(): void;
-  /** The ticket system of the note's ticket, if any. */
-  ticket(): { name: string; icon: string } | null;
-  /** The link types of the note's vault. */
-  linkTypes(): { name: string; icon: string; field: string }[];
+  /** Open the note's primary link / its links. */
+  onPrimary(): void;
+  onLinks(): void;
+  /** How many links the note has, and its primary one. */
+  links(): { count: number; primary: { label: string; icon: string } | null };
 }
 
 export const propertiesHooks: { current: PropertiesHooks | null } = { current: null };
 
 class PropertiesWidget extends WidgetType {
-  /** What the row shows: the front matter, plus the vault's ticket system and link types. */
+  /** What the row shows: the front matter, plus the note's links. */
   readonly sig: string;
   constructor(readonly info: FrontMatterInfo) {
     super();
     const hooks = propertiesHooks.current;
-    this.sig = JSON.stringify([info, hooks?.ticket(), hooks?.linkTypes()]);
+    this.sig = JSON.stringify([info, hooks?.links()]);
   }
   eq(o: PropertiesWidget) {
     return o.sig === this.sig;
@@ -210,12 +208,9 @@ class PropertiesWidget extends WidgetType {
       st?.icon ?? "circle-dashed",
     );
     if (st) chip.style.color = `var(--c-${st.color})`;
-    const ticket = hooks?.ticket();
-    if (ticket) button("cm-prop", ticket.name, `Open in ${ticket.name}`, () => hooks?.onTicket(), ticket.icon);
-    for (const t of hooks?.linkTypes() ?? []) {
-      const n = this.info.counts[t.field] ?? 0;
-      if (n > 0) button("cm-prop", n > 1 ? `${t.name} ${n}` : t.name, `Open ${t.name} link`, () => hooks?.onLink(), t.icon);
-    }
+    const links = hooks?.links();
+    if (links?.primary) button("cm-prop", links.primary.label, `Open ${links.primary.label}`, () => hooks?.onPrimary(), links.primary.icon);
+    if (links?.count) button("cm-prop", `${links.count} ${links.count === 1 ? "link" : "links"}`, "This note's links", () => hooks?.onLinks(), "link");
     for (const t of this.info.tags) {
       const b = button("cm-prop cm-prop-tag", `#${t}`, `Notes tagged #${t}`, () => hooks?.onTag(t));
       const c = hooks?.tagColor(t);

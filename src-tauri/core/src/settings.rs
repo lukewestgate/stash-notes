@@ -1,5 +1,6 @@
 //! `settings.json`: hand-edited, every key optional. Missing keys take defaults.
 
+use crate::links::{self, LegacyLinks, LegacyVault, LinkRule, NoteTemplate, Rules};
 use crate::status::{default_statuses, StatusDef};
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,7 @@ pub enum OnSummon {
 }
 
 /// Bumped when a stored setting changes meaning; see `migrate`.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -48,8 +49,16 @@ pub struct Settings {
     pub animations: String,
     /// Style markdown as you type (markers hide off the caret line).
     pub live_formatting: bool,
-    /// Turn pasted Jira links into keys and Gerrit links into front matter.
+    /// Paste a single link as its rule's display format, for rules that ask
+    /// for it (Settings > Links). Ctrl+Shift+V always pastes as typed.
     pub smart_paste: bool,
+    /// Optional ways to recognise, label and create notes from links, in
+    /// every vault. Links are collected without any.
+    pub link_rules: Vec<LinkRule>,
+    /// 0.6's per-vault ticket systems and link types, kept so the links
+    /// stored with them keep opening where they did. Not edited in the app.
+    #[serde(skip_serializing_if = "LegacyLinks::is_empty")]
+    pub legacy_links: LegacyLinks,
     /// Reopen pinned notes at login.
     pub restore_pinned: bool,
     pub notes_view: NotesViewSettings,
@@ -57,7 +66,7 @@ pub struct Settings {
     pub statuses: Vec<StatusDef>,
     /// Tag -> theme color name, for tags given a color in Settings.
     pub tag_colors: std::collections::BTreeMap<String, String>,
-    /// Status given to new ticket notes (empty for none).
+    /// Status given to new notes for a `[[KEY]]` link (empty for none).
     pub default_status: String,
     /// In-app shortcuts.
     pub keys: Keys,
@@ -75,12 +84,6 @@ pub struct VaultDef {
     pub path: String,
     /// A theme color name.
     pub color: String,
-    /// Systems whose items get a note each (Jira tickets, GitHub issues, ...).
-    /// None: this vault's notes are plain notes.
-    pub tickets: Vec<TicketSystem>,
-    /// Kinds of link a note can collect in its front matter (Gerrit changes,
-    /// pull requests, wiki pages, ...).
-    pub links: Vec<LinkType>,
 }
 
 impl Default for VaultDef {
@@ -90,13 +93,12 @@ impl Default for VaultDef {
             name: "Personal".into(),
             path: String::new(),
             color: "blue".into(),
-            tickets: Vec::new(),
-            links: Vec::new(),
         }
     }
 }
 
-/// A ticket system: notes named by its keys (`tickets/PROJ-123.md`).
+/// 0.6's ticket system: notes named by its keys (`tickets/PROJ-123.md`).
+/// Now only read from preserved settings; see `LinkRule`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TicketSystem {
@@ -121,7 +123,8 @@ impl Default for TicketSystem {
     }
 }
 
-/// A kind of link a note collects in a front matter list.
+/// 0.6's kind of link a note collected in a front matter list. Now only
+/// read from preserved settings; see `LinkRule`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LinkType {
@@ -183,11 +186,14 @@ pub struct Keys {
     pub follow_link: String,
     pub back: String,
     pub forward: String,
-    /// Open the note's ticket (Jira, GitHub issue, ...).
+    /// Open the note's primary link (a 0.6 ticket's ticket).
     pub open_ticket: String,
-    /// Open one of the note's attached links (Gerrit change, PR, page, ...).
+    /// Open one of the note's links.
     pub open_link: String,
+    /// Add any link to the note.
     pub add_link: String,
+    /// Show or hide the Links panel.
+    pub links_panel: String,
     pub timestamp: String,
     pub backlinks: String,
     pub archive: String,
@@ -229,6 +235,8 @@ impl Default for Settings {
             animations: "system".into(),
             live_formatting: true,
             smart_paste: true,
+            link_rules: Vec::new(),
+            legacy_links: LegacyLinks::default(),
             restore_pinned: true,
             notes_view: NotesViewSettings::default(),
             statuses: default_statuses(),
@@ -251,6 +259,7 @@ impl Default for Keys {
             open_ticket: "Ctrl+J".into(),
             open_link: "Ctrl+G".into(),
             add_link: "Ctrl+Shift+G".into(),
+            links_panel: "Ctrl+Shift+L".into(),
             timestamp: "Ctrl+;".into(),
             backlinks: "Ctrl+Shift+B".into(),
             archive: "Ctrl+Shift+A".into(),
@@ -321,8 +330,13 @@ pub fn migrate(text: &str) -> Option<String> {
             let gerrit = LinkType { url: template("gerrit", &LinkType::default().url), ..LinkType::default() };
             obj.remove("jira");
             obj.remove("gerrit");
-            let first = VaultDef { path, tickets: vec![jira], links: vec![gerrit], ..VaultDef::default() };
-            obj.insert("vaults".into(), serde_json::to_value(vec![first]).unwrap_or_default());
+            // 0.5's per-vault links, which 0.7 makes global below.
+            let mut first = serde_json::to_value(VaultDef { path, ..VaultDef::default() }).unwrap_or_default();
+            if let Some(f) = first.as_object_mut() {
+                f.insert("tickets".into(), serde_json::to_value(vec![jira]).unwrap_or_default());
+                f.insert("links".into(), serde_json::to_value(vec![gerrit]).unwrap_or_default());
+            }
+            obj.insert("vaults".into(), serde_json::Value::Array(vec![first]));
         }
         if let Some(serde_json::Value::Object(keys)) = obj.get_mut("keys") {
             for (old, new) in [("openJira", "openTicket"), ("openGerrit", "openLink"), ("addGerrit", "addLink")] {
@@ -338,9 +352,143 @@ pub fn migrate(text: &str) -> Option<String> {
             }
         }
     }
+    if version < 6 || has_vault_links(obj) {
+        migrate_links(obj);
+    }
     obj.insert("schemaVersion".into(), SCHEMA_VERSION.into());
     let (settings, _) = Settings::from_json(&v.to_string());
     Some(merge_json(&v.to_string(), &settings))
+}
+
+/// The schema version stored in settings JSON (1 when absent or unreadable).
+pub fn schema_version(text: &str) -> u32 {
+    serde_json::from_str::<serde_json::Value>(text).ok().and_then(|v| v.get("schemaVersion")?.as_u64()).unwrap_or(1) as u32
+}
+
+/// Does a vault still carry 0.6's links (a hand edit, or an older copy)?
+fn has_vault_links(obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+    obj.get("vaults").and_then(|v| v.as_array()).is_some_and(|vs| vs.iter().any(|v| v.get("tickets").is_some() || v.get("links").is_some()))
+}
+
+/// What makes two rules the same rule, names aside: how they recognise,
+/// where they open, how they format and what notes they make.
+fn behaviour(r: &LinkRule) -> String {
+    serde_json::to_string(&(&r.url, &r.pattern, &r.key_pattern, &r.label, r.paste_format, &r.template)).unwrap_or_default()
+}
+
+/// 0.7: each vault's ticket systems and link types become global link rules.
+/// The originals are kept read-only in `legacyLinks`, so links stored with
+/// them keep their destinations. Equivalent definitions become one rule;
+/// distinct ones stay distinct, named apart. Running it again adds nothing.
+fn migrate_links(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    use serde_json::Value;
+    let smart_paste = obj.get("smartPaste").and_then(Value::as_bool).unwrap_or(true);
+    let status = obj.get("defaultStatus").and_then(Value::as_str).unwrap_or("open").to_string();
+    let mut rules: Vec<LinkRule> = obj.get("linkRules").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    let mut legacy: LegacyLinks = obj.get("legacyLinks").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    let existing = rules.len();
+    // The rules made here, with the vault each came from, to name them apart.
+    let mut made: Vec<(usize, String)> = Vec::new();
+    let vaults = obj.get_mut("vaults").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default();
+    let mut kept = Vec::new();
+    for mut vault in vaults {
+        let id = vault.get("id").and_then(Value::as_str).unwrap_or("personal").to_string();
+        let name = vault.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
+        let list = |v: Option<Value>| -> Vec<Value> { v.and_then(|v| v.as_array().cloned()).unwrap_or_default() };
+        let (tickets, links) = match vault.as_object_mut() {
+            Some(o) => (list(o.remove("tickets")), list(o.remove("links"))),
+            None => (Vec::new(), Vec::new()),
+        };
+        kept.push(vault);
+        let tickets: Vec<TicketSystem> = tickets.into_iter().filter_map(|t| serde_json::from_value(t).ok()).collect();
+        let links: Vec<LinkType> = links.into_iter().filter_map(|l| serde_json::from_value(l).ok()).collect();
+        if tickets.is_empty() && links.is_empty() {
+            continue;
+        }
+        let old = legacy.vaults.entry(id.clone()).or_insert_with(LegacyVault::default);
+        for t in &tickets {
+            if !old.tickets.contains(t) {
+                old.tickets.push(t.clone());
+            }
+        }
+        for l in &links {
+            if !old.links.contains(l) {
+                old.links.push(l.clone());
+            }
+        }
+        let from_tickets = tickets.iter().map(|t| LinkRule {
+            name: t.name.trim().to_string(),
+            icon: t.icon.clone(),
+            url: t.url.trim().to_string(),
+            key_pattern: t.pattern.trim().to_string(),
+            label: "{key}".into(),
+            // 0.6 turned a pasted ticket URL into its key: keep the key, and the link.
+            paste_format: smart_paste,
+            // Notes as 0.6 made them: tickets/KEY.md named in its heading.
+            template: NoteTemplate {
+                enabled: true,
+                title: "{key} {title}".into(),
+                folder: crate::note::TICKETS_DIR.into(),
+                filename: "{key}".into(),
+                body: "# {key} {title}\n\n".into(),
+                status: status.clone(),
+                tags: Vec::new(),
+            },
+            ..LinkRule::default()
+        });
+        // Attached links: pasted URLs now stay where they are pasted.
+        let from_links = links.iter().map(|l| LinkRule {
+            name: l.name.trim().to_string(),
+            icon: l.icon.clone(),
+            url: l.url.trim().to_string(),
+            label: "{name} {key}".into(),
+            ..LinkRule::default()
+        });
+        for mut rule in from_tickets.chain(from_links) {
+            if rule.name.is_empty() {
+                rule.name = "Links".into();
+            }
+            match rules.iter_mut().find(|r| behaviour(r) == behaviour(&rule)) {
+                Some(same) => {
+                    if !same.legacy_vaults.contains(&id) {
+                        same.legacy_vaults.push(id.clone());
+                    }
+                }
+                None => {
+                    rule.legacy_vaults = vec![id.clone()];
+                    made.push((rules.len(), name.clone()));
+                    rules.push(rule);
+                }
+            }
+        }
+    }
+    obj.insert("vaults".into(), Value::Array(kept));
+    let shared: Vec<bool> = made.iter().map(|(i, _)| rules.iter().enumerate().any(|(j, r)| j != *i && r.name == rules[*i].name)).collect();
+    for ((i, vault), shared) in made.iter().zip(shared) {
+        if shared {
+            rules[*i].name = format!("{} ({vault})", rules[*i].name);
+        }
+    }
+    let mut taken: Vec<String> = rules[..existing].iter().map(|r| r.id.clone()).collect();
+    for r in rules.iter_mut().skip(existing) {
+        r.id = rule_id(&r.name, &taken);
+        taken.push(r.id.clone());
+    }
+    obj.insert("linkRules".into(), serde_json::to_value(&rules).unwrap_or_default());
+    obj.insert("legacyLinks".into(), serde_json::to_value(&legacy).unwrap_or_default());
+}
+
+/// A link rule id from a name, unique among `taken`.
+pub fn rule_id(name: &str, taken: &[String]) -> String {
+    let base: String = crate::note::slugify(name).chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    let base = if base.is_empty() || base == "untitled" { "link".to_string() } else { base };
+    let mut id = base.clone();
+    let mut n = 2;
+    while taken.contains(&id) {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
 }
 
 /// `settings` as pretty JSON, keeping keys from `existing` it doesn't know
@@ -388,22 +536,30 @@ impl Settings {
             if v.name.trim().is_empty() {
                 return Some("every vault needs a name".into());
             }
-            for t in &v.tickets {
-                if let Err(e) = regex::Regex::new(&t.pattern) {
-                    return Some(format!("{}: the key pattern of {} isn't a valid regex ({e})", v.name, t.name));
-                }
+        }
+        None
+    }
+
+    /// Why these settings' link rules can't be saved, if they can't.
+    pub fn links_error(&self) -> Option<String> {
+        for (i, r) in self.link_rules.iter().enumerate() {
+            let ok = !r.id.is_empty() && r.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+            if !ok {
+                return Some(format!("link rule id `{}` must be lower case letters, digits, - or _", r.id));
             }
-            for l in &v.links {
-                let f = l.field.trim();
-                if f.is_empty() || !f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-                    return Some(format!("{}: {}'s front matter key must be letters, digits, - or _", v.name, l.name));
-                }
-                if ["status", "tags", "aliases", "title", "jira"].contains(&f) {
-                    return Some(format!("{}: `{f}` is already used in front matter", v.name));
-                }
+            if self.link_rules[..i].iter().any(|o| o.id == r.id) {
+                return Some(format!("two link rules have the id `{}`", r.id));
+            }
+            if let Some(e) = links::rule_error(r) {
+                return Some(e);
             }
         }
         None
+    }
+
+    /// The link rules, ready to match.
+    pub fn rules(&self) -> Rules {
+        Rules::new(&self.link_rules, &self.legacy_links)
     }
 
     pub fn vault(&self, id: &str) -> Option<&VaultDef> {
@@ -415,21 +571,6 @@ impl Settings {
         self.vaults.first().map(|v| v.id.as_str()).unwrap_or("personal")
     }
 
-    /// The ticket keys of vault `id`: every one of its ticket systems'
-    /// patterns (invalid ones skipped), or None if it has none.
-    pub fn ticket_regex(&self, id: &str) -> Option<regex::Regex> {
-        let pats: Vec<String> = self
-            .vault(id)?
-            .tickets
-            .iter()
-            .filter(|t| regex::Regex::new(&t.pattern).is_ok())
-            .map(|t| format!("(?:{})", t.pattern))
-            .collect();
-        if pats.is_empty() {
-            return None;
-        }
-        regex::Regex::new(&pats.join("|")).ok()
-    }
 }
 
 #[cfg(test)]
@@ -460,18 +601,70 @@ mod tests {
         assert_eq!(s.vaults.len(), 1);
         assert_eq!((s.vaults[0].id.as_str(), s.vaults[0].path.as_str()), ("personal", "D:\\Notes"));
         assert!(!out.contains("vaultPath"));
-        let v = &s.vaults[0];
-        assert_eq!((v.tickets[0].pattern.as_str(), v.tickets[0].url.as_str()), ("OPS-\\d+", "https://j/{key}"));
-        assert_eq!(v.links[0].field, "gerrit");
+        // ... and 0.6's links become global rules.
+        assert_eq!((s.link_rules[0].key_pattern.as_str(), s.link_rules[0].url.as_str()), ("OPS-\\d+", "https://j/{key}"));
+        assert_eq!(s.legacy_links.vaults["personal"].links[0].field, "gerrit");
+        let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(json["vaults"][0].get("tickets").is_none());
         assert_eq!(s.keys.open_ticket, "Alt+J");
-        assert!(s.ticket_regex("personal").unwrap().is_match("OPS-12"));
-        assert!(Settings::default().ticket_regex("personal").is_none());
+        assert!(s.rules().key_regex("work").unwrap().is_match("OPS-12"));
+        assert!(Settings::default().rules().key_regex("personal").is_none());
         assert!(s.vault_error().is_none());
+        assert!(s.links_error().is_none());
         let merged = merge_json(r#"{"futureKey":1,"hotkey":"x"}"#, &Settings::default());
         assert!(merged.contains("\"futureKey\": 1"));
         assert!(merged.contains("\"hotkey\": \"Alt+N\""));
     }
 
+
+    #[test]
+    fn links_become_global_rules() {
+        let v5 = r#"{"schemaVersion":5,"smartPaste":false,"futureKey":2,"keys":{"openTicket":"Alt+T"},"vaults":[
+            {"id":"work","name":"Work","path":"","color":"orange",
+             "tickets":[{"name":"Jira","icon":"ticket","pattern":"[A-Z][A-Z0-9]+-\\d+","url":"https://acme.atlassian.net/browse/{key}"}],
+             "links":[{"name":"Gerrit","icon":"git-pull-request","field":"gerrit","url":"https://gerrit.acme.com/c/{n}"},
+                      {"name":"Docs","icon":"book-open","field":"docs","url":"https://wiki.acme.com/{n}"}, 42]},
+            {"id":"client","name":"Client","path":"x","color":"blue",
+             "tickets":[{"name":"Jira","icon":"ticket","pattern":"[A-Z][A-Z0-9]+-\\d+","url":"https://client.atlassian.net/browse/{key}"}],
+             "links":[{"name":"Gerrit","icon":"git-pull-request","field":"gerrit","url":"https://gerrit.acme.com/c/{n}"}]},
+            {"id":"home","name":"Home","path":"y","color":"green","tickets":[],"links":[]}]}"#;
+        let out = migrate(v5).unwrap();
+        let (s, err) = Settings::from_json(&out);
+        assert!(err.is_none());
+        let names: Vec<&str> = s.link_rules.iter().map(|r| r.name.as_str()).collect();
+        // Overlapping Jira sites stay apart, named by vault; one Gerrit serves both.
+        assert_eq!(names, ["Jira (Work)", "Gerrit", "Docs", "Jira (Client)"]);
+        assert_eq!(s.link_rules[1].legacy_vaults, ["work", "client"]);
+        let ids: Vec<&str> = s.link_rules.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["jira-work", "gerrit", "docs", "jira-client"]);
+        // Smart paste was off: nothing formats pastes.
+        assert!(s.link_rules.iter().all(|r| !r.paste_format));
+        assert_eq!(s.link_rules[0].template.folder, "tickets");
+        assert_eq!(s.link_rules[0].template.status, "open");
+        // The originals stay readable; the vault with none has nothing to keep.
+        assert_eq!(s.legacy_links.vaults["work"].links.len(), 2);
+        assert!(!s.legacy_links.vaults.contains_key("home"));
+        assert_eq!(s.keys.open_ticket, "Alt+T");
+        assert!(out.contains("futureKey"));
+        assert!(s.links_error().is_none());
+        // Each vault's bare keys open where they did, and no rule is guessed elsewhere.
+        let r = s.rules();
+        assert_eq!(r.key_targets("PROJ-1", "client")[0].url, "https://client.atlassian.net/browse/PROJ-1");
+        assert_eq!(r.key_targets("PROJ-1", "work")[0].url, "https://acme.atlassian.net/browse/PROJ-1");
+        assert_eq!(r.key_targets("PROJ-1", "home").len(), 2);
+        // Again: nothing changes, nothing duplicates.
+        assert_eq!(migrate(&out), None);
+        let mut again: serde_json::Value = serde_json::from_str(&out).unwrap();
+        again["schemaVersion"] = 5.into();
+        again["vaults"] = serde_json::from_str::<serde_json::Value>(v5).unwrap()["vaults"].clone();
+        let (s2, _) = Settings::from_json(&migrate(&again.to_string()).unwrap());
+        assert_eq!(s2.link_rules, s.link_rules);
+        assert_eq!(s2.legacy_links, s.legacy_links);
+        // Enabled smart paste keeps pasted tickets formatted, not attached links.
+        let on = v5.replace("\"smartPaste\":false", "\"smartPaste\":true");
+        let (s3, _) = Settings::from_json(&migrate(&on).unwrap());
+        assert!(s3.link_rules[0].paste_format && !s3.link_rules[1].paste_format);
+    }
 
     #[test]
     fn vault_ids() {

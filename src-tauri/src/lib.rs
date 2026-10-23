@@ -39,15 +39,21 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let settings_path = config_dir.join("settings.json");
-            let (mut settings, warning) = config::load_settings(&settings_path);
+            let loaded = config::load_settings(&settings_path);
+            let mut settings = loaded.settings;
             if let Some(e) = settings.vault_error() {
                 eprintln!("settings: {e}; using the default vault");
                 settings.vaults = stash_core::Settings::default().vaults;
             }
             let vaults = config::open_vaults(&handle, &settings);
             let state = AppState::new(settings.clone(), settings_path, data_dir.join("session.json"), vaults);
-            if let Some(w) = warning {
+            for w in loaded.warnings {
                 state.warn(w);
+            }
+            if loaded.links_upgraded {
+                state.notices.lock().unwrap().push(
+                    "Links now work across all vaults. Find this note's links in Links; manage optional formats and templates in Settings > Links.".into(),
+                );
             }
             app.manage(state);
             app.manage(buffers::Buffers::default());
@@ -115,7 +121,15 @@ pub fn run() {
             commands::set_settings,
             commands::default_settings,
             commands::test_hotkey,
-            commands::test_ticket_pattern,
+            commands::test_link_rule,
+            commands::note_links,
+            commands::all_links,
+            commands::link_meta_edit,
+            commands::paste_format,
+            commands::link_preview,
+            commands::create_from_link,
+            commands::quick_create_from_link,
+            commands::write_clipboard,
             commands::pick_folder,
             commands::get_daily_template,
             commands::set_daily_template,
@@ -163,7 +177,6 @@ pub fn run() {
             commands::backlinks,
             commands::set_status,
             commands::archived_names,
-            commands::link_edit,
             commands::open_url,
             commands::hide_window,
             commands::quit_app,

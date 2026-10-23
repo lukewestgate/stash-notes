@@ -94,9 +94,13 @@ export interface Keys {
   followLink: string;
   back: string;
   forward: string;
+  /** Open the note's primary link (a legacy ticket's ticket). */
   openTicket: string;
+  /** Open one of the note's links. */
   openLink: string;
+  /** Add any link to the note. */
   addLink: string;
+  linksPanel: string;
   timestamp: string;
   backlinks: string;
   archive: string;
@@ -120,11 +124,48 @@ export interface VaultDef {
   /** Empty for the default folder (Documents\StashNotes). */
   path: string;
   color: string;
-  tickets: TicketSystem[];
-  links: LinkType[];
 }
 
-/** A system whose items get a note each (Jira, GitHub issues). */
+/** A global, optional way to recognise, label and create notes from links. */
+export interface LinkRule {
+  /** Stable: lower case letters, digits, `-`, `_`. */
+  id: string;
+  name: string;
+  icon: string;
+  enabled: boolean;
+  /** The service's link: `{key}` = its identifier, `{n}` = its number. */
+  url: string;
+  /** Advanced: a regex for the whole URL instead of `url`; group 1 = identifier. */
+  pattern: string;
+  /** Bare keys (`PROJ-123`) open through `url` when set. */
+  keyPattern: string;
+  /** `{key}`, `{n}`, `{name}`. */
+  label: string;
+  /** Paste a single matching link as `[label](url)`. */
+  pasteFormat: boolean;
+  template: NoteTemplate;
+  /** Migration data: the vaults it came from in 0.6. */
+  legacyVaults?: string[];
+}
+
+export interface NoteTemplate {
+  enabled: boolean;
+  /** `{key}`, `{title}`, `{url}`, `{domain}`. */
+  title: string;
+  folder: string;
+  /** Without `.md`; empty: a slug of the title. */
+  filename: string;
+  body: string;
+  status: string;
+  tags: string[];
+}
+
+/** 0.6's per-vault links, kept read-only so stored links keep their destinations. */
+export interface LegacyLinks {
+  vaults: Record<string, { tickets: TicketSystem[]; links: LinkType[] }>;
+}
+
+/** 0.6: a system whose items got a note each (Jira, GitHub issues). */
 export interface TicketSystem {
   name: string;
   icon: string;
@@ -134,7 +175,7 @@ export interface TicketSystem {
   url: string;
 }
 
-/** A kind of link notes collect in a front matter list (Gerrit, PRs, pages). */
+/** 0.6: a kind of link notes collected in a front matter list (Gerrit, PRs, pages). */
 export interface LinkType {
   name: string;
   icon: string;
@@ -176,6 +217,8 @@ export interface Settings {
   animations: "system" | "on" | "off";
   liveFormatting: boolean;
   smartPaste: boolean;
+  linkRules: LinkRule[];
+  legacyLinks?: LegacyLinks;
   restorePinned: boolean;
   notesView: NotesViewSettings;
   statuses: StatusDef[];
@@ -192,6 +235,8 @@ export interface Startup {
   currentVault: string;
   settingsPath: string;
   warnings: string[];
+  /** One-off news, shown once (after an upgrade). */
+  notices: string[];
   lastPath: string | null;
   lastAnchor: number | null;
   indexReady: boolean;
@@ -211,6 +256,87 @@ export interface TextEdit {
   insert: string;
 }
 
+export interface RuleRef {
+  id: string;
+  name: string;
+  icon: string;
+}
+
+/** Where a link occurs in a note (offsets in the editor's text). */
+export interface LinkSource {
+  /** body: the text; key: a bare key; attached: `links:`; primary: `primary_link:`;
+   * legacy: an older front matter field; ticket: a 0.6 ticket note's own key. */
+  kind: "body" | "key" | "attached" | "primary" | "legacy" | "ticket";
+  from: number;
+  to: number;
+  line: number;
+  field: string | null;
+  text: string;
+}
+
+/** One of a note's external links, every occurrence grouped. */
+export interface NoteLink {
+  /** As first written: what opens and copies. */
+  url: string;
+  identity: string;
+  label: string;
+  domain: string;
+  rule: RuleRef | null;
+  key: string | null;
+  primary: boolean;
+  sources: LinkSource[];
+}
+
+/** A link and the notes referencing it (All notes). */
+export interface LinkUse {
+  url: string;
+  identity: string;
+  label: string;
+  domain: string;
+  rule: RuleRef | null;
+  key: string | null;
+  notes: SearchHit[];
+}
+
+export type MetaEdit =
+  | { op: "add"; url: string }
+  | { op: "primary"; url: string }
+  | { op: "clearPrimary" }
+  | { op: "remove"; url: string }
+  | { op: "replace"; url: [string, string] };
+
+export interface NotePlan {
+  title: string;
+  folder: string;
+  stem: string;
+  content: string;
+  errors: string[];
+}
+
+/** What creating a note from a link or key would do. */
+export interface LinkPreview {
+  url: string | null;
+  key: string | null;
+  rule: RuleRef | null;
+  /** A key several rules could own. */
+  choices: { rule: RuleRef; url: string }[];
+  /** The title typed after the link or key. */
+  title: string;
+  plan: NotePlan | null;
+  path: string | null;
+  template: boolean;
+  existing: SearchHit[];
+}
+
+export interface RuleTest {
+  error: string | null;
+  url: string | null;
+  recognised: boolean;
+  key: string | null;
+  label: string | null;
+  plan: NotePlan | null;
+}
+
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type Args = Record<string, unknown>;
@@ -228,7 +354,7 @@ export const api = {
   setSettings: (settings: Settings) => call<void>("set_settings", { settings }),
   defaultSettings: () => call<Settings>("default_settings"),
   testHotkey: (spec: string, which: "main" | "switcher") => call<void>("test_hotkey", { spec, which }),
-  testTicketPattern: (pattern: string, sample: string) => call<string[]>("test_ticket_pattern", { pattern, sample }),
+  testLinkRule: (rule: LinkRule, sample: string) => call<RuleTest>("test_link_rule", { rule, sample }),
   pickFolder: () => call<string | null>("pick_folder"),
   getDailyTemplate: (vault: string) => call<string>("get_daily_template", { vault }),
   setDailyTemplate: (vault: string, text: string) => call<void>("set_daily_template", { vault, text }),
@@ -282,7 +408,19 @@ export const api = {
   setUi: (key: string, value: unknown) => call<void>("set_ui", { key, value }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
   archivedNames: (vault: string) => call<string[]>("archived_names", { vault }),
-  linkEdit: (content: string, field: string, item: string) => call<TextEdit>("link_edit", { content, field, item }),
+  noteLinks: (path: string, text: string) => call<NoteLink[]>("note_links", { path, text }),
+  allLinks: (query: string, vault: string | null, includeArchived: boolean) =>
+    call<LinkUse[]>("all_links", { query, vault, includeArchived, limit: null }),
+  /** The editor edit for a link metadata change (null: nothing to change). */
+  linkMetaEdit: (path: string, content: string, edit: MetaEdit) => call<TextEdit | null>("link_meta_edit", { path, content, edit }),
+  pasteFormat: (text: string) => call<string | null>("paste_format", { text }),
+  linkPreview: (input: string, vault: string, title: string | null = null, rule: string | null = null) =>
+    call<LinkPreview>("link_preview", { input, vault, title, rule }),
+  createFromLink: (input: string, vault: string, title: string | null, rule: string | null) =>
+    call<string>("create_from_link", { input, vault, title, rule }),
+  quickCreateFromLink: (input: string, vault: string | null, title: string | null, rule: string | null) =>
+    call<string>("quick_create_from_link", { input, vault, title, rule }),
+  writeClipboard: (text: string) => call<void>("write_clipboard", { text }),
   openUrl: (url: string) => call<void>("open_url", { url }),
   hideWindow: () => call<void>("hide_window"),
   quit: () => call<void>("quit_app"),

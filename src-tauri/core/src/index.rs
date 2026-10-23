@@ -4,6 +4,7 @@
 
 use crate::dates;
 use crate::frontmatter;
+use crate::links::{self, NoteLink, RuleRef, Rules};
 use crate::note::{self, NoteKind, NoteMeta, TicketMatcher};
 use crate::query::Query;
 use crate::status::{self, StatusDef, StatusFilter};
@@ -12,6 +13,7 @@ use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// A vault as the index knows it: for `in:` filters and `[[vault:link]]`s.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,18 +36,21 @@ pub struct NoteEntry {
     title_hay: String,
     aliases_lower: Vec<String>,
     /// Lower-cased `[[link]]` targets.
-    links: Vec<String>,
+    wiki: Vec<String>,
+    /// External links (byte offsets), for the Links panel's All notes.
+    pub links: Vec<NoteLink>,
     /// Ticket keys mentioned anywhere (bare or linked).
     keys: Vec<String>,
 }
 
 impl NoteEntry {
-    pub fn new(path: &str, content: &str, mtime: i64, tickets: &TicketMatcher) -> Self {
+    pub fn new(path: &str, content: &str, mtime: i64, tickets: &TicketMatcher, rules: &Rules) -> Self {
         let meta = note::parse_meta(path, content, tickets);
         let fm = frontmatter::parse(content);
         let body = content[fm.body_start..].to_string();
         let body_lower = body.to_lowercase();
-        let links = note::wiki_links(&body).into_iter().map(|l| l.target.to_lowercase()).collect();
+        let wiki = note::wiki_links(&body).into_iter().map(|l| l.target.to_lowercase()).collect();
+        let links = links::extract(content, &links::NoteContext { path, rules });
         let keys = tickets.keys_in(&body);
         NoteEntry {
             stem_lower: note::stem(path).to_lowercase(),
@@ -64,6 +69,7 @@ impl NoteEntry {
             mtime,
             body,
             body_lower,
+            wiki,
             links,
             keys,
         }
@@ -82,6 +88,11 @@ impl NoteEntry {
 
     fn vault(&self) -> &str {
         &self.meta.vault
+    }
+
+    /// The note as a list row.
+    pub fn hit(&self) -> SearchHit {
+        self.summary(None, 0)
     }
 
     fn summary(&self, snippet: Option<String>, score: i64) -> SearchHit {
@@ -244,11 +255,47 @@ pub struct Index {
     tickets: TicketMatcher,
     vault_tickets: HashMap<String, TicketMatcher>,
     vaults: Vec<VaultInfo>,
+    rules: Arc<Rules>,
+}
+
+/// A link and the notes that reference it (the Links panel's All notes).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkUse {
+    pub url: String,
+    pub identity: String,
+    pub label: String,
+    pub domain: String,
+    pub rule: Option<RuleRef>,
+    pub key: Option<String>,
+    /// The notes referencing it, most recently edited first.
+    pub notes: Vec<SearchHit>,
+}
+
+/// What the All notes list shows.
+pub struct LinkFilter<'a> {
+    /// One vault, or all of them.
+    pub vault: Option<&'a str>,
+    pub include_archived: bool,
+    /// Words that must all appear in the link, its label or a note's title.
+    pub query: &'a str,
+    /// Links of open notes with unsaved edits, by path, instead of the index's.
+    pub overrides: &'a HashMap<String, Vec<NoteLink>>,
+    pub limit: usize,
 }
 
 impl Index {
     pub fn new(tickets: TicketMatcher) -> Self {
-        Index { notes: HashMap::new(), tickets, vault_tickets: HashMap::new(), vaults: Vec::new() }
+        Index { notes: HashMap::new(), tickets, vault_tickets: HashMap::new(), vaults: Vec::new(), rules: Arc::new(Rules::default()) }
+    }
+
+    /// The link rules notes are read with (set before indexing).
+    pub fn set_rules(&mut self, rules: Arc<Rules>) {
+        self.rules = rules;
+    }
+
+    pub fn rules(&self) -> Arc<Rules> {
+        self.rules.clone()
     }
 
     pub fn tickets(&self) -> &TicketMatcher {
@@ -304,7 +351,7 @@ impl Index {
     }
 
     pub fn upsert(&mut self, path: &str, content: &str, mtime: i64) -> &NoteEntry {
-        let entry = NoteEntry::new(path, content, mtime, self.tickets_for(note::split_path(path).0));
+        let entry = NoteEntry::new(path, content, mtime, self.tickets_for(note::split_path(path).0), &self.rules);
         self.notes.insert(path.to_string(), entry);
         &self.notes[path]
     }
@@ -483,7 +530,7 @@ impl Index {
         let qualified: HashSet<String> = names.iter().map(|n| format!("{vault}:{n}")).collect();
         let key = target.meta.key.as_deref();
         let links_here = |e: &NoteEntry| {
-            e.links.iter().any(|l| (e.vault() == vault && names.contains(l.as_str())) || qualified.contains(l.as_str()))
+            e.wiki.iter().any(|l| (e.vault() == vault && names.contains(l.as_str())) || qualified.contains(l.as_str()))
         };
         let mut out: Vec<&NoteEntry> = self
             .notes
@@ -648,6 +695,57 @@ impl Index {
         matchers.extend(self.vault_tickets.values());
         matchers.push(&self.tickets);
         matchers.into_iter().find_map(|t| t.split_named(q).filter(|(_, name)| !name.is_empty()).map(|(k, _)| k))
+    }
+
+    /// Every link in the notes, with the notes that reference it: most
+    /// recently edited referencing note first, then by URL.
+    pub fn all_links(&self, f: &LinkFilter) -> Vec<LinkUse> {
+        let words: Vec<String> = f.query.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let mut by_id: HashMap<&str, (Vec<(&NoteEntry, &NoteLink)>, i64)> = HashMap::new();
+        for e in self.notes.values() {
+            if f.vault.is_some_and(|v| v != e.vault()) || (!f.include_archived && e.meta.archived) {
+                continue;
+            }
+            let links = f.overrides.get(e.path()).unwrap_or(&e.links);
+            for l in links {
+                let slot = by_id.entry(l.identity.as_str()).or_insert((Vec::new(), i64::MIN));
+                if !slot.0.iter().any(|(x, _)| x.path() == e.path()) {
+                    slot.0.push((e, l));
+                    slot.1 = slot.1.max(e.mtime);
+                }
+            }
+        }
+        let mut out: Vec<(LinkUse, i64)> = by_id
+            .into_values()
+            .filter_map(|(mut uses, mtime)| {
+                uses.sort_by(|a, b| b.0.mtime.cmp(&a.0.mtime).then_with(|| a.0.path().cmp(b.0.path())));
+                let l = uses[0].1;
+                let hay = format!("{} {} {}", l.url, l.label, uses.iter().map(|(e, _)| e.title_hay.as_str()).collect::<Vec<_>>().join(" ")).to_lowercase();
+                if !words.iter().all(|w| hay.contains(w.as_str())) {
+                    return None;
+                }
+                let link = LinkUse {
+                    url: l.url.clone(),
+                    identity: l.identity.clone(),
+                    label: l.label.clone(),
+                    domain: l.domain.clone(),
+                    rule: l.rule.clone(),
+                    key: l.key.clone(),
+                    notes: uses.iter().map(|(e, _)| e.summary(None, 0)).collect(),
+                };
+                Some((link, mtime))
+            })
+            .collect();
+        out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.url.cmp(&b.0.url)));
+        out.into_iter().take(f.limit).map(|(l, _)| l).collect()
+    }
+
+    /// Notes whose primary link is `url` (by identity), in every vault.
+    pub fn primary_notes(&self, url: &str) -> Vec<SearchHit> {
+        let Some(id) = links::identity(url) else { return Vec::new() };
+        let mut out: Vec<&NoteEntry> = self.notes.values().filter(|e| e.links.iter().any(|l| l.primary && l.identity == id)).collect();
+        out.sort_by(|a, b| a.meta.archived.cmp(&b.meta.archived).then(b.mtime.cmp(&a.mtime)));
+        out.into_iter().map(|e| e.summary(None, 0)).collect()
     }
 
     /// Every tag in use with how many notes carry it, most used first.
@@ -948,6 +1046,35 @@ mod tests {
         assert_eq!(b[0].snippet.as_deref(), Some("- [ ] look at PROJ-123"));
         let b = i.backlinks("notes/rollout-plan.md");
         assert_eq!(b[0].path, "tickets/PROJ-123.md");
+    }
+
+    #[test]
+    fn links_across_notes() {
+        let mut i = Index::new(TicketMatcher::default_pattern());
+        let jira = links::LinkRule { id: "jira".into(), name: "Jira".into(), url: "https://j.com/browse/{key}".into(), key_pattern: r"[A-Z]+-\d+".into(), ..Default::default() };
+        i.set_rules(Arc::new(Rules::new(&[jira], &Default::default())));
+        i.set_vaults(vec![VaultInfo { id: "work".into(), name: "Work".into() }, VaultInfo { id: "home".into(), name: "Home".into() }]);
+        i.upsert("work:notes/a.md", "---\nprimary_link: https://j.com/browse/AB-1\n---\n# A\nsee https://x.com/v\n", 10);
+        i.upsert("home:notes/b.md", "# B\n[video](https://X.com/v) and AB-1\n", 20);
+        i.upsert("home:archive/notes/c.md", "# C\nhttps://old.com/\n", 30);
+        let none = HashMap::new();
+        let f = |vault, include_archived, query| LinkFilter { vault, include_archived, query, overrides: &none, limit: 100 };
+        let all = i.all_links(&f(None, false, ""));
+        assert_eq!(all.iter().map(|l| l.url.as_str()).collect::<Vec<_>>(), ["https://X.com/v", "https://j.com/browse/AB-1"]);
+        assert_eq!(all[0].notes.iter().map(|h| h.path.as_str()).collect::<Vec<_>>(), ["home:notes/b.md", "work:notes/a.md"]);
+        assert_eq!(all[0].label, "video");
+        assert_eq!(all[1].label, "AB-1");
+        assert_eq!(i.all_links(&f(Some("work"), false, "")).len(), 2);
+        assert_eq!(i.all_links(&f(None, true, "")).len(), 3);
+        assert_eq!(i.all_links(&f(None, false, "video")).len(), 1);
+        // An open note's unsaved text wins over the indexed file.
+        let mut over = HashMap::new();
+        over.insert("home:notes/b.md".to_string(), Vec::new());
+        let l = i.all_links(&LinkFilter { overrides: &over, ..f(None, false, "") });
+        assert_eq!(l.len(), 2);
+        assert_eq!(l[0].notes.len(), 1);
+        assert_eq!(i.primary_notes("https://J.com:443/browse/AB-1").iter().map(|h| h.path.as_str()).collect::<Vec<_>>(), ["work:notes/a.md"]);
+        assert!(i.primary_notes("https://x.com/v").is_empty());
     }
 
     #[test]

@@ -5,7 +5,7 @@
   import Switcher from "./components/Switcher.svelte";
   import { api, on, type SearchHit, type Settings } from "./lib/api";
   import { applyAppearance } from "./lib/appearance";
-  import { anyTickets, ticketFromUrl } from "./lib/links";
+  import { isKey } from "./lib/links";
 
   let settings = $state<Settings | null>(null);
   /** Bumped each time the pop-up is shown, to start from an empty query. */
@@ -13,14 +13,7 @@
   let error = $state("");
 
   function isTicket(q: string) {
-    const first = q.trim().split(/\s+/)[0] ?? "";
-    const re = anyTickets(settings?.vaults ?? []);
-    return !!re && new RegExp(`^(?:${re.source})$`).test(first.toUpperCase());
-  }
-
-  function pasteKey(text: string): string | null {
-    if (!settings?.smartPaste) return null;
-    return ticketFromUrl(text, settings.vaults)?.key ?? null;
+    return isKey(settings, q.trim().split(/\s+/)[0] ?? "");
   }
 
   async function choose(hit: SearchHit) {
@@ -69,7 +62,6 @@
         tagColors={settings.tagColors}
         vaults={settings.vaults}
         currentVault={null}
-        {pasteKey}
         onChoose={choose}
         onCreate={create}
         onClose={() => api.quickHide()}

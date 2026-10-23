@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Keys, LinkType, NoteMeta, StatusDef, TicketSystem } from "../lib/api";
+  import type { Keys, NoteLink, NoteMeta, StatusDef } from "../lib/api";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
@@ -10,19 +10,16 @@
     dirty: boolean;
     canBack: boolean;
     canForward: boolean;
-    /** The ticket system of the note's ticket, if it has one. */
-    ticket: TicketSystem | null;
-    /** The link types of the note's vault. */
-    linkTypes: LinkType[];
+    /** The note's links (the primary one first, if it has one). */
+    links: NoteLink[];
     keys: Keys;
     statuses: StatusDef[];
     onStatus: () => void;
     onTags: () => void;
     onBack: () => void;
     onForward: () => void;
-    onTicket: () => void;
-    onLink: () => void;
-    onAddLink: () => void;
+    onPrimary: () => void;
+    onLinks: () => void;
     onSwitcher: () => void;
     /** The current note is open in a pinned window. */
     pinned: boolean;
@@ -36,17 +33,15 @@
     dirty,
     canBack,
     canForward,
-    ticket,
-    linkTypes,
+    links,
     keys,
     statuses,
     onStatus,
     onTags,
     onBack,
     onForward,
-    onTicket,
-    onLink,
-    onAddLink,
+    onPrimary,
+    onLinks,
     onSwitcher,
     pinned,
     onPin,
@@ -56,8 +51,9 @@
   }: Props = $props();
 
   const pinKeys = $derived(keys.pinNote.split(/\s+/).map(formatKey).join(" then "));
-  /** The vault's link types this note has entries for, with how many. */
-  const used = $derived(meta ? linkTypes.map((t) => ({ type: t, n: meta.fields[t.field]?.length ?? 0 })).filter((u) => u.n > 0) : []);
+  const primary = $derived(links.find((l) => l.primary) ?? null);
+  /** "Open PROJ-123" for a recognised link, else its site. */
+  const primaryName = $derived(primary ? (primary.rule || primary.key ? primary.label : primary.domain) : "");
 </script>
 
 <header class="header">
@@ -105,27 +101,15 @@
         <Icon name={meta.tags.length > 1 ? "tags" : "tag"} size={15} />{#if meta.tags.length}<span class="count">{meta.tags.length}</span>{/if}
       </button>
     {/if}
-    {#if ticket}
-      <button class="action" onclick={onTicket} title="Open in {ticket.name} ({formatKey(keys.openTicket)})">
-        <Icon name={ticket.icon} size={15} /><span>{ticket.name}</span>
-      </button>
-    {/if}
-    {#each used as u (u.type.field)}
-      <button class="action" onclick={onLink} title="Open {u.type.name} link ({formatKey(keys.openLink)})">
-        <Icon name={u.type.icon} size={15} /><span>{u.type.name}</span>{#if u.n > 1}<span class="count">{u.n}</span>{/if}
-      </button>
-    {/each}
-    {#if meta && meta.kind !== "daily" && linkTypes.length}
-      <button
-        class="action icon"
-        onclick={onAddLink}
-        title="Add a link: {linkTypes.map((t) => t.name).join(', ')} ({formatKey(keys.addLink)})"
-        aria-label="Add a link"
-      >
-        <Icon name="link" size={15} />
+    {#if primary}
+      <button class="action primary" onclick={onPrimary} title="Open {primary.label} — {primary.url} ({formatKey(keys.openTicket)})" aria-label="Open {primaryName}">
+        <Icon name={primary.rule?.icon ?? "external-link"} size={15} /><span class="pname">{primaryName}</span>
       </button>
     {/if}
     {#if meta}
+      <button class="action" onclick={onLinks} title="This note's links ({formatKey(keys.linksPanel)})" aria-label="Links ({links.length})">
+        <Icon name="link" size={15} /><span>Links ({links.length})</span>
+      </button>
       <button class="action icon" onclick={onImage} title="Insert image (or paste / drop an image)" aria-label="Insert image">
         <Icon name="image-plus" size={15} />
       </button>
@@ -277,5 +261,11 @@
   .count {
     color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
+  }
+  .pname {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

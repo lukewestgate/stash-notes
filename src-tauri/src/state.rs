@@ -93,6 +93,8 @@ pub struct AppState {
     pub index: RwLock<Index>,
     pub index_ready: AtomicBool,
     pub warnings: Mutex<Vec<String>>,
+    /// One-off news for the UI (shown once, after an upgrade).
+    pub notices: Mutex<Vec<String>>,
     /// Note renames: (vault id, how to undo it).
     pub undo: Mutex<HashMap<u64, (String, RenameUndo, Vec<(String, String)>)>>,
     /// Deleted files remain in their vault's hidden .trash folder.
@@ -122,6 +124,7 @@ impl AppState {
             index: RwLock::new(index),
             index_ready: AtomicBool::new(false),
             warnings: Mutex::new(Vec::new()),
+            notices: Mutex::new(Vec::new()),
             undo: Mutex::new(HashMap::new()),
             delete_undo: Mutex::new(HashMap::new()),
             tag_undo: Mutex::new(HashMap::new()),
@@ -149,6 +152,11 @@ impl AppState {
         let (id, rel) = note::split_path(path);
         let id = if id.is_empty() { rel } else { id };
         self.index.read().unwrap().tickets_for(id).clone()
+    }
+
+    /// The link rules notes are read with.
+    pub fn rules(&self) -> std::sync::Arc<stash_core::links::Rules> {
+        self.index.read().unwrap().rules()
     }
 
     pub fn warn(&self, msg: impl Into<String>) {

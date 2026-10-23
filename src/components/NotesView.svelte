@@ -31,12 +31,10 @@
     /** Bumped by the app when notes change, to reload the list. */
     version: number;
     isTicket: (q: string) => boolean;
-    /** A pasted ticket URL becomes its key. */
-    pasteKey: (text: string) => string | null;
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;
   }
-  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isTicket, pasteKey, onOpen, onCreate }: Props = $props();
+  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isTicket, onOpen, onCreate }: Props = $props();
 
   let allTags = $state<TagCount[]>([]);
   $effect(() => {
@@ -52,15 +50,6 @@
   function complete(tag: string) {
     view.query = completeTag(view.query, tag);
     input?.focus();
-  }
-
-  function paste(e: ClipboardEvent) {
-    const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
-    if (key) {
-      e.preventDefault();
-      // Leave room to type the ticket's name: `PROJ-1234 Do this thing`.
-      view.query = `${key} `;
-    }
   }
 
   const ROW = 44;
@@ -266,7 +255,6 @@
       bind:this={input}
       bind:value={view.query}
       onkeydown={keydown}
-      onpaste={paste}
       placeholder="Search notes — key, title, date, text or @status"
       spellcheck="false"
       autocomplete="off"

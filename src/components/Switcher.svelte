@@ -21,8 +21,6 @@
     vaults: VaultDef[];
     /** The app's vault: ranked first, and where new notes go. Null in the pop-up (Rust knows). */
     currentVault: string | null;
-    /** A pasted ticket URL becomes its key. */
-    pasteKey: (text: string) => string | null;
     onChoose: (hit: SearchHit, peek: boolean) => void;
     /** Create from the query, in `vault` (the narrowed scope; null for the default). */
     onCreate: (query: string, vault: string | null) => void;
@@ -41,7 +39,6 @@
     tagColors,
     vaults,
     currentVault,
-    pasteKey,
     onChoose,
     onCreate,
     embedded = false,
@@ -69,15 +66,6 @@
     ro.observe(box);
     return () => ro.disconnect();
   });
-
-  function paste(e: ClipboardEvent) {
-    const key = pasteKey(e.clipboardData?.getData("text/plain") ?? "");
-    if (key) {
-      e.preventDefault();
-      // Leave room to type the ticket's name: `PROJ-1234 Do this thing`.
-      query = `${key} `;
-    }
-  }
 
   let query = $state("");
   let hits = $state<SearchHit[]>([]);
@@ -166,7 +154,6 @@
         bind:this={input}
         bind:value={query}
         onkeydown={keydown}
-        onpaste={paste}
         placeholder={mode === "link" ? "Link selection to…" : "Find or create a note — key, title, date, text or @status"}
         spellcheck="false"
         autocomplete="off"
