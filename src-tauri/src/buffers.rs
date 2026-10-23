@@ -69,6 +69,9 @@ impl Buffer {
 #[derive(Default)]
 pub struct Buffers {
     pub map: Mutex<HashMap<String, Buffer>>,
+    /// Serialize saves with file operations so a delayed save cannot recreate
+    /// a note at the old path after a move or deletion.
+    pub disk: Mutex<()>,
     next_client: AtomicU64,
 }
 
@@ -268,8 +271,19 @@ fn schedule_save(app: &AppHandle, b: &mut Buffer, path: &str) {
 /// Write `text` as the note's content: disk, index, and every window's
 /// state. Callers must not hold the buffer map lock.
 pub fn write(app: &AppHandle, path: &str, text: &str) -> Result<(), String> {
+    let bufs = app.state::<Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    write_locked(app, path, text)
+}
+
+fn write_locked(app: &AppHandle, path: &str, text: &str) -> Result<(), String> {
     let state = app.state::<AppState>();
     let bufs = app.state::<Buffers>();
+    // A scheduled save may have captured its text before a move, deletion or
+    // a newer edit. Ignore that stale snapshot.
+    if !bufs.map.lock().unwrap().get(path).is_some_and(|b| !b.deleted && b.text == text) {
+        return Ok(());
+    }
     // Record what we are about to write first, so the file watcher can tell
     // this write from an outside edit however quickly it fires.
     let previous = bufs.map.lock().unwrap().get_mut(path).map(|b| std::mem::replace(&mut b.saved, text.to_string()));
@@ -300,6 +314,25 @@ pub fn write(app: &AppHandle, path: &str, text: &str) -> Result<(), String> {
         emit_to_windows(app, &windows, "buffer-state", StateEvent { path: path.to_string(), dirty, meta: Some(meta(app, path, text)) });
     }
     Ok(())
+}
+
+/// Save before a file operation, propagating errors. Caller holds `disk`.
+pub fn flush_checked(app: &AppHandle) -> Result<(), String> {
+    let dirty: Vec<_> = app.state::<Buffers>().map.lock().unwrap().iter_mut()
+        .filter(|(_, b)| b.dirty() && !b.deleted)
+        .map(|(p, b)| { b.save_gen += 1; (p.clone(), b.text.clone()) }).collect();
+    for (path, text) in dirty { write_locked(app, &path, &text)?; }
+    Ok(())
+}
+
+/// Remove the buffer before notifying windows: queued saves must stop here.
+pub fn deleted(app: &AppHandle, path: &str) {
+    app.state::<Buffers>().map.lock().unwrap().remove(path);
+    let _ = app.emit("note-deleted", path);
+    let pins = app.state::<AppState>().session.lock().unwrap().pins.clone();
+    for pin in pins.into_iter().filter(|p| p.path == path) {
+        crate::pins::close(app, &pin.label);
+    }
 }
 
 /// Save every dirty buffer now (before hiding, quitting or an external operation).
@@ -340,16 +373,23 @@ pub fn flush(app: &AppHandle, path: &str) {
 
 /// A note moved on disk (archive, rename): re-key its buffer and tell its windows.
 pub fn moved(app: &AppHandle, from: &str, to: &str) {
-    {
+    let snapshot = {
         let bufs = app.state::<Buffers>();
         let mut map = bufs.map.lock().unwrap();
-        if let Some(b) = map.remove(from) {
+        if let Some(mut b) = map.remove(from) {
+            b.deleted = false;
+            b.save_gen += 1;
+            let snapshot = (b.windows.clone(), b.text.clone(), b.dirty());
             map.insert(to.to_string(), b);
-        }
-    }
+            Some(snapshot)
+        } else { None }
+    };
     crate::pins::note_moved(app, from, to);
     // Every window keeps history (and pinned windows track their note), so tell them all.
     let _ = app.emit("note-moved", MovedEvent { from: from.to_string(), to: to.to_string() });
+    if let Some((windows, text, dirty)) = snapshot {
+        emit_to_windows(app, &windows, "buffer-state", StateEvent { path: to.into(), dirty, meta: Some(meta(app, to, &text)) });
+    }
 }
 
 /// The file changed on disk. Returns true if an open buffer handled it.
@@ -399,8 +439,16 @@ pub fn resolve(app: &AppHandle, path: &str, reload: bool) -> Result<(), String> 
         }
         Ok(())
     } else {
+        let bufs = app.state::<Buffers>();
+        let _disk = bufs.disk.lock().unwrap();
         let text = text(app, path).ok_or("note is not open")?;
-        write(app, path, &text)?;
+        // Explicit "Keep mine" may recreate an externally deleted file.
+        // Automatic saves still refuse to recreate a deleted/moved buffer.
+        let was_deleted = bufs.map.lock().unwrap().get_mut(path).map(|b| std::mem::replace(&mut b.deleted, false)).unwrap_or(false);
+        if let Err(e) = write_locked(app, path, &text) {
+            if let Some(b) = bufs.map.lock().unwrap().get_mut(path) { b.deleted = was_deleted; }
+            return Err(e);
+        }
         app.state::<AppState>().session.lock().unwrap().touch(path, now_ms());
         Ok(())
     }

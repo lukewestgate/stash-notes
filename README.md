@@ -484,7 +484,9 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 
 - **`Ctrl+Shift+A`** moves the note into `archive/`, keeping its relative path, and moves it back if it's already archived. Archived notes are left out of search unless you press `Tab`, and links to them still work. **Undo** is available for 5 seconds.
 - **`F2`** renames a regular note: the file, its `# heading` and every `[[link]]` to it. **Undo** is available for 5 seconds. Ticket names are edited in the heading after the key. Daily notes are named by their date.
-- Stash Notes **never deletes** files. To delete a note, delete the file in Explorer.
+- **File actions:** click **…** beside a sidebar note (or right-click its row), or click **…** in the open note's header. Choose **Rename**, **Move**, **Set status** or **Delete**. `F2` also renames the focused sidebar or Notes view note.
+- **Move:** choose another vault. The note keeps its filename and relative folder, including when the vaults are on different drives. Existing files are never overwritten. Links to the note are updated, local images are copied into the destination vault, and open editors and pinned windows follow the move. Moving the open note switches its sidebar to the destination vault.
+- **Delete:** confirm to remove the note. **Undo** is available for 5 seconds, and a recovery copy remains in the vault's hidden `.trash/` folder. Shared image files are kept.
 
 ### Window, tray and startup
 
@@ -551,7 +553,7 @@ Key patterns are regular expressions: escape backslashes in JSON (`"[A-Z]+-\\d+"
 - **Autosave** runs 300 ms after the last change, and on hide, quit, navigate, archive and rename.
 - **Crash-safe writes:** each save goes to a temporary file that's then renamed over the original. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
 - **External changes:** if a note changes on disk while it has no unsaved edits, it reloads silently in every window. If it has unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
-- **Nothing is deleted.** Archiving and closing move files. Renaming rewrites links, and **Undo** puts everything back.
+- **Recoverable file actions.** Archiving and closing move files. Renaming rewrites links and offers **Undo**. Deleting asks for confirmation, offers **Undo**, and keeps a recovery copy in the vault's hidden `.trash/` folder.
 - **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten.
 - **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside a vault folder. Only `http`/`https` URLs can be opened.
 
@@ -709,12 +711,12 @@ Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. W
 - **Sidebar.** A thin rail with a hamburger that expands into the full sidebar (owner's choice). The expanded state is remembered.
 - **No in-app updater.** The spec's auto-update section is left out at the owner's request. Installing a newer version replaces the old one in place, and only the per-user NSIS installer is shipped, so there's never a second copy. The update-related settings (*Check for updates*, *Install automatically*) and the pre-update vault snapshot are therefore not present.
 - **Jira and Gerrit are presets, not built in** (owner's request for 0.5): each vault chooses its ticket systems and link types, so a personal vault can be plain notes. Their URLs default to placeholders; set yours in Settings → Vaults.
-- **Vaults** (0.5, owner's design): one current vault drives the sidebar, Notes view, Today and new notes; opening a note from another vault switches with it; search covers all vaults (current first) and narrows with `in:` or `Tab`. Daily notes are per vault. Notes can't yet be moved between vaults, and statuses are shared by all vaults.
+- **Vaults** (0.5, owner's design): one current vault drives the sidebar, Notes view, Today and new notes; opening a note from another vault switches with it; search covers all vaults (current first) and narrows with `in:` or `Tab`. Daily notes are per vault. Notes can be moved between vaults through file actions, and statuses are shared by all vaults.
 - **Vault ids** are fixed when a vault is created so that `in:work`, `[[work:Note]]` and saved note paths keep working after a rename.
 - **Switching vault is `Ctrl+Shift+O`**, not `Ctrl+Shift+V`, which is plain paste.
 - **Tags** live only in front matter (not `#tags` in the text), and daily notes don't take tags, like statuses.
 - **Daily todos don't roll over** (spec v1).
-- **Shortcuts beyond the spec:** `F2` rename, `Ctrl+S` save now, `Ctrl+Click` follow, and right-click on a sidebar row to set its status.
+- **Shortcuts beyond the spec:** `F2` rename, `Ctrl+S` save now, `Ctrl+Click` follow, and right-click on a sidebar row for file actions and status.
 - **Shortcut conflicts** are refused when recording, not just flagged, so two actions can never share a key.
 - **Peek (`Alt+Enter`)** shows the chosen note without adding it to history.
 - **`Alt+J` is a separate pop-up** rather than the main window with its switcher open, so a maximised app doesn't take over the screen just to search.

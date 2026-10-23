@@ -48,8 +48,27 @@ impl Session {
         if self.last_path.as_deref() == Some(from) {
             self.last_path = Some(to.to_string());
         }
-        for p in self.last_by_vault.values_mut().filter(|p| *p == from) {
-            *p = to.to_string();
+        let (from_vault, _) = note::split_path(from);
+        let (to_vault, _) = note::split_path(to);
+        if from_vault != to_vault {
+            self.last_by_vault.retain(|_, p| p != from);
+            self.last_by_vault.insert(to_vault.to_string(), to.to_string());
+            if self.last_path.as_deref() == Some(to) {
+                self.current_vault = Some(to_vault.to_string());
+            }
+        } else {
+            for p in self.last_by_vault.values_mut().filter(|p| *p == from) {
+                *p = to.to_string();
+            }
+        }
+    }
+
+    pub fn deleted(&mut self, path: &str) {
+        self.recents.remove(path);
+        self.last_by_vault.retain(|_, p| p != path);
+        if self.last_path.as_deref() == Some(path) {
+            self.last_path = None;
+            self.last_anchor = None;
         }
     }
 
@@ -75,7 +94,9 @@ pub struct AppState {
     pub index_ready: AtomicBool,
     pub warnings: Mutex<Vec<String>>,
     /// Note renames: (vault id, how to undo it).
-    pub undo: Mutex<HashMap<u64, (String, RenameUndo)>>,
+    pub undo: Mutex<HashMap<u64, (String, RenameUndo, Vec<(String, String)>)>>,
+    /// Deleted files remain in their vault's hidden .trash folder.
+    pub delete_undo: Mutex<HashMap<u64, (String, String)>>,
     /// Tag renames: each note's tags before the rename.
     pub tag_undo: Mutex<HashMap<u64, Vec<(String, Vec<String>)>>>,
     pub next_undo: AtomicU64,
@@ -102,6 +123,7 @@ impl AppState {
             index_ready: AtomicBool::new(false),
             warnings: Mutex::new(Vec::new()),
             undo: Mutex::new(HashMap::new()),
+            delete_undo: Mutex::new(HashMap::new()),
             tag_undo: Mutex::new(HashMap::new()),
             next_undo: AtomicU64::new(1),
             watchers: Mutex::new(Vec::new()),
@@ -111,6 +133,15 @@ impl AppState {
 
     pub fn settings(&self) -> Settings {
         self.settings.read().unwrap().clone()
+    }
+
+    /// A later move/delete must not let an old rename Undo recreate that file.
+    pub fn invalidate_renames(&self, path: &str) {
+        self.undo.lock().unwrap().retain(|_, (id, undo, links)| {
+            note::join_path(id, &undo.new_path) != path
+                && !undo.previous.iter().any(|(p, _)| note::join_path(id, p) == path)
+                && !links.iter().any(|(p, _)| p == path)
+        });
     }
 
     /// The ticket keys of the vault `path` (or a bare vault id) is in.
@@ -211,4 +242,39 @@ impl AppState {
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_follows_cross_vault_moves_without_a_stale_source_pointer() {
+        let mut s = Session::default();
+        let from = "personal:notes/plan.md";
+        let to = "work:notes/plan.md";
+        s.current_vault = Some("personal".into());
+        s.last_path = Some(from.into());
+        s.last_by_vault.insert("personal".into(), from.into());
+        s.touch(from, 123);
+        s.moved(from, to);
+        assert_eq!(s.current_vault.as_deref(), Some("work"));
+        assert_eq!(s.last_path.as_deref(), Some(to));
+        assert!(!s.last_by_vault.contains_key("personal"));
+        assert_eq!(s.last_by_vault.get("work").map(String::as_str), Some(to));
+        assert_eq!(s.recents.get(to), Some(&123));
+        assert!(!s.recents.contains_key(from));
+    }
+
+    #[test]
+    fn deleting_a_background_note_preserves_the_current_note() {
+        let mut s = Session::default();
+        s.last_path = Some("personal:notes/current.md".into());
+        s.last_by_vault.insert("work".into(), "work:notes/deleted.md".into());
+        s.touch("work:notes/deleted.md", 1);
+        s.deleted("work:notes/deleted.md");
+        assert_eq!(s.last_path.as_deref(), Some("personal:notes/current.md"));
+        assert!(s.last_by_vault.is_empty());
+        assert!(s.recents.is_empty());
+    }
 }

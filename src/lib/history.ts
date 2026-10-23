@@ -67,4 +67,12 @@ export class History {
     for (const e of this.entries) if (e.path === from) e.path = to;
     if (this.peek?.path === from) this.peek.path = to;
   }
+
+  /** Drop every reference to a deleted file, preserving our position. */
+  remove(path: string) {
+    const before = this.entries.slice(0, this.index + 1).filter((e) => e.path !== path).length;
+    this.entries = this.entries.filter((e) => e.path !== path);
+    this.index = Math.min(this.entries.length - 1, before - 1);
+    if (this.peek?.path === path) this.peek = null;
+  }
 }

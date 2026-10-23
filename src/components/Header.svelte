@@ -29,6 +29,7 @@
     onPin: () => void;
     onArchive: () => void;
     onImage: () => void;
+    onActions: () => void;
   }
   let {
     meta,
@@ -51,6 +52,7 @@
     onPin,
     onArchive,
     onImage,
+    onActions,
   }: Props = $props();
 
   const pinKeys = $derived(keys.pinNote.split(/\s+/).map(formatKey).join(" then "));
@@ -146,6 +148,7 @@
       >
         <Icon name="archive" size={15} />
       </button>
+      <button class="action icon" onclick={onActions} title="Rename, move or delete this note" aria-label="Note actions"><Icon name="ellipsis" size={15} /></button>
     {/if}
   </div>
 </header>

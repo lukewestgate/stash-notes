@@ -448,7 +448,9 @@ pub fn daily_note(state: State<AppState>, date: String, vault: String) -> Res<St
 #[tauri::command]
 pub fn archive_note(app: AppHandle, state: State<AppState>, path: String) -> Res<String> {
     let path = state.qualify(&path)?;
-    buffers::flush(&app, &path);
+    let bufs = app.state::<buffers::Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    buffers::flush_checked(&app)?;
     let (vault, rel) = state.locate(&path)?;
     let to_rel = Vault::archive_target(&rel);
     let to = note::join_path(note::split_path(&path).0, &to_rel);
@@ -460,6 +462,7 @@ pub fn archive_note(app: AppHandle, state: State<AppState>, path: String) -> Res
             index.upsert(&to, &content, vault.mtime(&to_rel));
         }
     }
+    state.invalidate_renames(&path);
     state.session.lock().unwrap().moved(&path, &to);
     state.save_session();
     buffers::moved(&app, &path, &to);
@@ -476,17 +479,153 @@ pub struct RenameResult {
     undo_id: u64,
 }
 
+/// Move to another vault, retaining the note's relative path.
+#[tauri::command]
+pub fn move_note(app: AppHandle, state: State<AppState>, path: String, vault: String) -> Res<String> {
+    let path = state.qualify(&path)?;
+    let (source, rel) = state.locate(&path)?;
+    let to_rel = stash_core::file_ops::destination(&rel)?;
+    let to = note::join_path(&vault, &to_rel);
+    let dest = vault_or_err(&state, &vault)?;
+    if path == to { return Ok(to); }
+    let bufs = app.state::<buffers::Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    buffers::flush_checked(&app)?;
+    if dest.abs(&to_rel).map_err(err)?.exists() { return Err(format!("{to_rel} already exists")); }
+    let original = source.read(&rel).map_err(err)?;
+    let text = stash_core::file_ops::moved_images(&source, &rel, &dest, &original)?;
+    let (text, rewrites) = {
+        let index = state.index.read().unwrap();
+        let text = stash_core::file_ops::moved_links(&index, &text, &path, &path, &to);
+        let mut rewrites = Vec::new();
+        for entry in index.entries().filter(|e| e.path() != path) {
+            let old = state.read_note(entry.path())?;
+            let new = stash_core::file_ops::moved_links(&index, &old, entry.path(), &path, &to);
+            if new != old { rewrites.push((entry.path().to_string(), old, new)); }
+        }
+        (text, rewrites)
+    };
+    // Publish destination first; retain the source until all rewrites succeed.
+    dest.write_new(&to_rel, &text)?;
+    let mut written = Vec::new();
+    let result = (|| -> Res<()> {
+        for (p, old, new) in &rewrites {
+            state.write_note(p, new)?;
+            written.push((p, old));
+        }
+        source.remove_note(&rel)
+    })();
+    if let Err(e) = result {
+        let mut rollback_errors = Vec::new();
+        for (p, old) in written {
+            if let Err(e) = state.write_note(p, old) { rollback_errors.push(e); }
+        }
+        if let Err(e) = dest.remove_note(&to_rel) { rollback_errors.push(e); }
+        return Err(if rollback_errors.is_empty() { e } else { format!("{e}; could not fully roll back: {}", rollback_errors.join("; ")) });
+    }
+    state.reindex(&path);
+    state.reindex(&to);
+    state.invalidate_renames(&path);
+    for (p, _, _) in &rewrites { state.reindex(p); }
+    state.session.lock().unwrap().moved(&path, &to);
+    state.save_session();
+    buffers::moved(&app, &path, &to);
+    buffers::disk_changed(&app, &to);
+    for (p, _, _) in &rewrites { buffers::disk_changed(&app, p); }
+    let _ = app.emit("vault-changed", vec![path, to.clone()]);
+    crate::tray::rebuild_menu(&app);
+    crate::tray::refresh_tooltip(&app);
+    Ok(to)
+}
+
+/// Delete from the app, keeping an on-disk copy for Undo and manual recovery.
+#[tauri::command]
+pub fn delete_note(app: AppHandle, state: State<AppState>, path: String) -> Res<u64> {
+    let path = state.qualify(&path)?;
+    let bufs = app.state::<buffers::Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    buffers::flush_checked(&app)?;
+    let (vault, rel) = state.locate(&path)?;
+    let undo_id = state.next_undo.fetch_add(1, Ordering::Relaxed);
+    let trash = format!(".trash/{}-{undo_id}/{rel}", now_ms());
+    let text = vault.read(&rel).map_err(err)?;
+    vault.transfer_note(&rel, &vault, &trash, &text)?;
+    state.invalidate_renames(&path);
+    state.delete_undo.lock().unwrap().insert(undo_id, (path.clone(), trash));
+    state.index.write().unwrap().remove(&path);
+    state.session.lock().unwrap().deleted(&path);
+    buffers::deleted(&app, &path);
+    state.save_session();
+    let _ = app.emit("vault-changed", vec![path]);
+    crate::tray::refresh_tooltip(&app);
+    Ok(undo_id)
+}
+
+#[tauri::command]
+pub fn undo_delete(app: AppHandle, state: State<AppState>, undo_id: u64) -> Res<String> {
+    let (path, trash) = state.delete_undo.lock().unwrap().get(&undo_id).cloned().ok_or("nothing to undo")?;
+    let bufs = app.state::<buffers::Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    let (vault, rel) = state.locate(&path)?;
+    let text = vault.read(&trash).map_err(err)?;
+    vault.transfer_note(&trash, &vault, &rel, &text)?;
+    state.delete_undo.lock().unwrap().remove(&undo_id);
+    state.reindex(&path);
+    state.session.lock().unwrap().touch(&path, now_ms());
+    state.save_session();
+    let _ = app.emit("vault-changed", vec![path.clone()]);
+    crate::tray::refresh_tooltip(&app);
+    Ok(path)
+}
+
 #[tauri::command]
 pub fn rename_note(app: AppHandle, state: State<AppState>, path: String, title: String) -> Res<RenameResult> {
     let path = state.qualify(&path)?;
-    buffers::flush_all(&app);
+    let bufs = app.state::<buffers::Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    buffers::flush_checked(&app)?;
     let id = note::split_path(&path).0.to_string();
     let (vault, rel) = state.locate(&path)?;
     let tickets = state.tickets_for(&path);
-    let outcome = {
+    let (outcome, extra_links, extra_count) = {
         let index = state.index.read().unwrap();
-        vault.rename_note(&index, &id, &rel, &title, &tickets).map_err(err)?
+        let slug = note::slugify(&title);
+        let new_rel = match rel.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{slug}.md"),
+            None => format!("{slug}.md"),
+        };
+        let to = note::join_path(&id, &new_rel);
+        // Moves produce qualified links. Include them, and links in other
+        // vaults, so a later rename of a moved note keeps working.
+        let mut extra = Vec::new();
+        let mut extra_count = 0;
+        for entry in index.entries().filter(|e| e.path() != path) {
+            let old = state.read_note(entry.path())?;
+            let needs_extra = note::split_path(entry.path()).0 != id || note::wiki_links(&old).iter().any(|l| l.target.contains(':'));
+            if !needs_extra { continue; }
+            let new = stash_core::file_ops::moved_links(&index, &old, entry.path(), &path, &to);
+            if old != new {
+                extra_count += note::wiki_links(&old).iter().filter(|l|
+                    (entry.meta.vault != id || l.target.contains(':')) && index.resolve(&l.target, &entry.meta.vault).as_deref() == Some(path.as_str())
+                ).count();
+                extra.push((entry.path().to_string(), old, new));
+            }
+        }
+        let outcome = vault.rename_note(&index, &id, &rel, &title, &tickets).map_err(err)?;
+        let renamed = vault.read(&outcome.new_path).map_err(err)?;
+        let fixed = stash_core::file_ops::moved_links(&index, &renamed, &path, &path, &to);
+        if fixed != renamed { vault.write(&outcome.new_path, &fixed).map_err(err)?; }
+        (outcome, extra, extra_count)
     };
+    let mut previous_links: Vec<(String, String)> = Vec::new();
+    for (p, old, new) in &extra_links {
+        if let Err(error) = state.write_note(p, new) {
+            for (p, old) in &previous_links { let _ = state.write_note(p, old); }
+            let _ = vault.undo_rename(&outcome.undo);
+            return Err(error);
+        }
+        previous_links.push((p.clone(), old.clone()));
+    }
     let q = |r: &str| note::join_path(&id, r);
     let new_path = q(&outcome.new_path);
     if new_path != path {
@@ -495,6 +634,7 @@ pub fn rename_note(app: AppHandle, state: State<AppState>, path: String, title: 
     for p in &outcome.changed {
         state.reindex(&q(p));
     }
+    for (p, _) in &previous_links { state.reindex(p); }
     state.session.lock().unwrap().moved(&path, &new_path);
     state.save_session();
     if new_path != path {
@@ -504,19 +644,32 @@ pub fn rename_note(app: AppHandle, state: State<AppState>, path: String, title: 
     for p in &outcome.changed {
         buffers::disk_changed(&app, &q(p));
     }
+    for (p, _) in &previous_links { buffers::disk_changed(&app, p); }
     let undo_id = state.next_undo.fetch_add(1, Ordering::Relaxed);
-    let files_changed = outcome.changed.len().saturating_sub(1);
-    state.undo.lock().unwrap().insert(undo_id, (id, outcome.undo));
-    Ok(RenameResult { new_path, links_updated: outcome.links_updated, files_changed, undo_id })
+    let files_changed = outcome.changed.iter().map(|p| q(p)).chain(previous_links.iter().map(|(p, _)| p.clone()))
+        .filter(|p| p != &new_path).collect::<std::collections::HashSet<_>>().len();
+    state.undo.lock().unwrap().insert(undo_id, (id, outcome.undo, previous_links));
+    Ok(RenameResult { new_path, links_updated: outcome.links_updated + extra_count, files_changed, undo_id })
 }
 
 /// Undo a rename. Returns the restored (original) path.
 #[tauri::command]
 pub fn undo_rename(app: AppHandle, state: State<AppState>, undo_id: u64) -> Res<String> {
-    let (id, undo) = state.undo.lock().unwrap().remove(&undo_id).ok_or("nothing to undo")?;
-    buffers::flush_all(&app);
+    let (id, undo, links) = state.undo.lock().unwrap().get(&undo_id).cloned().ok_or("nothing to undo")?;
+    let bufs = app.state::<buffers::Buffers>();
+    let _disk = bufs.disk.lock().unwrap();
+    buffers::flush_checked(&app)?;
     let q = |r: &str| note::join_path(&id, r);
+    if undo.old_path != undo.new_path && state.note_exists(&q(&undo.old_path)) {
+        return Err("The original path already exists".into());
+    }
     let touched = vault_or_err(&state, &id)?.undo_rename(&undo).map_err(err)?;
+    for (p, old) in &links {
+        state.write_note(p, old)?;
+        state.reindex(p);
+        buffers::disk_changed(&app, p);
+    }
+    state.undo.lock().unwrap().remove(&undo_id);
     for p in &touched {
         state.reindex(&q(p));
     }

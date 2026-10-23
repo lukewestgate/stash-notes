@@ -2,7 +2,7 @@
 // imported one by one so only these end up in the bundle.
 
 import {
-  BookOpen, FileCode, GitBranch, GitMerge, Globe, Link, MessageSquare,
+  BookOpen, FileCode, FolderInput, GitBranch, GitMerge, Globe, Link, MessageSquare, Ellipsis, Pencil,
   Archive, ArrowDown, ArrowUp, Bookmark, Bug, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleHelp, CirclePause, CirclePlay, CircleSlash,
   CircleX, Clock, Diamond, ExternalLink, Eye, FilePlus, FileText, Flag, Flame, GitPullRequest, Hourglass,
@@ -11,6 +11,9 @@ import {
 } from "lucide";
 
 const ICONS = {
+  ellipsis: Ellipsis,
+  pencil: Pencil,
+  "folder-input": FolderInput,
   "image-plus": ImagePlus,
   archive: Archive,
   "arrow-down": ArrowDown,

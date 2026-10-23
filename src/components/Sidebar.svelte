@@ -31,7 +31,8 @@
     onNotes: (query?: string) => void;
     onSettings: () => void;
     onOpen: (path: string) => void;
-    onStatus: (hit: SearchHit) => void;
+    onActions: (hit: SearchHit) => void;
+    onCurrentActions: () => void;
     onLeave: () => void;
   }
   let {
@@ -55,7 +56,8 @@
     onNotes,
     onSettings,
     onOpen,
-    onStatus,
+    onActions,
+    onCurrentActions,
     onLeave,
   }: Props = $props();
 
@@ -117,6 +119,7 @@
   }
 
   function keydown(e: KeyboardEvent) {
+    if ((e.target as HTMLElement).closest(".file-actions")) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       focused = Math.max(0, Math.min(items.length - 1, focused + (e.key === "ArrowDown" ? 1 : -1)));
@@ -166,6 +169,9 @@
     title={expanded ? `${label} (${hint})` : `${label} (${hint})`}
     onclick={() => run(it)}
     onfocus={() => (focused = i)}
+    oncontextmenu={(e) => {
+      if (it.kind === "today" && isToday) { e.preventDefault(); onCurrentActions(); }
+    }}
   >
     <span class="ico">{@render icon(ico)}</span>
     {#if expanded}<span class="label">{label}</span><span class="hint">{hint}</span>{/if}
@@ -174,6 +180,7 @@
 
 {#snippet noteRow(it: Item & { kind: "note" })}
   {@const i = indexOf(it)}
+  <div class="note-row">
   <button
     class="row note"
     class:current={it.hit.path === current && screen === "editor"}
@@ -184,7 +191,7 @@
     onfocus={() => (focused = i)}
     oncontextmenu={(e) => {
       e.preventDefault();
-      onStatus(it.hit);
+      onActions(it.hit);
     }}
   >
     <span class="ico sym">
@@ -197,6 +204,10 @@
       </span>
     {/if}
   </button>
+  {#if expanded}
+    <button class="file-actions" aria-label="Actions for {it.hit.key ?? it.hit.title}" title="Note actions" onclick={() => onActions(it.hit)}><Icon name="ellipsis" size={15} /></button>
+  {/if}
+  </div>
 {/snippet}
 
 <!-- Arrow keys move between the rows (buttons) inside. -->
@@ -271,6 +282,11 @@
 </nav>
 
 <style>
+  .note-row { position: relative; display: flex; flex-shrink: 0; }
+  .expanded .note-row .row { padding-right: 30px; }
+  .file-actions { position: absolute; right: 2px; top: 2px; display: grid; place-items: center; width: 25px; height: 24px; padding: 0; border: none; border-radius: 5px; background: transparent; color: var(--fg-muted); cursor: pointer; }
+  .file-actions:hover { background: var(--hover); color: var(--fg); }
+  .file-actions:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .sidebar {
     position: relative;
     width: 44px;

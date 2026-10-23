@@ -98,6 +98,9 @@ const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.
 const recents = new Map<string, number>();
 const versions = new Map<string, number>();
 const pinned = new Set<string>();
+let nextUndo = 1;
+const deletedNotes = new Map<number, { path: string; text: string }>();
+const renamedNotes = new Map<number, { from: string; to: string; previous: Map<string, string> }>();
 let dailyTemplate = "# {{date}}\n\n## Todo\n\n- [ ] \n\n## Notes\n\n";
 let clients = 0;
 
@@ -221,8 +224,9 @@ function resolve(target: string, vault: string): string | null {
   const t = t0.trim().toLowerCase();
   const order = [...notes.keys()].sort((x, y) => Number(vaultOf(y) === v) - Number(vaultOf(x) === v));
   for (const p of order) {
+    if (target.includes(":") && vaultOf(p) !== v) continue;
     const m = meta(p, notes.get(p)!);
-    if (stem(p).toLowerCase() === t || m.title.toLowerCase() === t) return p;
+    if (rel(p).replace(/\.md$/, "").toLowerCase() === t.replace(/\.md$/, "") || stem(p).toLowerCase() === t || m.title.toLowerCase() === t) return p;
   }
   return null;
 }
@@ -249,6 +253,7 @@ function ensure(target: string, vault: string): string {
     path = `${vault}:notes/${slug(t)}.md`;
     body = `# ${t}\n\n`;
   }
+  if (notes.has(path)) return path;
   notes.set(path, body);
   mtimes.set(path, Date.now());
   return path;
@@ -276,6 +281,24 @@ function changed(path: string) {
 
 type A = Record<string, any>;
 const images = new Map<string, Uint8Array>();
+
+function followMove(from: string, to: string) {
+  versions.set(to, versions.get(from) ?? 0);
+  versions.delete(from);
+  if (recents.has(from)) { recents.set(to, recents.get(from)!); recents.delete(from); }
+  if (pinned.delete(from)) pinned.add(to);
+  mockEmit("note-moved", { from, to });
+  mockEmit("pins-changed", [...pinned]);
+}
+
+function rewriteLinks(text: string, owner: string, from: string, to: string, qualifyOutbound = false) {
+  return text.replace(/\[\[([^\]#|]+)([^\]]*)\]\]/g, (link, target: string, suffix: string) => {
+    const resolved = resolve(target.trim(), vaultOf(owner));
+    if (resolved === from) return `[[${to.replace(/\.md$/, "")}${suffix}]]`;
+    if (qualifyOutbound && resolved) return `[[${resolved.replace(/\.md$/, "")}${suffix}]]`;
+    return link;
+  });
+}
 
 export function handle(cmd: string, a: A): unknown {
   switch (cmd) {
@@ -426,19 +449,91 @@ export function handle(cmd: string, a: A): unknown {
     case "archive_note": {
       const r = rel(a.path);
       const to = `${vaultOf(a.path)}:${r.startsWith("archive/") ? r.slice(8) : `archive/${r}`}`;
-      notes.set(to, notes.get(a.path)!);
+      const text = notes.get(a.path);
+      if (text === undefined) throw new Error("Note not found");
+      if (notes.has(to)) throw new Error("An archived note already exists at this path");
+      notes.set(to, text);
       notes.delete(a.path);
-      versions.set(to, versions.get(a.path) ?? 0);
+      followMove(a.path, to);
+      mockEmit("buffer-state", { path: to, dirty: false, meta: meta(to, text) });
       changed(to);
       return to;
     }
     case "rename_note": {
-      const text = notes.get(a.path)!;
-      const to = `${vaultOf(a.path)}:notes/${slug(a.title)}.md`;
-      notes.delete(a.path);
-      notes.set(to, text.replace(/^# .*$/m, `# ${a.title}`));
+      const text = notes.get(a.path);
+      if (text === undefined) throw new Error("Note not found");
+      if (meta(a.path, text).kind !== "note") throw new Error("Daily and ticket files keep their date or key");
+      if (!a.title.trim() || /[\[\]|#\n\r]/.test(a.title)) throw new Error("Invalid note title");
+      const to = a.path.replace(/[^/]+$/, `${slug(a.title)}.md`);
+      if (to !== a.path && notes.has(to)) throw new Error("A note with this name already exists");
+      const previous = new Map<string, string>();
+      const updates = new Map<string, string>();
+      for (const [p, old] of notes) {
+        let next = rewriteLinks(old, p, a.path, to);
+        if (p === a.path) next = next.replace(/^# .*$/m, `# ${a.title}`);
+        if (next !== old || p === a.path) { previous.set(p, old); updates.set(p, next); }
+      }
+      for (const [p, next] of updates) { if (p !== a.path) serverEdit(p, next); }
+      notes.set(to, text);
+      if (to !== a.path) { notes.delete(a.path); followMove(a.path, to); }
+      serverEdit(to, updates.get(a.path)!);
+      const undoId = nextUndo++;
+      renamedNotes.set(undoId, { from: a.path, to, previous });
       changed(to);
-      return { newPath: to, linksUpdated: 0, filesChanged: 0, undoId: 0 };
+      return { newPath: to, linksUpdated: previous.size - 1, filesChanged: previous.size - 1, undoId };
+    }
+    case "move_note": {
+      const text = notes.get(a.path);
+      if (text === undefined) throw new Error("Note not found");
+      if (!settings.vaults.some((v) => v.id === a.vault)) throw new Error("Vault not found");
+      const destination = rel(a.path);
+      if (!destination.endsWith(".md") || destination.split("/").some((s) => !s || s.startsWith(".")) || destination.startsWith("templates/") || /[:<>"|?*\0]/.test(destination)) throw new Error("Invalid destination path");
+      const to = `${a.vault}:${destination}`;
+      if (to === a.path) return to;
+      if (notes.has(to)) throw new Error(`${destination} already exists`);
+      const updates = new Map<string, string>();
+      for (const [p, old] of notes) updates.set(p, rewriteLinks(old, p, a.path, to, p === a.path && vaultOf(p) !== a.vault));
+      let moved = updates.get(a.path)!;
+      if (vaultOf(a.path) !== a.vault) {
+        moved = moved.replace(/!\[[^\]]*\]\((\/assets\/[^)]+)\)/g, (markdown, source) => {
+          const bytes = images.get(`${vaultOf(a.path)}:${source}`);
+          if (!bytes) throw new Error(`Image file not found: ${source}`);
+          const dest = `/assets/image-${crypto.randomUUID()}.${source.split(".").pop()}`;
+          images.set(`${a.vault}:${dest}`, bytes.slice());
+          return markdown.replace(source, dest);
+        });
+      }
+      for (const [p, next] of updates) if (p !== a.path) serverEdit(p, next);
+      notes.set(to, text);
+      notes.delete(a.path);
+      followMove(a.path, to);
+      serverEdit(to, moved);
+      mockEmit("buffer-state", { path: to, dirty: false, meta: meta(to, moved) });
+      changed(to);
+      return to;
+    }
+    case "delete_note": {
+      const text = notes.get(a.path);
+      if (text === undefined) throw new Error("Note not found");
+      const id = nextUndo++;
+      deletedNotes.set(id, { path: a.path, text });
+      notes.delete(a.path);
+      versions.delete(a.path);
+      recents.delete(a.path);
+      pinned.delete(a.path);
+      mockEmit("note-deleted", a.path);
+      mockEmit("pins-changed", [...pinned]);
+      changed(a.path);
+      return id;
+    }
+    case "undo_delete": {
+      const saved = deletedNotes.get(a.undoId);
+      if (!saved) throw new Error("Nothing to undo");
+      if (notes.has(saved.path)) throw new Error("A note already exists at the original path");
+      notes.set(saved.path, saved.text);
+      deletedNotes.delete(a.undoId);
+      changed(saved.path);
+      return saved.path;
     }
     case "set_status": {
       let path: string = a.path;
@@ -489,8 +584,17 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "undo_tag_rename":
       throw new Error("undo is not available in the browser demo");
-    case "undo_rename":
-      throw new Error("undo is not available in the browser demo");
+    case "undo_rename": {
+      const saved = renamedNotes.get(a.undoId);
+      if (!saved) throw new Error("Nothing to undo");
+      if (saved.from !== saved.to && notes.has(saved.from)) throw new Error("The original path already exists");
+      notes.set(saved.from, notes.get(saved.to)!);
+      if (saved.from !== saved.to) { notes.delete(saved.to); followMove(saved.to, saved.from); }
+      for (const [p, text] of saved.previous) serverEdit(p, text);
+      renamedNotes.delete(a.undoId);
+      changed(saved.from);
+      return saved.from;
+    }
     case "search": {
       const tagged = tagFilter(String(a.query));
       const scope = inScope(String(a.query));
@@ -547,7 +651,7 @@ export function handle(cmd: string, a: A): unknown {
       const recent = [...recents.entries()]
         .sort((x, y) => y[1] - x[1])
         .map(([p]) => p)
-        .filter((p) => notes.has(p) && vaultOf(p) === a.vault && !rel(p).startsWith("daily/") && !active.some((h) => h.path === p))
+        .filter((p) => notes.has(p) && vaultOf(p) === a.vault && !rel(p).startsWith("daily/") && !rel(p).startsWith("archive/") && !active.some((h) => h.path === p))
         .slice(0, 10)
         .map((p) => hit(p));
       return { active: active.slice(0, 8), more: Math.max(0, active.length - 8), recent };

@@ -33,3 +33,23 @@ it("follows renames and caps length", () => {
   h.rename(`n${MAX_HISTORY + 19}`, "moved");
   expect(h.current?.path).toBe("moved");
 });
+
+it("drops deleted files from past, current, forward and peek entries", () => {
+  const h = new History();
+  h.push("deleted");
+  h.push("keep");
+  h.push("deleted");
+  h.push("forward");
+  h.back();
+  h.peekAt("deleted");
+  h.remove("deleted");
+  expect(h.current?.path).toBe("keep");
+  expect(h.entries.map((e) => e.path)).toEqual(["keep", "forward"]);
+  expect(h.forward()?.path).toBe("forward");
+  h.remove("keep");
+  expect(h.current?.path).toBe("forward");
+  h.remove("forward");
+  expect(h.current).toBeNull();
+  expect(h.canBack).toBe(false);
+  expect(h.canForward).toBe(false);
+});

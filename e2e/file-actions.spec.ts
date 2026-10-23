@@ -1,0 +1,148 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function seed(page: Page) {
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    const sidebar = await api.createNote("Sidebar subject", "personal");
+    await api.bufferOpen(sidebar);
+    await api.bufferClose(sidebar);
+    await api.createNote("Collision", "work");
+    const path = await api.createNote("File actions", "personal");
+    const { mockEmit } = await import("/src/lib/api.ts");
+    mockEmit("open-note", path);
+  });
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+}
+
+async function noteText(page: Page, path: string) {
+  return page.evaluate(async (path) => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    return (await api.bufferOpen(path)).text;
+  }, path);
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__view?.().state.doc.length > 0);
+  await seed(page);
+});
+
+test("renames from the note header and retains edits", async ({ page }) => {
+  await page.evaluate(() => {
+    const view = (window as any).__view();
+    view.dispatch({ changes: { from: view.state.doc.length, insert: "Latest unsaved text\n" } });
+  });
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Rename…", exact: true }).click();
+  const input = page.getByRole("dialog", { name: "Rename note (links to it are updated)" }).getByRole("textbox");
+  await input.fill("Renamed file");
+  await input.press("Enter");
+  await expect(page.locator(".header .main")).toHaveText("Renamed file");
+  expect(await noteText(page, "personal:notes/renamed-file.md")).toContain("Latest unsaved text");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+});
+
+test("moves an open note between vaults, keeps images and links, and allows further editing", async ({ page }) => {
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    const source = await api.importImage("personal:notes/file-actions.md", [...Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="), (c) => c.charCodeAt(0))]);
+    const view = (window as any).__view();
+    view.dispatch({ changes: { from: view.state.doc.length, insert: `![shot](${source})\n[[Sidebar subject]]\n` } });
+  });
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Move…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Move note", exact: true })).toBeDisabled();
+  await dialog.getByLabel("Destination vault").selectOption("work");
+  await dialog.getByRole("button", { name: "Move note", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".sidebar .vname")).toHaveCount(0); // rail remains collapsed
+  await expect(page.getByRole("img", { name: "shot", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const view = (window as any).__view();
+    view.dispatch({ changes: { from: view.state.doc.length, insert: "After moving\n" } });
+  });
+  await expect.poll(() => noteText(page, "work:notes/file-actions.md")).toContain("After moving");
+  expect(await noteText(page, "work:notes/file-actions.md")).toContain("[[personal:notes/sidebar-subject]]");
+  await page.getByTitle(/Expand sidebar/).click();
+  await expect(page.locator(".sidebar .vname")).toHaveText("Work");
+});
+
+test("a collision leaves the dialog open and both files intact", async ({ page }) => {
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    const path = await api.createNote("Work collision", "work");
+    await api.renameNote(path, "File actions");
+  });
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Move…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
+  await dialog.getByLabel("Destination vault").selectOption("work");
+  await dialog.getByRole("button", { name: "Move note", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("already exists");
+  expect(await noteText(page, "personal:notes/file-actions.md")).toContain("# File actions");
+  expect(await noteText(page, "work:notes/file-actions.md")).toContain("# File actions");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+});
+
+test("move only offers other vaults", async ({ page }) => {
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Move…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
+  await expect(dialog.getByRole("option", { name: "Personal", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("option", { name: "Work", exact: true })).toHaveCount(1);
+  await expect(dialog.getByLabel("File path")).toHaveCount(0);
+});
+
+test("sidebar actions target another note without changing the open note", async ({ page }) => {
+  await page.getByTitle(/Expand sidebar/).click();
+  const actions = page.getByRole("button", { name: "Actions for Sidebar subject", exact: true });
+  await actions.click();
+  await page.getByRole("button", { name: "Rename…", exact: true }).click();
+  const input = page.getByRole("dialog").getByRole("textbox");
+  await input.fill("Sidebar renamed");
+  await input.press("Enter");
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+  await page.getByRole("button", { name: "Actions for Sidebar renamed", exact: true }).click();
+  await page.getByRole("button", { name: "Move…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
+  await dialog.getByLabel("Destination vault").selectOption("work");
+  await dialog.getByRole("button", { name: "Move note", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+  await expect(page.locator(".sidebar .vname")).toHaveText("Personal");
+  expect(await noteText(page, "work:notes/sidebar-renamed.md")).toContain("# Sidebar renamed");
+});
+
+test("deletes the open note only after confirmation and restores it with Undo", async ({ page }) => {
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+  await page.getByRole("button", { name: "Note actions", exact: true }).click();
+  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Delete note", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Delete note", exact: true }).click();
+  await expect(page.locator(".pane")).toHaveClass(/hidden/);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+});
+
+test("sidebar right-click can delete a different note without closing the editor", async ({ page }) => {
+  await page.getByTitle(/Expand sidebar/).click();
+  await page.locator(".sidebar button.note").filter({ hasText: "Sidebar subject" }).click({ button: "right" });
+  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete note", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Actions for Sidebar subject", exact: true })).toHaveCount(0);
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+});

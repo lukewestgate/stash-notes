@@ -180,6 +180,10 @@ pub fn watch_vault(app: &AppHandle) {
         if settings_changed {
             reload_settings(&app);
         }
+        // Observe a completed move/delete and its link rewrites together,
+        // instead of reporting the intermediate source removal as a conflict.
+        let bufs = app.state::<crate::buffers::Buffers>();
+        let _disk = bufs.disk.lock().unwrap();
         if rescan {
             rescan_vault(&app);
         } else if !rels.is_empty() {

@@ -264,6 +264,9 @@ export const api = {
   dailyNote: (date: string, vault: string) => call<string>("daily_note", { date, vault }),
   archiveNote: (path: string) => call<string>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),
+  moveNote: (path: string, vault: string) => call<string>("move_note", { path, vault }),
+  deleteNote: (path: string) => call<number>("delete_note", { path }),
+  undoDelete: (undoId: number) => call<string>("undo_delete", { undoId }),
   undoRename: (undoId: number) => call<string>("undo_rename", { undoId }),
   /** `prefer`: the vault ranked first (default: the current one). */
   search: (query: string, includeArchived: boolean, current: string | null, limit = 50, prefer: string | null = null) =>

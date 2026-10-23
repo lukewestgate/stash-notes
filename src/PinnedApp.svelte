@@ -12,7 +12,7 @@
   import { api, on, type NoteMeta, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
-  import { decoConfig, editorExtensions, editorState, setEditorDark, setSpellCheck } from "./lib/editor";
+  import { decoConfig, editorExtensions, editorState, refreshDecorations, setEditorDark, setSpellCheck } from "./lib/editor";
   import { applyAppearance } from "./lib/appearance";
   import Icon from "./components/Icon.svelte";
   import { liveConfig, propertiesHooks } from "./lib/live";
@@ -261,7 +261,10 @@
         if (m.from !== path) return;
         path = m.to;
         if (sync) sync.path = m.to;
-        if (meta) meta = { ...meta, path: m.to, archived: m.to.slice(m.to.indexOf(":") + 1).startsWith("archive/") };
+        if (meta) meta = { ...meta, path: m.to, vault: m.to.slice(0, m.to.indexOf(":")), archived: m.to.slice(m.to.indexOf(":") + 1).startsWith("archive/") };
+        conflict = null;
+        applyTickets();
+        refreshDecorations(view);
       }),
       on<Settings>("settings-changed", applySettings),
     ];

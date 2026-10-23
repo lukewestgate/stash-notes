@@ -5,6 +5,7 @@
 pub mod changes;
 pub mod dates;
 pub mod frontmatter;
+pub mod file_ops;
 pub mod index;
 pub mod images;
 pub mod note;

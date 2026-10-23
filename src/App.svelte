@@ -10,6 +10,8 @@
   import Backlinks from "./components/Backlinks.svelte";
   import Help from "./components/Help.svelte";
   import Prompt from "./components/Prompt.svelte";
+  import NoteActions from "./components/NoteActions.svelte";
+  import FileDialog from "./components/FileDialog.svelte";
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
   import TagPicker from "./components/TagPicker.svelte";
@@ -44,7 +46,10 @@
     todoCursor,
   } from "./lib/text";
 
+  type NoteTarget = Pick<NoteMeta, "path" | "title" | "kind" | "status" | "key">;
   type Overlay =
+    | { type: "noteActions"; target: NoteTarget }
+    | { type: "file"; mode: "move" | "delete"; target: NoteTarget }
     | { type: "switcher"; mode: "open" | "link"; sel?: { from: number; to: number; text: string } }
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void }
@@ -609,9 +614,63 @@
     if (sync?.path === from) sync.path = to;
     if (currentPath === from) {
       currentPath = to;
-      if (meta) meta = { ...meta, path: to, archived: to.slice(to.indexOf(":") + 1).startsWith("archive/") };
+      const vault = to.slice(0, to.indexOf(":"));
+      if (meta) meta = { ...meta, path: to, vault, archived: to.slice(to.indexOf(":") + 1).startsWith("archive/") };
+      if (vault !== currentVault) enterVault(vault);
+      applyTickets();
+      ticketKey = computeTicketKey();
+      conflict = null;
+      refreshDecorations(view);
+      refreshBacklinks();
     }
+    listVersion++;
     refreshSide();
+  }
+
+  function noteActions(target: NoteTarget | null = meta) {
+    if (target) overlay = { type: "noteActions", target };
+  }
+
+  async function moveNote(target: NoteTarget, vault: string) {
+    await flush();
+    const to = await api.moveNote(target.path, vault);
+    moved(target.path, to);
+    closeOverlay();
+    const name = settings?.vaults.find((v) => v.id === vault)?.name ?? vault;
+    done(`Moved to ${name}`);
+  }
+
+  function deleted(path: string) {
+    hist.remove(path);
+    if (currentPath === path) {
+      sync?.close();
+      sync = null;
+      currentPath = null;
+      meta = null;
+      serverDirty = false;
+      dirty = false;
+      conflict = null;
+      backlinkItems = [];
+      view.setState(EditorState.create({ doc: "", extensions }));
+      if (screen === "editor") screen = "notes";
+    }
+    updateNav();
+    listVersion++;
+    refreshSide();
+  }
+
+  async function deleteNote(target: NoteTarget) {
+    await flush();
+    const undoId = await api.deleteNote(target.path);
+    deleted(target.path);
+    closeOverlay();
+    done(`Deleted ${target.title}`, { label: "Undo", run: async () => {
+      try {
+        const restored = await api.undoDelete(undoId);
+        await navigate(restored);
+        refreshSide();
+      } catch (e) { fail(e); }
+    } });
   }
 
   async function toggleArchive() {
@@ -638,29 +697,30 @@
     }
   }
 
-  function startRename() {
-    if (!meta || !currentPath) return;
-    if (meta.kind !== "note") {
+  function startRename(target: NoteTarget | null = meta) {
+    if (!target) return;
+    if (target.kind !== "note") {
       toast(
-        meta.kind === "daily"
+        target.kind === "daily"
           ? "Daily notes are named by their date"
           : "Ticket notes are named by their key — edit the name after the key in the first heading instead",
       );
       return;
     }
-    const from = currentPath;
+    const from = target.path;
     overlay = {
       type: "prompt",
       title: "Rename note (links to it are updated)",
-      value: meta.title,
+      value: target.title,
       submit: async (title) => {
         closeOverlay();
         try {
           await flush();
           remember();
           const r = await api.renameNote(from, title);
-          hist.rename(from, r.newPath);
-          await show(r.newPath, hist.current, true);
+          moved(from, r.newPath);
+          if (currentPath === r.newPath) await show(r.newPath, hist.current, true);
+          listVersion++;
           const links = r.linksUpdated === 1 ? "1 link" : `${r.linksUpdated} links`;
           const notes = r.filesChanged === 1 ? "1 other note" : `${r.filesChanged} other notes`;
           done(`Renamed — updated ${links} in ${notes}`, {
@@ -670,8 +730,9 @@
                 await flush();
                 remember();
                 const old = await api.undoRename(r.undoId);
-                hist.rename(r.newPath, old);
-                if (currentPath === r.newPath) await show(old, hist.current, true);
+                moved(r.newPath, old);
+                if (currentPath === old) await show(old, hist.current, true);
+                listVersion++;
                 refreshSide();
               } catch (e) {
                 fail(e);
@@ -938,7 +999,7 @@
     archive: toggleArchive,
     help: () => (overlay = { type: "help" }),
     quit,
-    rename: startRename,
+    rename: () => forTarget((h) => startRename(h ?? meta)),
     openSettings: () => toggleSettings(),
     setStatus: () => forTarget((h) => (h ? pickStatus(h.path, h.status, h.key ?? h.title) : pickStatus())),
     setTags: () =>
@@ -966,7 +1027,6 @@
     "timestamp",
     "backlinks",
     "archive",
-    "rename",
   ]);
 
   function onKeydown(e: KeyboardEvent) {
@@ -1001,6 +1061,15 @@
     }
 
     if (overlay) {
+      if (e.key === "Tab" && ["noteActions", "file"].includes(overlay.type)) {
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+        const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)')] : [];
+        const first = controls[0], last = controls[controls.length - 1];
+        if (first && last && (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+          stop();
+          (e.shiftKey ? last : first).focus();
+        }
+      }
       if (is("hide") || (overlay.type === "help" && is("help"))) {
         stop();
         closeOverlay();
@@ -1110,6 +1179,7 @@
       on<{ path: string; dirty: boolean; meta: NoteMeta | null }>("buffer-state", onBufferState),
       on<{ path: string; deleted: boolean }>("buffer-conflict", onBufferConflict),
       on<{ from: string; to: string }>("note-moved", (m) => moved(m.from, m.to)),
+      on<string>("note-deleted", deleted),
       // `::notes#tag` (from a pinned window's tag chip) opens the Notes view on that tag.
       on<string>("open-note", (p) => (p.startsWith(`${NOTES}#`) ? showTag(p.slice(NOTES.length + 1)) : navigate(p))),
       on<string[]>("pins-changed", (p) => (pinnedPaths = p)),
@@ -1216,7 +1286,8 @@
       onNotes={(q) => openNotesView(q)}
       onSettings={() => toggleSettings()}
       onOpen={(p) => navigate(p)}
-      onStatus={(h) => pickStatus(h.path, h.status, h.key ?? h.title)}
+      onActions={noteActions}
+      onCurrentActions={() => noteActions()}
       onLeave={focusMain}
     />
   {/if}
@@ -1243,6 +1314,7 @@
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}
       onArchive={toggleArchive}
+      onActions={() => noteActions()}
       onImage={() => pickImages(view, { path: () => currentPath, imageError: (message) => toaster.show(message, "error") })}
     />
   {/if}
@@ -1314,7 +1386,18 @@
   {/if}
   </div>
 
-  {#if overlay?.type === "switcher"}
+  {#if overlay?.type === "noteActions"}
+    {@const target = overlay.target}
+    <NoteActions title={target.title} canRename={target.kind === "note"} canStatus={target.kind !== "daily"}
+      onRename={() => startRename(target)}
+      onMove={() => (overlay = { type: "file", mode: "move", target })}
+      onDelete={() => (overlay = { type: "file", mode: "delete", target })}
+      onStatus={() => pickStatus(target.path, target.status, target.key ?? target.title)} onClose={closeOverlay} />
+  {:else if overlay?.type === "file"}
+    {@const o = overlay}
+    <FileDialog mode={o.mode} title={o.target.title} path={o.target.path} vaults={settings?.vaults ?? []}
+      onMove={(vault) => moveNote(o.target, vault)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
+  {:else if overlay?.type === "switcher"}
     <Switcher
       mode={overlay.mode}
       current={currentPath}
