@@ -152,6 +152,7 @@ export interface NoteTemplate {
   enabled: boolean;
   /** `{key}`, `{title}`, `{url}`, `{domain}`. */
   title: string;
+  /** Unused since 0.8: every note goes in `notes/`. */
   folder: string;
   /** Without `.md`; empty: a slug of the title. */
   filename: string;

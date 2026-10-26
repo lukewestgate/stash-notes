@@ -228,10 +228,47 @@ impl Vault {
         format!("{NOTES_DIR}/{key}.md")
     }
 
-    /// Daily note text: `templates/daily.md` if present, else the built-in
-    /// template. `{{date}}` and `{{weekday}}` are substituted.
+    /// Where the vault's template `name` is kept: `.stash/templates/<name>`.
+    pub fn template_file(&self, name: &str) -> PathBuf {
+        self.root.join(note::STASH_DIR).join("templates").join(name)
+    }
+
+    /// The template `name`: from `.stash/templates/`, else the pre-0.8 `templates/` folder.
+    pub fn read_template(&self, name: &str) -> Option<String> {
+        fs::read_to_string(self.template_file(name)).or_else(|_| fs::read_to_string(self.root.join(TEMPLATES_DIR).join(name))).ok()
+    }
+
+    /// Save the template `name` in `.stash/templates/` (removing a pre-0.8
+    /// copy, which would otherwise linger), or remove it when `text` is None.
+    pub fn write_template(&self, name: &str, text: Option<&str>) -> Result<()> {
+        let legacy = self.root.join(TEMPLATES_DIR).join(name);
+        let file = self.template_file(name);
+        match text {
+            Some(t) => {
+                let dir = file.parent().unwrap_or(&self.root).to_path_buf();
+                fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+                fs::write(&file, t).map_err(|e| io_err(&file, e))?;
+            }
+            None => {
+                let _ = fs::remove_file(&file);
+            }
+        }
+        if fs::remove_file(&legacy).is_ok() {
+            // Only goes if nothing else is in it.
+            let _ = fs::remove_dir(self.root.join(TEMPLATES_DIR));
+        }
+        Ok(())
+    }
+
+    /// Where a deleted note's recovery copy goes: `.stash/trash/<stamp>/<its path>`.
+    pub fn trash_path(stamp: &str, rel: &str) -> String {
+        format!("{}/trash/{stamp}/{rel}", note::STASH_DIR)
+    }
+
+    /// Daily note text: the vault's `daily.md` template if it has one, else
+    /// the built-in template. `{{date}}` and `{{weekday}}` are substituted.
     pub fn daily_content(&self, date: NaiveDate) -> String {
-        let custom = fs::read_to_string(self.root.join(TEMPLATES_DIR).join("daily.md")).ok();
+        let custom = self.read_template("daily.md");
         custom
             .as_deref()
             .unwrap_or(DEFAULT_DAILY_TEMPLATE)
@@ -456,6 +493,27 @@ mod tests {
         // no temp files left behind
         assert_eq!(fs::read_dir(dir.path().join("notes")).unwrap().count(), 1);
         assert_eq!(v.daily_content(crate::dates::parse_iso("2026-10-22").unwrap()), "T 2026-10-22");
+    }
+
+    #[test]
+    fn templates_live_in_stash() {
+        let (dir, v, _, _) = setup();
+        let d = crate::dates::parse_iso("2026-10-22").unwrap();
+        // A pre-0.8 template is still used...
+        fs::create_dir_all(dir.path().join("templates")).unwrap();
+        fs::write(dir.path().join("templates/daily.md"), "Old {{date}}").unwrap();
+        assert_eq!(v.daily_content(d), "Old 2026-10-22");
+        // ...until one is saved, which moves it into .stash and tidies the old folder away.
+        v.write_template("daily.md", Some("New {{weekday}}")).unwrap();
+        assert_eq!(v.daily_content(d), "New Thursday");
+        assert!(dir.path().join(".stash/templates/daily.md").is_file());
+        assert!(!dir.path().join("templates").exists());
+        v.write_template("daily.md", None).unwrap();
+        assert_eq!(v.daily_content(d), DEFAULT_DAILY_TEMPLATE.replace("{{date}}", "2026-10-22"));
+        assert_eq!(Vault::trash_path("1-2", "notes/a.md"), ".stash/trash/1-2/notes/a.md");
+        // The app's own folder is never indexed.
+        v.write(".stash/trash/1-2/notes/a.md", "x").unwrap();
+        assert!(v.scan().is_empty());
     }
 
     #[test]

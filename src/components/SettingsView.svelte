@@ -622,7 +622,6 @@
             {#if r.template.enabled}
               <div class="template">
                 <label>Title <input class="mono" value={r.template.title} onchange={(e) => editRules((l) => (l[i].template.title = e.currentTarget.value))} /></label>
-                <label>Folder <input class="mono" value={r.template.folder} onchange={(e) => editRules((l) => (l[i].template.folder = e.currentTarget.value.trim()))} /></label>
                 <label>File name <input class="mono" value={r.template.filename} placeholder="from the title" onchange={(e) => editRules((l) => (l[i].template.filename = e.currentTarget.value.trim()))} /></label>
                 <label>Status
                   <select value={r.template.status} onchange={(e) => editRules((l) => (l[i].template.status = e.currentTarget.value))}>
@@ -690,7 +689,7 @@
           </select>
         </div>
         <div class="block">
-          <span class="text">Daily note template<span class="hint">{"{{date}}"} and {"{{weekday}}"} are filled in; saved to templates/daily.md in the vault</span></span>
+          <span class="text">Daily note template<span class="hint">{"{{date}}"} and {"{{weekday}}"} are filled in; saved to .stash/templates/daily.md in the vault</span></span>
           {#if draft.vaults.length > 1}
             <select bind:value={templateVault} aria-label="Vault">
               {#each draft.vaults as v}<option value={v.id}>{v.name}</option>{/each}

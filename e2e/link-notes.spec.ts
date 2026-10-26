@@ -40,7 +40,7 @@ test("a key uses its rule's template, and offers the existing note next time", a
   await switcher.getByRole("button", { name: /Create note from PROJ-777/ }).click();
   const form = switcher.getByRole("group", { name: "Create note from link" });
   await expect(form).toContainText("Jira template");
-  await expect(form).toContainText("tickets/PROJ-777.md");
+  await expect(form).toContainText("notes/PROJ-777.md");
   await expect(form.getByLabel("Title")).toHaveValue("Investigate startup delay");
   await form.getByRole("button", { name: /^Create note/ }).click();
   await expect(page.locator(".header .main")).toHaveText("PROJ-777");

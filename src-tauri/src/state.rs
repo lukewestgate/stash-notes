@@ -97,7 +97,7 @@ pub struct AppState {
     pub notices: Mutex<Vec<String>>,
     /// Note renames: (vault id, how to undo it).
     pub undo: Mutex<HashMap<u64, (String, RenameUndo, Vec<(String, String)>)>>,
-    /// Deleted files remain in their vault's hidden .trash folder.
+    /// Deleted files remain in their vault's hidden .stash/trash folder.
     pub delete_undo: Mutex<HashMap<u64, (String, String)>>,
     /// Tag renames: each note's tags before the rename.
     pub tag_undo: Mutex<HashMap<u64, Vec<(String, Vec<String>)>>>,

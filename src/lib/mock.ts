@@ -45,7 +45,7 @@ const settings: Settings = {
       keyPattern: "[A-Z][A-Z0-9]+-\\d+",
       label: "{key}",
       pasteFormat: true,
-      template: { enabled: true, title: "{key} {title}", folder: "tickets", filename: "{key}", body: "# {key} {title}\n\n", status: "open", tags: [] },
+      template: { enabled: true, title: "{key} {title}", folder: "notes", filename: "{key}", body: "# {key} {title}\n\n", status: "open", tags: [] },
     },
     {
       id: "gerrit",
@@ -501,7 +501,7 @@ function linkPreview(input: string, vaultId: string | null, title: string | null
   const name = fill(t?.title || "{title}", value).trim() || k || host;
   const body = t?.body ? fill(t.body, value) : `# ${name}\n\n`;
   const stem = t?.filename ? fill(t.filename, value) : slug(name);
-  const folder = t?.folder || "notes";
+  const folder = "notes";
   let path = `${vault}:${folder}/${stem}.md`;
   for (let n = 2; notes.has(path); n++) path = `${vault}:${folder}/${stem}-${n}.md`;
   const status = t?.status ? `status: ${t.status}\n` : "";

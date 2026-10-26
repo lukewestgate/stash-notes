@@ -424,11 +424,11 @@ fn migrate_links(obj: &mut serde_json::Map<String, serde_json::Value>) {
             label: "{key}".into(),
             // 0.6 turned a pasted ticket URL into its key: keep the key, and the link.
             paste_format: smart_paste,
-            // Notes as 0.6 made them: tickets/KEY.md named in its heading.
+            // Notes as 0.6 made them: KEY.md named in its heading.
             template: NoteTemplate {
                 enabled: true,
                 title: "{key} {title}".into(),
-                folder: crate::note::TICKETS_DIR.into(),
+                folder: crate::note::NOTES_DIR.into(),
                 filename: "{key}".into(),
                 body: "# {key} {title}\n\n".into(),
                 status: status.clone(),
@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(ids, ["jira-work", "gerrit", "docs", "jira-client"]);
         // Smart paste was off: nothing formats pastes.
         assert!(s.link_rules.iter().all(|r| !r.paste_format));
-        assert_eq!(s.link_rules[0].template.folder, "tickets");
+        assert_eq!(s.link_rules[0].template.filename, "{key}");
         assert_eq!(s.link_rules[0].template.status, "open");
         // The originals stay readable; the vault with none has nothing to keep.
         assert_eq!(s.legacy_links.vaults["work"].links.len(), 2);

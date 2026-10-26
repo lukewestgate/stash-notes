@@ -186,21 +186,16 @@ fn vault_or_err(state: &AppState, id: &str) -> Res<Vault> {
 /// A vault's daily note template: `templates/daily.md` in its folder, or the built-in one.
 #[tauri::command]
 pub fn get_daily_template(state: State<AppState>, vault: String) -> Res<String> {
-    let root = vault_or_err(&state, &vault)?.root().to_path_buf();
-    Ok(std::fs::read_to_string(root.join("templates").join("daily.md")).unwrap_or_else(|_| stash_core::vault::DEFAULT_DAILY_TEMPLATE.to_string()))
+    let v = vault_or_err(&state, &vault)?;
+    Ok(v.read_template("daily.md").unwrap_or_else(|| stash_core::vault::DEFAULT_DAILY_TEMPLATE.to_string()))
 }
 
 /// Save a vault's daily template (back to the built-in one when it matches it).
 #[tauri::command]
 pub fn set_daily_template(state: State<AppState>, vault: String, text: String) -> Res<()> {
-    let dir = vault_or_err(&state, &vault)?.root().join("templates");
-    let file = dir.join("daily.md");
-    if text == stash_core::vault::DEFAULT_DAILY_TEMPLATE {
-        let _ = std::fs::remove_file(&file);
-        return Ok(());
-    }
-    std::fs::create_dir_all(&dir).map_err(err)?;
-    std::fs::write(&file, text).map_err(err)
+    let v = vault_or_err(&state, &vault)?;
+    let custom = (text != stash_core::vault::DEFAULT_DAILY_TEMPLATE).then_some(text.as_str());
+    v.write_template("daily.md", custom).map_err(err)
 }
 
 fn meta_for(state: &AppState, path: &str, content: &str) -> NoteMeta {
@@ -599,7 +594,7 @@ pub fn delete_note(app: AppHandle, state: State<AppState>, path: String) -> Res<
     buffers::flush_checked(&app)?;
     let (vault, rel) = state.locate(&path)?;
     let undo_id = state.next_undo.fetch_add(1, Ordering::Relaxed);
-    let trash = format!(".trash/{}-{undo_id}/{rel}", now_ms());
+    let trash = Vault::trash_path(&format!("{}-{undo_id}", now_ms()), &rel);
     let text = vault.read(&rel).map_err(err)?;
     vault.transfer_note(&rel, &vault, &trash, &text)?;
     state.invalidate_renames(&path);

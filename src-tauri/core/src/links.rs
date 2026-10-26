@@ -75,7 +75,8 @@ pub struct NoteTemplate {
     pub enabled: bool,
     /// The note's title: `{key}`, `{title}` (what you type), `{url}`, `{domain}`.
     pub title: String,
-    /// Folder inside the vault.
+    /// Unused since 0.8, when every new note goes in `notes/`; kept so
+    /// older settings files load unchanged.
     pub folder: String,
     /// File name without `.md`; empty for a slug of the title.
     pub filename: String,
@@ -645,10 +646,6 @@ pub fn template_errors(t: &NoteTemplate, has_key: bool) -> Vec<String> {
             }
         }
     }
-    let folder = t.folder.trim().trim_matches('/');
-    if !folder.is_empty() && crate::vault::Vault::clean(&format!("{folder}/x.md")).is_err() {
-        out.push(format!("the folder `{folder}` isn't a folder inside the vault"));
-    }
     out.dedup();
     out
 }
@@ -683,6 +680,7 @@ pub fn safe_stem(text: &str) -> String {
 pub struct NotePlan {
     /// The note's title (its first heading).
     pub title: String,
+    /// Always `notes`, where every note goes.
     pub folder: String,
     /// File name without `.md` (made unique when written).
     pub stem: String,
@@ -715,7 +713,7 @@ pub fn plan_note(url: &str, key: Option<&str>, typed: &str, template: Option<&No
         Some(f) => safe_stem(&fill(f, url, k, &value)),
         None => note::slugify(&title),
     };
-    let folder = t.map(|t| t.folder.trim().trim_matches('/').to_string()).filter(|f| !f.is_empty()).unwrap_or_else(|| note::NOTES_DIR.into());
+    let folder = note::NOTES_DIR.to_string();
     let mut fm = format!("{PRIMARY_FIELD}: {url}\n");
     let status = t.map(|t| t.status.trim()).unwrap_or(default_status).to_lowercase();
     if !status.is_empty() {
