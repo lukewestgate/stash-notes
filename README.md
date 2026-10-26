@@ -58,7 +58,12 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 
 ## What's new in 0.8
 
-0.8 tidies the window so each thing has one place, instead of the same buttons in two or three.
+0.8 tidies the window so each thing has one place, instead of the same buttons in two or three, and gives notes one place on disk too.
+
+- **Every note in one `notes` folder.** Daily notes, tickets and the rest all go in `notes/`, and a note's name says what it is: `2026-10-22.md` is a daily note, `PROJ-123.md` a ticket. See [Note kinds and the notes folder](#note-kinds-and-the-notes-folder).
+  - **Archiving marks a note** (`archived: true` in its properties) instead of moving it into `archive/`, so the file stays put.
+  - **The app's own files** (the daily template and deleted notes' recovery copies) are in a hidden `.stash` folder. Images stay in `assets`.
+  - **Upgrading:** each vault still using the older folders is offered a **tidy** after you start 0.8 (or in Settings → Vaults). It shows what will move first, never overwrites a file, fixes links that spell out an old path, and has **Undo**. Until then, notes in the older folders keep working.
 
 - **A note menu where you right-click.** Right-clicking a note used to open a dialog in the middle of a dimmed window. Now a menu opens at the pointer with **Open**, **Pin**, **Status**, **Tags**, **Copy link**, **Rename**, **Move to**, **Archive** and **Delete** (and, on the open note, **Open** its primary link, **Links…** and **Insert image**).
   - **Everywhere a note is listed:** the sidebar, Notes view rows, backlinks and `Ctrl+K` results. The header's **…** opens it for the open note.
@@ -237,16 +242,38 @@ Stash Notes starts automatically at login, hidden in the tray, unless you turn t
 
 ### Note kinds and the notes folder
 
-Every note is one markdown file in a **vault**: a notes folder (see [Vaults](#vaults)). The first vault's default folder is `Documents\StashNotes`. The folder a file is in tells Stash Notes what kind of note it is:
+Every note is one markdown file in a **vault**: a folder of notes (see [Vaults](#vaults)). The first vault's default folder is `Documents\StashNotes`. Inside it:
 
-| Kind | Path | Title | Created |
+```
+StashNotes\
+├── notes\           every note
+│   ├── 2026-10-22.md     a daily note: named by its date
+│   ├── PROJ-123.md       a ticket note: named by its key
+│   └── rollout-plan.md   any other note: named after its title
+├── assets\          images pasted or dropped into notes
+└── .stash\          the app's own files (hidden)
+    ├── templates\daily.md
+    └── trash\           recovery copies of deleted notes
+```
+
+A note's **file name** says what kind it is, wherever it is:
+
+| Kind | File name | Title | Created |
 |---|---|---|---|
-| Daily | `daily/2026-10-22.md` | The date | On first open each day (`Ctrl+D`) |
-| Ticket | `tickets/PROJ-123.md` | The first heading: the key plus the ticket name | From a link rule whose template uses `tickets/` (rules made from 0.6 ticket systems do), or by following `[[PROJ-123]]` |
-| Note | `notes/<slug>.md` | First `# heading`, else the file name | From the switcher, or by following a `[[link]]` |
-| Archived | `archive/<original path>` | Same as before | `Ctrl+Shift+A`, or setting the status to *closed* |
+| Daily | A date: `2026-10-22.md` | The date | On first open each day (`Ctrl+D`) |
+| Ticket | A key a [link rule](#links-and-link-rules) reads, exactly: `PROJ-123.md` | The first heading: the key plus the ticket name | From a link rule whose template names the file `{key}` (rules made from 0.6 ticket systems do), or by following `[[PROJ-123]]` |
+| Note | Anything else: `rollout-plan.md` | First `# heading`, else the file name | From the switcher, or by following a `[[link]]` |
 
-Markdown files anywhere else in the folder are treated as regular notes. Folders starting with `.` (such as `.git`) and the `templates` folder are ignored.
+**Archived** notes stay where they are, marked `archived: true` in their properties (`Ctrl+Shift+A`, or setting the status to *closed*).
+
+Markdown files in folders of your own (say `projects\`) are read like any other note; the app just creates new ones in `notes\`. Folders starting with `.` (such as `.git` and `.stash`) are ignored.
+
+**Vaults from before 0.8** kept daily notes in `daily\`, tickets in `tickets\`, archived notes in `archive\`, the template in `templates\` and deleted notes in `.trash\`. Those notes keep working as they are. To move them into the layout above, use the **tidy** offered after upgrading, or **Tidy folders…** in Settings → Vaults:
+
+- It shows what will move before anything does: how many notes, which archived ones will be marked, and which names are taken (those get `-2`).
+- Notes keep their file names, so links by title, name or key keep working. Links that spell out an old path (`[[work:tickets/PROJ-1]]`) are updated, in every vault, as are image paths written relative to a note.
+- Nothing is overwritten. If anything goes wrong part-way, everything is put back. **Undo** puts it all back too (keeping edits made since), and `.stash\tidy-<time>.json` records what moved where.
+- Files in the old folders that aren't notes stay where they are.
 
 **Keys** come from [link rules](#links-and-link-rules) that read bare keys: Jira's pattern `[A-Z][A-Z0-9]+-\d+` matches `PROJ-123` and `OPS-7`. A bare key anywhere in a note is then highlighted, works as a link, and shows in the Links panel. A note about a link doesn't need to be a ticket note: a rule's template can put it in `notes/` or anywhere else.
 
@@ -311,7 +338,7 @@ Ticket and general notes can carry one status. Daily notes never do.
 | closed | circle with a check | Done | no |
 
 - **Set it** with `Ctrl+Shift+S`, by clicking the status chip in the properties row, or from **Status** in the [note menu](#the-note-menu). Type to filter or press `1`–`5`, then `Enter`. It works on the open note, the focused sidebar row or the selected Notes view row. It rewrites only the `status:` line.
-- **Closed notes are archived.** Setting *closed* moves the note into `archive/` (links keep working). Setting any other status on a closed, archived note moves it back.
+- **Closed notes are archived.** Setting *closed* also marks the note archived (links keep working). Setting any other status on a closed, archived note unarchives it.
 - **Where it shows:** a chip in the properties row, an icon in the status's color on every sidebar, switcher and Notes view row, and counts in the tray tooltip (for example *3 open · 1 blocked*).
 - **Filters:** type `@todo`, `@open`, `@blocked`, `@backlog`, `@closed`, `@active` (todo, open and blocked) or `@none` in the switcher or Notes view. They combine with text: `@open rollout`.
 - New ticket notes start as **open** (Settings → Notes → *Default status*). New general notes start with none.
@@ -476,7 +503,7 @@ Right-click a note wherever it's listed (the sidebar, a Notes view row, a backli
 | **Insert image…** | Picks image files to insert (the open note only) |
 | **Rename…** | Renames a regular note; see [Archiving and renaming](#archiving-and-renaming) |
 | **Move to ›** | Moves it to another vault |
-| **Archive** / **Unarchive** | Moves it into or out of `archive/` |
+| **Archive** / **Unarchive** | Marks it archived (or not); the file stays where it is |
 | **Delete…** | Asks first, recommending Archive |
 
 Status and Tags don't appear on daily notes. **From the keyboard**, `Shift+F10` or the menu key opens the menu on the selected row. `↑`/`↓` move, `→` or `Enter` opens a submenu, `←` closes it, and `Esc` closes the submenu, then the menu.
@@ -487,9 +514,9 @@ Status and Tags don't appear on daily notes. **From the keyboard**, `Shift+F10` 
 |---|---|---|
 | `[[Rollout plan]]` | The note titled "Rollout plan" (case-insensitive), in this note's vault first | Creates `notes/rollout-plan.md` in the current vault |
 | `[[work:Rollout plan]]` | That note in the *work* vault | Creates it there |
-| `[[PROJ-123]]` | `tickets/PROJ-123.md`, in whichever vault has it | Creates it in the current vault |
+| `[[PROJ-123]]` | The ticket note `PROJ-123.md`, in whichever vault has it | Creates `notes/PROJ-123.md` in the current vault |
 | Bare `PROJ-123` (a key a link rule reads) | Its note, if there is one | Offers to create one from the key's link |
-| `[[2026-10-22]]` | `daily/2026-10-22.md` | Creates it from the daily template |
+| `[[2026-10-22]]` | The daily note `2026-10-22.md` | Creates it in `notes/` from the daily template |
 | `https://...` or `[text](https://...)` | Your default browser | – |
 
 `[[Target|shown text]]` and `[[Target#section]]` also work. **Resolution order:** the linking note's vault first (exact file name, then title, then alias), then the other vaults in order. If two notes share a title, the most recently edited one wins. Links to archived notes still work and are shown dimmed.
@@ -532,7 +559,7 @@ Previews refresh when the linked files change. You can expand further links insi
 - **More specific rules win**, so a pull request rule beats a rule for all of GitHub; ties go to the rule higher in the list. A rule never claims every page of a site just because the host matches.
 - **Bare keys** work when a rule has a key pattern. If a key could belong to two rules (say two Jira sites), you're asked which; nothing is guessed.
 - **Format pasted links** (off for new rules): pasting just one matching link inserts `[PROJ-123](https://…/PROJ-123)`. Text with several links, or anything pasted with `Ctrl+Shift+V`, goes in exactly as copied. The master switch is at the top of Settings → Links.
-- **Note template** (optional): a title, folder (default `notes`), file name, Markdown body, status and tags, using `{url}`, `{key}`, `{title}` and `{domain}`. Problems with the placeholders are shown before you save or create.
+- **Note template** (optional): a title, file name, Markdown body, status and tags (the note goes in `notes/` like every other), using `{url}`, `{key}`, `{title}` and `{domain}`. Problems with the placeholders are shown before you save or create.
 - Editing or turning off a rule never changes links stored in notes.
 
 #### Creating a note from a link
@@ -573,22 +600,22 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 
 ### Daily notes and todos
 
-`Ctrl+D` opens today's note in the current vault (`daily/YYYY-MM-DD.md`), creating it from a template with a `## Todo` section. Each vault has its own daily notes. The cursor lands at the end of the todo list, ready to type.
+`Ctrl+D` opens today's note in the current vault (`notes/YYYY-MM-DD.md`), creating it from a template with a `## Todo` section. Each vault has its own daily notes. The cursor lands at the end of the todo list, ready to type.
 
 - `Enter` at the end of a `- [ ] item` continues the list with a new checkbox.
 - `Ctrl+Enter` on a checkbox line (or clicking the box) toggles it.
 - Unchecked items don't roll over to the next day.
 - If the last note you had open was a **previous** day's daily note, summoning opens today's instead.
 
-**Template:** edit it in Settings → Notes (pick the vault when you have several). It's saved as `templates/daily.md` in that vault's folder. `{{date}}` and `{{weekday}}` are filled in.
+**Template:** edit it in Settings → Notes (pick the vault when you have several). It's saved as `.stash/templates/daily.md` in that vault's folder (a `templates/daily.md` from before 0.8 is used until you next save it). `{{date}}` and `{{weekday}}` are filled in.
 
 ### Archiving and renaming
 
-- **`Ctrl+Shift+A`** moves the note into `archive/`, keeping its relative path, and moves it back if it's already archived. Archived notes are left out of search unless you press `Tab`, and links to them still work. **Undo** is available for 5 seconds.
+- **`Ctrl+Shift+A`** marks the note archived (`archived: true` in its properties), or unarchives it. The file doesn't move. A note still in a pre-0.8 `archive/` folder moves into `notes/` when unarchived. Archived notes are left out of search unless you press `Tab`, and links to them still work. **Undo** is available for 5 seconds.
 - **`F2`** renames a regular note: the file, its `# heading` and every `[[link]]` to it. **Undo** is available for 5 seconds. Ticket names are edited in the heading after the key. Daily notes are named by their date.
 - **File actions** are in the [note menu](#the-note-menu): right-click a note anywhere it's listed, or click **…** in the header. `F2` also renames the focused sidebar or Notes view note.
 - **Move:** choose a vault from the note menu's **Move to**. The note keeps its filename and relative folder, including when the vaults are on different drives. Existing files are never overwritten. Links to the note are updated, local images are copied into the destination vault, and open editors and pinned windows follow the move. Moving the open note switches its sidebar to the destination vault.
-- **Delete:** the confirmation offers **Cancel**, **Archive** (recommended) and **Delete**. An already archived note offers **Keep archived**. After deleting, **Undo** is available for 5 seconds. A recovery copy remains in the original vault's hidden `.trash/` folder, with its original relative path. Restore it manually from there if the Undo notice has expired. Shared image files are kept. Nothing empties `.trash/` automatically, so delete its contents in Explorer when you no longer need them.
+- **Delete:** the confirmation offers **Cancel**, **Archive** (recommended) and **Delete**. An already archived note offers **Keep archived**. After deleting, **Undo** is available for 5 seconds. A recovery copy remains in the original vault's hidden `.stash/trash/` folder, with its original relative path. Restore it manually from there if the Undo notice has expired. Shared image files are kept. Nothing empties `.stash/trash/` automatically, so delete its contents in Explorer when you no longer need them.
 - **Created a note by mistake?** The creation notice has a **Delete** button for 10 seconds. It discards that new note immediately, with **Undo** available afterward. This works for notes created in the switcher, Notes view, quick pop-up, or by following a missing link. Opening an existing note never offers this shortcut.
 
 ### Window, tray and startup
@@ -659,7 +686,7 @@ Key and match patterns are regular expressions: escape backslashes in JSON (`"[A
 - **Autosave** runs 300 ms after the last change, and on hide, quit, navigate, archive and rename.
 - **Crash-safe writes:** each save goes to a temporary file that's then renamed over the original. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
 - **External changes:** if a note changes on disk while it has no unsaved edits, it reloads silently in every window. If it has unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
-- **Recoverable file actions.** Archiving and closing move files. Renaming rewrites links and offers **Undo**. Deleting asks for confirmation, offers **Undo**, and keeps a recovery copy in the vault's hidden `.trash/` folder.
+- **Recoverable file actions.** Archiving and closing only mark a note. Renaming rewrites links and offers **Undo**. Deleting asks for confirmation, offers **Undo**, and keeps a recovery copy in the vault's hidden `.stash/trash/` folder. Tidying a vault into 0.8's layout previews first, never overwrites, and offers **Undo**.
 - **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten (looking at a note's links never changes it).
 - **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside a vault folder. Only `http`/`https` URLs can be opened.
 
@@ -716,7 +743,7 @@ stash-notes/
 │   ├── PinnedApp.svelte        A pinned note window
 │   ├── QuickApp.svelte         The Alt+J quick switcher pop-up
 │   ├── components/             Header, Sidebar, Switcher, NotesView, SettingsView, Backlinks, LinksPanel, LinkCreate,
-│   │                           Menu, StatusPicker, KeyRecorder, Help, Prompt, Picker, FileDialog,
+│   │                           Menu, StatusPicker, KeyRecorder, Help, Prompt, Picker, FileDialog, TidyDialog,
 │   │                           StatusIcon, Icon, Highlight, Toasts, EmptyState, TagPicker, TagChip, VaultTag
 │   └── lib/
 │       ├── api.ts              Typed wrappers for the Rust commands and events
@@ -739,6 +766,7 @@ stash-notes/
 │   ├── src/
 │   │   ├── lib.rs              App setup, plugins, window events
 │   │   ├── commands.rs         Commands the UI calls
+│   │   ├── tidy.rs             Tidying a vault into 0.8's layout: preview, apply, undo
 │   │   ├── buffers.rs          One authoritative text buffer per open note
 │   │   ├── pins.rs             Pinned note windows
 │   │   ├── quick.rs            The Alt+J pop-up window
@@ -750,14 +778,14 @@ stash-notes/
 │   ├── core/                   `stash-core` (no Tauri dependency; unit tested)
 │   │   ├── src/                vault, index & search, query filters (@ # in:), notes, links
 │   │   │                       (extraction, rules, templates), front matter, statuses,
-│   │   │                       change sets, dates, settings (with migrations)
+│   │   │                       change sets, dates, settings (with migrations), tidying a vault
 │   │   └── tests/perf.rs       5,000-note performance check
 │   ├── capabilities/           Webview permissions (core events and window dragging only)
 │   └── tauri.conf.json         Windows, bundle and security config
 └── .github/workflows/          CI: tests on Linux, installer on Windows, releases
 ```
 
-**Architecture.** Rust owns the files, the search index, the windows and the text of every open note. The web UI draws and sends commands. At startup, Rust scans the notes folder into an in-memory index in a background thread, then watches the folder (and `settings.json`) for changes. Each window opens a note with `buffer_open` and pushes its edits as CodeMirror change sets (`buffer_push`). Rust applies them to the one buffer, broadcasts them to every window showing the note (`buffer-updates`) and autosaves. Other commands cover search (`search`, `list_notes`, `sidebar`, `backlinks`), notes (`create_note`, `set_status`, `archive_note`, `rename_note`), links (`note_links`, `all_links`, `link_meta_edit`, `link_preview`, `create_from_link`), pinned notes, the pop-up and settings. Links are read from the Markdown with [`pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark). Fuzzy matching uses the [`nucleo`](https://github.com/helix-editor/nucleo) matcher.
+**Architecture.** Rust owns the files, the search index, the windows and the text of every open note. The web UI draws and sends commands. At startup, Rust scans the notes folder into an in-memory index in a background thread, then watches the folder (and `settings.json`) for changes. Each window opens a note with `buffer_open` and pushes its edits as CodeMirror change sets (`buffer_push`). Rust applies them to the one buffer, broadcasts them to every window showing the note (`buffer-updates`) and autosaves. Other commands cover search (`search`, `list_notes`, `sidebar`, `backlinks`), notes (`create_note`, `set_status`, `archive_note`, `rename_note`), tidying (`tidy_needed`, `tidy_preview`, `tidy_vault`, `tidy_undo`), links (`note_links`, `all_links`, `link_meta_edit`, `link_preview`, `create_from_link`), pinned notes, the pop-up and settings. Links are read from the Markdown with [`pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark). Fuzzy matching uses the [`nucleo`](https://github.com/helix-editor/nucleo) matcher.
 
 ### Useful commands
 
@@ -817,7 +845,8 @@ To publish a new version, bump `version` in `package.json`, `src-tauri/Cargo.tom
 Stash Notes implements the *Quick Notes (Tauri) — Product & Technical Spec*. Where the spec left questions open, these choices were made:
 
 - **Name and folder.** The app is called *Stash Notes*, and its default notes folder is `Documents\StashNotes`.
-- **Closed notes are archived.** Setting *closed* also moves the note into `archive/`, and reopening moves it back (owner's choice on the spec's open question).
+- **Closed notes are archived.** Setting *closed* also marks the note archived, and reopening unmarks it (owner's choice on the spec's open question; until 0.8 this moved the file into `archive/`).
+- **One notes folder** (0.8, owner's request): every note goes in `notes/` and is typed by its file name; archiving is a property, not a folder; the app's own files are in `.stash/`. Vaults keep their separate folders. Older vaults are tidied only when you agree, with a preview and Undo.
 - **Sidebar.** A thin rail with a button that expands it into the full sidebar (owner's choice). The expanded state is remembered.
 - **One place per action** (0.8, owner's request): a note's status, tags and links live in its properties row; the header only says where you are and holds Pin and the note menu; every per-note action is in the one note menu, which opens wherever a note is listed. Popups opened from an element open beside it without dimming the window; ones opened with a key stay centered. Only Delete keeps a confirmation dialog.
 - **No in-app updater.** The spec's auto-update section is left out at the owner's request. Installing a newer version replaces the old one in place, and only the per-user NSIS installer is shipped, so there's never a second copy. The update-related settings (*Check for updates*, *Install automatically*) and the pre-update vault snapshot are therefore not present.
