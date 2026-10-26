@@ -9,6 +9,7 @@ import type { MarkdownConfig } from "@lezer/markdown";
 import { checkboxToggle, normalizeTag, WIKI_RE } from "./text";
 import { iconElement } from "./icons";
 import { isPageLink } from "./page-links";
+import { anchorOf, type Anchor } from "./popup";
 
 /** Parse a leading `---` block as front matter, so YAML isn't read as markdown. */
 export const frontMatterSyntax: MarkdownConfig = {
@@ -155,9 +156,10 @@ export function readFrontMatter(text: string): FrontMatterInfo {
 /** What the front matter row needs from the app. */
 export interface PropertiesHooks {
   statusView(status: string): { icon: string; color: string; name: string };
-  onStatus(): void;
-  /** Open the tag picker. */
-  onTags(): void;
+  /** Open the status picker beside `anchor` (the chip that was clicked). */
+  onStatus(anchor: Anchor): void;
+  /** Open the tag picker beside `anchor`. */
+  onTags(anchor: Anchor): void;
   /** Show the notes with this tag. */
   onTag(tag: string): void;
   tagColor(tag: string): string | null;
@@ -187,7 +189,7 @@ class PropertiesWidget extends WidgetType {
     const hooks = propertiesHooks.current;
     const row = document.createElement("div");
     row.className = "cm-properties";
-    const button = (cls: string, text: string, title: string, run?: () => void, icon?: string) => {
+    const button = (cls: string, text: string, title: string, run?: (anchor: Anchor) => void, icon?: string) => {
       const b = document.createElement("button");
       b.className = cls;
       if (icon) b.append(iconElement(icon, 13));
@@ -196,7 +198,7 @@ class PropertiesWidget extends WidgetType {
       b.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        run?.();
+        run?.(anchorOf(b));
       });
       row.appendChild(b);
       return b;
@@ -206,7 +208,7 @@ class PropertiesWidget extends WidgetType {
       "cm-prop cm-prop-status",
       st ? st.name : "no status",
       "Set status",
-      () => hooks?.onStatus(),
+      (a) => hooks?.onStatus(a),
       st?.icon ?? "circle-dashed",
     );
     if (st) chip.style.color = `var(--c-${st.color})`;
@@ -221,7 +223,7 @@ class PropertiesWidget extends WidgetType {
       const c = hooks?.tagColor(t);
       if (c) b.style.setProperty("--c", `var(--c-${c})`);
     }
-    button("cm-prop cm-prop-add", this.info.tags.length ? "" : "tag", "Add or remove tags", () => hooks?.onTags(), this.info.tags.length ? "plus" : "tag");
+    button("cm-prop cm-prop-add", this.info.tags.length ? "" : "tag", "Add or remove tags", (a) => hooks?.onTags(a), this.info.tags.length ? "plus" : "tag");
     if (this.info.aliases.length) {
       const a = document.createElement("span");
       a.className = "cm-prop-text";

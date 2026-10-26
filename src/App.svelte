@@ -22,6 +22,7 @@
   import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
+  import type { Anchor } from "./lib/popup";
   import {
     decoConfig,
     editorExtensions,
@@ -52,10 +53,10 @@
     | { type: "file"; mode: "move" | "delete"; target: NoteTarget }
     | { type: "switcher"; mode: "open" | "link"; sel?: { from: number; to: number; text: string } }
     | { type: "help" }
-    | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void }
-    | { type: "picker"; title: string; items: { label: string; detail?: string; color?: string }[]; choose: (i: number) => void }
-    | { type: "status"; path: string; current: string | null; title: string }
-    | { type: "tags"; path: string; tags: string[]; all: TagCount[]; title: string };
+    | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void; anchor?: Anchor | null }
+    | { type: "picker"; title: string; items: { label: string; detail?: string; color?: string }[]; choose: (i: number) => void; anchor?: Anchor | null }
+    | { type: "status"; path: string; current: string | null; title: string; anchor?: Anchor | null }
+    | { type: "tags"; path: string; tags: string[]; all: TagCount[]; title: string; anchor?: Anchor | null };
 
 
   let settings = $state<Settings | null>(null);
@@ -322,7 +323,7 @@
     }
   }
 
-  function pickVault() {
+  function pickVault(anchor: Anchor | null = null) {
     const vs = settings?.vaults ?? [];
     if (vs.length < 2) {
       toast("Add another vault in Settings → Vaults to switch between them");
@@ -331,6 +332,7 @@
     overlay = {
       type: "picker",
       title: "Switch vault",
+      anchor,
       items: vs.map((v) => ({ label: v.name, detail: v.id === currentVault ? "current" : `in:${v.id}`, color: v.color })),
       choose: (i) => {
         closeOverlay();
@@ -780,13 +782,13 @@
   // ---------- status ----------
 
   /** Open the status picker for `path` (default: the current note). */
-  function pickStatus(path = currentPath, current = meta?.status ?? null, title = meta?.title ?? "") {
+  function pickStatus(path = currentPath, current = meta?.status ?? null, title = meta?.title ?? "", anchor: Anchor | null = null) {
     if (!path) return;
     if (path === currentPath && meta?.kind === "daily") {
       toast("Daily notes don't have a status");
       return;
     }
-    overlay = { type: "status", path, current, title: `Status for ${title}` };
+    overlay = { type: "status", path, current, title: `Status for ${title}`, anchor };
   }
 
   async function applyStatus(path: string, status: string | null) {
@@ -810,7 +812,7 @@
   // ---------- tags ----------
 
   /** Open the tag picker for `path` (default: the current note). */
-  async function pickTags(path = currentPath, tags = meta?.tags ?? [], title = meta?.title ?? "") {
+  async function pickTags(path = currentPath, tags = meta?.tags ?? [], title = meta?.title ?? "", anchor: Anchor | null = null) {
     if (!path) return;
     if (path === currentPath && meta?.kind === "daily") {
       toast("Daily notes don't have tags");
@@ -822,7 +824,7 @@
     } catch {
       // the picker still works with the note's own tags
     }
-    overlay = { type: "tags", path, tags, all, title: `Tags for ${title}` };
+    overlay = { type: "tags", path, tags, all, title: `Tags for ${title}`, anchor };
   }
 
   async function applyTags(path: string, tags: string[]) {
@@ -1046,7 +1048,7 @@
     notesView: () => openNotesView(),
     pinNote: () => togglePin(),
     toggleSidebar: () => setSideExpanded(!sideExpanded),
-    switchVault: pickVault,
+    switchVault: () => pickVault(),
     focusSidebar: () => {
       if (sidebarHasFocus()) focusMain();
       else requestAnimationFrame(() => sidebar?.focus());
@@ -1196,8 +1198,8 @@
     if (import.meta.env.DEV) (window as unknown as { __view: () => EditorView }).__view = () => view;
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
-      onStatus: () => pickStatus(),
-      onTags: () => pickTags(),
+      onStatus: (anchor) => pickStatus(undefined, undefined, undefined, anchor),
+      onTags: (anchor) => pickTags(undefined, undefined, undefined, anchor),
       onTag: showTag,
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onTicket: openTicket,
@@ -1451,10 +1453,10 @@
   {:else if overlay?.type === "help" && settings}
     <Help keys={settings.keys} hotkey={settings.hotkey} switcherHotkey={settings.switcherHotkey} {settingsPath} vaults={settings.vaults} {vaultPaths} onClose={closeOverlay} />
   {:else if overlay?.type === "prompt"}
-    <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} onSubmit={overlay.submit} onClose={closeOverlay} />
+    <Prompt title={overlay.title} value={overlay.value} placeholder={overlay.placeholder} anchor={overlay.anchor} onSubmit={overlay.submit} onClose={closeOverlay} />
   {:else if overlay?.type === "status" && settings}
     {@const o = overlay}
-    <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} onChoose={(st) => applyStatus(o.path, st)} onClose={closeOverlay} />
+    <StatusPicker statuses={settings.statuses} current={o.current} title={o.title} anchor={o.anchor} onChoose={(st) => applyStatus(o.path, st)} onClose={closeOverlay} />
   {:else if overlay?.type === "tags" && settings}
     {@const o = overlay}
     <TagPicker
@@ -1462,11 +1464,12 @@
       tags={o.tags}
       all={o.all}
       colors={settings.tagColors}
+      anchor={o.anchor}
       onChange={(t) => applyTags(o.path, t)}
       onClose={closeOverlay}
     />
   {:else if overlay?.type === "picker"}
-    <Picker title={overlay.title} items={overlay.items} onChoose={overlay.choose} onClose={closeOverlay} />
+    <Picker title={overlay.title} items={overlay.items} anchor={overlay.anchor} onChoose={overlay.choose} onClose={closeOverlay} />
   {/if}
 
   {#if chordPending && settings}

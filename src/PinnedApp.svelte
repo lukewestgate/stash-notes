@@ -12,6 +12,7 @@
   import { api, on, type NoteMeta, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
+  import type { Anchor } from "./lib/popup";
   import { decoConfig, editorExtensions, editorState, refreshDecorations, setEditorDark, setSpellCheck } from "./lib/editor";
   import { applyAppearance } from "./lib/appearance";
   import Icon from "./components/Icon.svelte";
@@ -28,8 +29,8 @@
   let onTop = $state(true);
   let message = $state("");
   let overlay = $state<
-    | { type: "status" }
-    | { type: "tags"; all: TagCount[] }
+    | { type: "status"; anchor?: Anchor | null }
+    | { type: "tags"; all: TagCount[]; anchor?: Anchor | null }
     | { type: "links"; items: { label: string; detail?: string }[]; urls: string[] }
     | null
   >(null);
@@ -133,9 +134,9 @@
     view.focus();
   }
 
-  async function pickTags() {
+  async function pickTags(anchor: Anchor | null = null) {
     if (!meta || meta.kind === "daily") return;
-    overlay = { type: "tags", all: await api.listTags().catch(() => []) };
+    overlay = { type: "tags", all: await api.listTags().catch(() => []), anchor };
   }
 
   async function setTags(tags: string[]) {
@@ -237,7 +238,7 @@
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
-      onStatus: () => (overlay = { type: "status" }),
+      onStatus: (anchor) => (overlay = { type: "status", anchor }),
       onTags: pickTags,
       // Tag searches happen in the main window.
       onTag: (t) => api.openInMain(`::notes#${t}`),
@@ -335,7 +336,7 @@
   {#if message}<div class="message">{message}</div>{/if}
 
   {#if overlay?.type === "status" && settings}
-    <StatusPicker statuses={settings.statuses} current={meta?.status ?? null} title="Status" onChoose={setStatus} onClose={closeOverlay} />
+    <StatusPicker statuses={settings.statuses} current={meta?.status ?? null} title="Status" anchor={overlay.anchor} onChoose={setStatus} onClose={closeOverlay} />
   {:else if overlay?.type === "tags" && settings && meta}
     {@const o = overlay}
     <TagPicker
@@ -343,6 +344,7 @@
       tags={meta.tags}
       all={o.all}
       colors={settings.tagColors}
+      anchor={o.anchor}
       onChange={setTags}
       onClose={closeOverlay}
     />
