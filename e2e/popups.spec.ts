@@ -105,8 +105,8 @@ for (const popup of [
 }
 
 test("an outside click cancels the delete confirmation", async ({ page }) => {
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   await expect(page.getByRole("dialog", { name: "Delete note", exact: true })).toBeVisible();
   await clickOutside(page);
   await expect(page.getByRole("dialog")).toHaveCount(0);

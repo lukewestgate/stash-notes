@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Keys, NoteMeta, SearchHit, StatusDef, VaultDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
-  import { anchorOf, type Anchor } from "../lib/popup";
+  import { anchorAt, anchorOf, type Anchor } from "../lib/popup";
   import { isoDate, relTime } from "../lib/text";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
@@ -35,8 +35,10 @@
     onLinks: () => void;
     onSettings: () => void;
     onOpen: (path: string) => void;
-    onActions: (hit: SearchHit) => void;
-    onCurrentActions: () => void;
+    /** Open the note menu for a row, at the pointer or beside its … button. */
+    onMenu: (hit: SearchHit, anchor: Anchor) => void;
+    /** The note menu for the open note (right-click on Today while it's showing). */
+    onCurrentMenu: (anchor: Anchor) => void;
     onLeave: () => void;
   }
   let {
@@ -62,8 +64,8 @@
     onLinks,
     onSettings,
     onOpen,
-    onActions,
-    onCurrentActions,
+    onMenu,
+    onCurrentMenu,
     onLeave,
   }: Props = $props();
 
@@ -130,7 +132,13 @@
 
   function keydown(e: KeyboardEvent) {
     if ((e.target as HTMLElement).closest(".file-actions")) return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      const it = items[focused];
+      if (it?.kind === "note") {
+        e.preventDefault();
+        onMenu(it.hit, anchorOf(e.target as HTMLElement));
+      }
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       focused = Math.max(0, Math.min(items.length - 1, focused + (e.key === "ArrowDown" ? 1 : -1)));
       root.querySelector<HTMLElement>(`[data-i="${focused}"]`)?.focus();
@@ -180,7 +188,7 @@
     onclick={() => run(it)}
     onfocus={() => (focused = i)}
     oncontextmenu={(e) => {
-      if (it.kind === "today" && isToday) { e.preventDefault(); onCurrentActions(); }
+      if (it.kind === "today" && isToday) { e.preventDefault(); onCurrentMenu(anchorAt(e)); }
     }}
   >
     <span class="ico">{@render icon(ico)}</span>
@@ -201,7 +209,7 @@
     onfocus={() => (focused = i)}
     oncontextmenu={(e) => {
       e.preventDefault();
-      onActions(it.hit);
+      onMenu(it.hit, anchorAt(e));
     }}
   >
     <span class="ico sym">
@@ -215,7 +223,7 @@
     {/if}
   </button>
   {#if expanded}
-    <button class="file-actions" aria-label="Actions for {it.hit.key ?? it.hit.title}" title="Note actions" onclick={() => onActions(it.hit)}><Icon name="ellipsis" size={15} /></button>
+    <button class="file-actions" aria-label="Actions for {it.hit.key ?? it.hit.title}" title="Note menu" onclick={(e) => onMenu(it.hit, anchorOf(e.currentTarget))}><Icon name="ellipsis" size={15} /></button>
   {/if}
   </div>
 {/snippet}

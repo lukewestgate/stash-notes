@@ -4,6 +4,7 @@
   import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
   import { weekday } from "../lib/text";
+  import { anchorOf, type Anchor } from "../lib/popup";
 
   interface Props {
     meta: NoteMeta | null;
@@ -28,7 +29,8 @@
     onPin: () => void;
     onArchive: () => void;
     onImage: () => void;
-    onActions: () => void;
+    /** Open the note menu beside the … button. */
+    onActions: (anchor: Anchor) => void;
   }
   let {
     meta,
@@ -135,7 +137,7 @@
       >
         <Icon name="archive" size={15} />
       </button>
-      <button class="action icon" onclick={onActions} title="Rename, move or delete this note" aria-label="Note actions"><Icon name="ellipsis" size={15} /></button>
+      <button class="action icon" onclick={(e) => onActions(anchorOf(e.currentTarget))} title="Note menu" aria-label="Note menu"><Icon name="ellipsis" size={15} /></button>
     {/if}
   </div>
 </header>

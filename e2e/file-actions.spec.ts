@@ -34,8 +34,8 @@ test("renames from the note header and retains edits", async ({ page }) => {
     const view = (window as any).__view();
     view.dispatch({ changes: { from: view.state.doc.length, insert: "Latest unsaved text\n" } });
   });
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Rename…", exact: true }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Rename…/ }).click();
   const input = page.getByRole("dialog", { name: "Rename note (links to it are updated)" }).getByRole("textbox");
   await input.fill("Renamed file");
   await input.press("Enter");
@@ -53,14 +53,10 @@ test("moves an open note between vaults, keeps images and links, and allows furt
     const view = (window as any).__view();
     view.dispatch({ changes: { from: view.state.doc.length, insert: `![shot](${source})\n[[Sidebar subject]]\n` } });
   });
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Move…", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
-  await expect(dialog.getByRole("textbox")).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Move note", exact: true })).toBeDisabled();
-  await dialog.getByLabel("Destination vault").selectOption("work");
-  await dialog.getByRole("button", { name: "Move note", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Move to/ }).click();
+  await page.getByRole("menu", { name: "Move to" }).getByRole("menuitem", { name: "Work", exact: true }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.locator(".sidebar .vname")).toHaveCount(0); // rail remains collapsed
   await expect(page.getByRole("img", { name: "shot", exact: true })).toBeVisible();
   await page.evaluate(() => {
@@ -73,62 +69,95 @@ test("moves an open note between vaults, keeps images and links, and allows furt
   await expect(page.locator(".sidebar .vname")).toHaveText("Work");
 });
 
-test("a collision leaves the dialog open and both files intact", async ({ page }) => {
+test("a collision reports the error and leaves both files intact", async ({ page }) => {
   await page.evaluate(async () => {
     // @ts-expect-error Vite development module.
     const { api } = await import("/src/lib/api.ts");
     const path = await api.createNote("Work collision", "work");
     await api.renameNote(path, "File actions");
   });
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Move…", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
-  await dialog.getByLabel("Destination vault").selectOption("work");
-  await dialog.getByRole("button", { name: "Move note", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("already exists");
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Move to/ }).click();
+  await page.getByRole("menuitem", { name: "Work", exact: true }).click();
+  await expect(page.locator(".toast").filter({ hasText: "already exists" })).toBeVisible();
   expect(await noteText(page, "personal:notes/file-actions.md")).toContain("# File actions");
   expect(await noteText(page, "work:notes/file-actions.md")).toContain("# File actions");
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator(".header .main")).toHaveText("File actions");
 });
 
 test("move only offers other vaults", async ({ page }) => {
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Move…", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
-  await expect(dialog.getByRole("option", { name: "Personal", exact: true })).toHaveCount(0);
-  await expect(dialog.getByRole("option", { name: "Work", exact: true })).toHaveCount(1);
-  await expect(dialog.getByLabel("File path")).toHaveCount(0);
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Move to/ }).hover();
+  const vaults = page.getByRole("menu", { name: "Move to" });
+  await expect(vaults.getByRole("menuitem", { name: "Personal", exact: true })).toHaveCount(0);
+  await expect(vaults.getByRole("menuitem", { name: "Work", exact: true })).toHaveCount(1);
+});
+
+test("the note menu opens at the pointer without dimming and works from the keyboard", async ({ page }) => {
+  await page.getByTitle(/Expand sidebar/).click();
+  const row = page.locator(".sidebar button.note").filter({ hasText: "Sidebar subject" });
+  const box = (await row.boundingBox())!;
+  await row.click({ button: "right", position: { x: 40, y: 10 } });
+  const menu = page.getByRole("menu", { name: "Note menu for Sidebar subject" });
+  const at = (await menu.boundingBox())!;
+  expect(Math.abs(at.x - (box.x + 40))).toBeLessThan(10);
+  expect(Math.abs(at.y - (box.y + 14))).toBeLessThan(10);
+  await expect(page.locator(".popup-backdrop.anchored")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(menu.getByRole("menuitem", { name: /^Open/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: /^Status/ })).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  const statuses = page.getByRole("menu", { name: "Status" });
+  await expect(statuses).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(statuses).toHaveCount(0);
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("3");
+  await expect(menu).toHaveCount(0);
+  await expect.poll(() => noteText(page, "personal:notes/sidebar-subject.md")).toContain("status: blocked");
+  await expect(page.locator(".header .main")).toHaveText("File actions");
+});
+
+test("copies a link to the note", async ({ page }) => {
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Copy link/ }).click();
+  await expect(page.locator(".toast").filter({ hasText: "Link copied" })).toBeVisible();
+  expect(await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    return api.readClipboard();
+  })).toBe("[[File actions]]");
 });
 
 test("sidebar actions target another note without changing the open note", async ({ page }) => {
   await page.getByTitle(/Expand sidebar/).click();
   const actions = page.getByRole("button", { name: "Actions for Sidebar subject", exact: true });
   await actions.click();
-  await page.getByRole("button", { name: "Rename…", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Rename…/ }).click();
   const input = page.getByRole("dialog").getByRole("textbox");
   await input.fill("Sidebar renamed");
   await input.press("Enter");
   await expect(page.locator(".header .main")).toHaveText("File actions");
   await page.getByRole("button", { name: "Actions for Sidebar renamed", exact: true }).click();
-  await page.getByRole("button", { name: "Move…", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Move note", exact: true });
-  await dialog.getByLabel("Destination vault").selectOption("work");
-  await dialog.getByRole("button", { name: "Move note", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await page.getByRole("menuitem", { name: /^Move to/ }).click();
+  await page.getByRole("menuitem", { name: "Work", exact: true }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.locator(".header .main")).toHaveText("File actions");
   await expect(page.locator(".sidebar .vname")).toHaveText("Personal");
   expect(await noteText(page, "work:notes/sidebar-renamed.md")).toContain("# Sidebar renamed");
 });
 
 test("deletes the open note only after confirmation and restores it with Undo", async ({ page }) => {
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   let dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
   await expect(dialog.getByRole("button", { name: "Archive note Recommended", exact: true })).toBeFocused();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.locator(".header .main")).toHaveText("File actions");
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Delete note", exact: true })).toBeEnabled();
@@ -141,7 +170,7 @@ test("deletes the open note only after confirmation and restores it with Undo", 
 test("sidebar right-click can delete a different note without closing the editor", async ({ page }) => {
   await page.getByTitle(/Expand sidebar/).click();
   await page.locator(".sidebar button.note").filter({ hasText: "Sidebar subject" }).click({ button: "right" });
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete note", exact: true }).click();
   await expect(page.getByRole("button", { name: "Actions for Sidebar subject", exact: true })).toHaveCount(0);
   await expect(page.locator(".header .main")).toHaveText("File actions");
@@ -152,8 +181,8 @@ test("recommends archiving, preserves edits and offers Undo", async ({ page }) =
     const view = (window as any).__view();
     view.dispatch({ changes: { from: view.state.doc.length, insert: "Keep this work\n" } });
   });
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   const dialog = page.getByRole("dialog", { name: "Delete note", exact: true });
   const archive = dialog.getByRole("button", { name: "Archive note Recommended", exact: true });
   await expect(archive).toBeFocused();
@@ -170,7 +199,7 @@ test("recommends archiving, preserves edits and offers Undo", async ({ page }) =
 test("archives the sidebar target without switching the open note", async ({ page }) => {
   await page.getByTitle(/Expand sidebar/).click();
   await page.getByRole("button", { name: "Actions for Sidebar subject", exact: true }).click();
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Archive note Recommended", exact: true }).click();
   await expect(page.locator(".header .main")).toHaveText("File actions");
   await expect(page.getByRole("button", { name: "Actions for Sidebar subject", exact: true })).toHaveCount(0);
@@ -178,9 +207,10 @@ test("archives the sidebar target without switching the open note", async ({ pag
 });
 
 test("keeps an already archived note archived from the recommended action", async ({ page }) => {
-  await page.getByRole("button", { name: "Archive", exact: true }).click();
-  await page.getByRole("button", { name: "Note actions", exact: true }).click();
-  await page.getByRole("button", { name: "Delete…", exact: true }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Archive/ }).click();
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Delete…/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Keep archived Recommended", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".header .tag")).toHaveText("archived");
