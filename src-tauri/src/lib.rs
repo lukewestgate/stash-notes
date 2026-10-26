@@ -9,6 +9,7 @@ mod pins;
 mod quick;
 mod smoke;
 mod state;
+mod tidy;
 mod tray;
 mod window;
 
@@ -174,6 +175,10 @@ pub fn run() {
             commands::list_notes,
             commands::sidebar,
             commands::note_hits,
+            tidy::tidy_needed,
+            tidy::tidy_preview,
+            tidy::tidy_vault,
+            tidy::tidy_undo,
             commands::set_ui,
             commands::backlinks,
             commands::set_status,

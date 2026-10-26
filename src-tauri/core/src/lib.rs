@@ -13,6 +13,7 @@ pub mod note;
 pub mod query;
 pub mod settings;
 pub mod status;
+pub mod tidy;
 pub mod vault;
 
 pub use index::{Index, NoteEntry, SearchHit, SearchResults, Sidebar};

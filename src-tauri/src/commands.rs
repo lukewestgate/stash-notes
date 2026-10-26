@@ -183,7 +183,7 @@ fn vault_or_err(state: &AppState, id: &str) -> Res<Vault> {
     state.vault(id).ok_or_else(|| format!("no vault `{id}`"))
 }
 
-/// A vault's daily note template: `templates/daily.md` in its folder, or the built-in one.
+/// A vault's daily note template: `.stash/templates/daily.md` in its folder, or the built-in one.
 #[tauri::command]
 pub fn get_daily_template(state: State<AppState>, vault: String) -> Res<String> {
     let v = vault_or_err(&state, &vault)?;

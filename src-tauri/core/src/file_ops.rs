@@ -127,7 +127,7 @@ pub fn moved_images(source: &Vault, rel: &str, dest: &Vault, text: &str) -> Resu
 }
 
 /// Exclude front matter and Markdown code examples from attachment handling.
-fn literal_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+pub(crate) fn literal_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
     let body = crate::frontmatter::parse(text).body_start;
     let mut ranges = vec![0..body];
     let mut offset = body;

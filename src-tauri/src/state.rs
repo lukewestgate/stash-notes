@@ -101,6 +101,8 @@ pub struct AppState {
     pub delete_undo: Mutex<HashMap<u64, (String, String)>>,
     /// Tag renames: each note's tags before the rename.
     pub tag_undo: Mutex<HashMap<u64, Vec<(String, Vec<String>)>>>,
+    /// Vault tidies (into 0.8's layout), to undo them.
+    pub tidy_undo: Mutex<HashMap<u64, crate::tidy::TidyUndo>>,
     pub next_undo: AtomicU64,
     pub watchers: Mutex<Vec<notify::RecommendedWatcher>>,
     /// Bumped when the vault is re-pointed, so a stale background index build is discarded.
@@ -128,6 +130,7 @@ impl AppState {
             undo: Mutex::new(HashMap::new()),
             delete_undo: Mutex::new(HashMap::new()),
             tag_undo: Mutex::new(HashMap::new()),
+            tidy_undo: Mutex::new(HashMap::new()),
             next_undo: AtomicU64::new(1),
             watchers: Mutex::new(Vec::new()),
             vault_generation: AtomicU64::new(0),
