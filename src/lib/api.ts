@@ -77,6 +77,37 @@ export interface StatusResult {
   meta: NoteMeta;
 }
 
+/** One note a vault tidy moves into notes/ (vault-relative paths). */
+export interface TidyMove {
+  from: string;
+  to: string;
+  /** It was in archive/, so it gets `archived: true`. */
+  archive: boolean;
+  /** Its name was taken in notes/, so it gets a `-2` suffix. */
+  renamed: boolean;
+}
+
+/** What tidying a vault into 0.8's layout would do. */
+export interface TidyPreview {
+  vault: string;
+  daily: number;
+  tickets: number;
+  notes: number;
+  archived: number;
+  renamed: TidyMove[];
+  /** Templates and trash files moving into .stash/. */
+  files: number;
+  /** Files left where they are. */
+  left: string[];
+}
+
+export interface TidyDone {
+  moved: number;
+  /** Other notes whose links were updated. */
+  links: number;
+  undoId: number;
+}
+
 export interface TagCount {
   name: string;
   count: number;
@@ -409,6 +440,12 @@ export const api = {
   listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy, vault: string) =>
     call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort, vault }),
   sidebar: (vault: string) => call<{ active: SearchHit[]; more: number; recent: SearchHit[] }>("sidebar", { vault }),
+  /** Vaults still laid out the pre-0.8 way (daily/, tickets/, archive/…). */
+  tidyNeeded: () => call<string[]>("tidy_needed"),
+  tidyPreview: (vault: string) => call<TidyPreview>("tidy_preview", { vault }),
+  /** Every note into notes/, templates and trash into .stash/. */
+  tidyVault: (vault: string) => call<TidyDone>("tidy_vault", { vault }),
+  tidyUndo: (undoId: number) => call<number>("tidy_undo", { undoId }),
   /** Notes by path (skipping missing ones): the sidebar's pinned notes. */
   noteHits: (paths: string[]) => call<SearchHit[]>("note_hits", { paths }),
   setUi: (key: string, value: unknown) => call<void>("set_ui", { key, value }),

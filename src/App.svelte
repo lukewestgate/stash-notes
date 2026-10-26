@@ -17,6 +17,7 @@
   import Prompt from "./components/Prompt.svelte";
   import Menu, { type MenuEntry } from "./components/Menu.svelte";
   import FileDialog from "./components/FileDialog.svelte";
+  import TidyDialog from "./components/TidyDialog.svelte";
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
   import TagPicker from "./components/TagPicker.svelte";
@@ -24,7 +25,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import { applyAppearance } from "./lib/appearance";
-  import { api, on, onWindowFocus, type Keys, type LinkSource, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type StatusResult, type TagCount } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type LinkSource, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type StatusResult, type TagCount, type TidyPreview } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import type { Anchor } from "./lib/popup";
@@ -56,6 +57,7 @@
   type Overlay =
     | { type: "menu"; label: string; items: MenuEntry[]; anchor: Anchor }
     | { type: "file"; mode: "delete"; target: NoteTarget }
+    | { type: "tidy"; vault: string; preview: TidyPreview }
     | { type: "switcher"; mode: "open" | "link"; sel?: { from: number; to: number; text: string } }
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void; anchor?: Anchor | null }
@@ -99,6 +101,10 @@
   let notesView = $state<NotesView>();
 
   let side = $state<{ active: SearchHit[]; more: number; recent: SearchHit[] }>({ active: [], more: 0, recent: [] });
+  /** Vaults still laid out the pre-0.8 way (offered a tidy into notes/). */
+  let untidy = $state<string[]>([]);
+  /** Vaults whose tidy was put off with "Not now" (not offered at startup again). */
+  let tidyDismissed: string[] = [];
   /** The notes in `pinnedPaths`, for the sidebar's Pinned group. */
   let pinnedHits = $state<SearchHit[]>([]);
   /** Thin rail by default; the hamburger (Ctrl+\\) expands it. Remembered. */
@@ -733,6 +739,66 @@
     view.focus();
   }
 
+  // ---------- tidying a vault into 0.8's layout ----------
+
+  const vaultName = (id: string) => settings?.vaults.find((v) => v.id === id)?.name ?? id;
+
+  async function refreshUntidy() {
+    try {
+      untidy = await api.tidyNeeded();
+    } catch {
+      // keep the last answer
+    }
+  }
+
+  /** After an upgrade: offer to tidy the first vault still using the old folders. */
+  async function offerTidy() {
+    await refreshUntidy();
+    const id = untidy.find((v) => !tidyDismissed.includes(v));
+    if (!id) return;
+    toaster.show(`Stash Notes now keeps every note in one notes folder. Tidy ${vaultName(id)}'s folders?`, "info", { label: "Review…", run: () => openTidy(id) }, 20000);
+  }
+
+  async function openTidy(vault: string) {
+    try {
+      overlay = { type: "tidy", vault, preview: await api.tidyPreview(vault) };
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  async function runTidy(vault: string) {
+    await flush();
+    const r = await api.tidyVault(vault);
+    closeOverlay();
+    listVersion++;
+    refreshSide();
+    const links = r.links ? `, links updated in ${r.links === 1 ? "1 note" : `${r.links} notes`}` : "";
+    done(`Tidied ${vaultName(vault)}: ${r.moved === 1 ? "1 note" : `${r.moved} notes`} moved into notes${links}`, {
+      label: "Undo",
+      run: async () => {
+        try {
+          await flush();
+          await api.tidyUndo(r.undoId);
+          done(`Put ${vaultName(vault)}'s folders back`);
+        } catch (e) {
+          fail(e);
+        }
+        listVersion++;
+        refreshSide();
+        refreshUntidy();
+      },
+    });
+    await refreshUntidy();
+  }
+
+  function laterTidy(vault: string) {
+    tidyDismissed = [...new Set([...tidyDismissed, vault])];
+    api.setUi("tidyDismissed", tidyDismissed).catch(() => {});
+    closeOverlay();
+    toast("You can tidy it any time in Settings → Vaults");
+  }
+
   // ---------- archive / rename ----------
 
   function moved(from: string, to: string) {
@@ -1302,7 +1368,7 @@
     }
 
     if (overlay) {
-      if (e.key === "Tab" && overlay.type === "file") {
+      if (e.key === "Tab" && (overlay.type === "file" || overlay.type === "tidy")) {
         const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
         const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)')] : [];
         const first = controls[0], last = controls[controls.length - 1];
@@ -1452,6 +1518,7 @@
       on<null>("index-ready", () => {
         indexing = false;
         refreshSide();
+        refreshUntidy();
         listVersion++;
       }),
       on<null>("open-daily", openDaily),
@@ -1481,6 +1548,7 @@
         applySettings(s.settings);
         if (typeof s.ui.sidebarExpanded === "boolean") sideExpanded = s.ui.sidebarExpanded;
         if (typeof s.ui.sidebarWidth === "number") sideWidth = Math.max(180, Math.min(360, s.ui.sidebarWidth));
+        if (Array.isArray(s.ui.tidyDismissed)) tidyDismissed = s.ui.tidyDismissed.filter((v): v is string => typeof v === "string");
         notesState = {
           query: "",
           sort: s.settings.notesView.sort,
@@ -1511,6 +1579,7 @@
           await openDaily();
         }
         refreshSide();
+        offerTidy();
         if (await api.smokeEnabled()) runSmokeTest();
       } catch (e) {
         fail(e);
@@ -1622,6 +1691,8 @@
       onSidebar={setSideExpanded}
       {currentVault}
       {vaultPaths}
+      {untidy}
+      onTidy={openTidy}
     />
   {/if}
 
@@ -1682,6 +1753,9 @@
     {@const o = overlay}
     <FileDialog title={o.target.title} archived={o.target.archived}
       onArchive={() => archiveInstead(o.target)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
+  {:else if overlay?.type === "tidy"}
+    {@const o = overlay}
+    <TidyDialog name={vaultName(o.vault)} preview={o.preview} onTidy={() => runTidy(o.vault)} onLater={() => laterTidy(o.vault)} onClose={closeOverlay} />
   {:else if overlay?.type === "switcher"}
     <Switcher
       mode={overlay.mode}

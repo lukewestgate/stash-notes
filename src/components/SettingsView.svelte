@@ -25,8 +25,12 @@
     currentVault: string;
     /** Each vault's folder, by id. */
     vaultPaths: Record<string, string>;
+    /** Vaults still using the pre-0.8 folders. */
+    untidy: string[];
+    /** Review tidying a vault into notes/ and .stash/. */
+    onTidy: (vault: string) => void;
   }
-  let { settings, settingsPath, indexing, sidebarExpanded, onSidebar, currentVault, vaultPaths }: Props = $props();
+  let { settings, settingsPath, indexing, sidebarExpanded, onSidebar, currentVault, vaultPaths, untidy, onTidy }: Props = $props();
 
   const CATEGORIES = [
     "General",
@@ -537,6 +541,12 @@
                 <button class="btn" onclick={() => chooseVaultFolder(i)}>Choose…</button>
               </span>
             </div>
+            {#if untidy.includes(v.id)}
+              <div class="row">
+                <span class="text">Layout<span class="hint">uses the folders from before 0.8 (daily, tickets, archive)</span></span>
+                <button class="btn" onclick={() => onTidy(v.id)}>Tidy folders…</button>
+              </div>
+            {/if}
             <div class="row">
               <span class="text">Color</span>
               <span class="swatches">

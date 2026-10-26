@@ -117,7 +117,47 @@ const notes = new Map<string, string>([
   ["work:notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
   ["work:notes/old-idea.md", "---\narchived: true\n---\n\n# Old idea\n\nSomething archived.\n"],
 ]);
+// UI tests of the vault tidy start with the work vault laid out the pre-0.8 way.
+try {
+  if (sessionStorage.getItem("mock-legacy")) {
+    notes.set("work:daily/2026-10-01.md", "# 2026-10-01\n\n- see [[work:tickets/OPS-1]]\n");
+    notes.set("work:tickets/OPS-1.md", "---\nstatus: open\n---\n\n# OPS-1 Rotate certificates\n");
+    notes.set("work:archive/notes/older-idea.md", "# Older idea\n");
+    notes.set("work:archive/tickets/OPS-4123.md", "# OPS-4123 An older one\n");
+    notes.set("personal:notes/links-to-work.md", "# Links to work\n\n[[work:tickets/OPS-1|cert ticket]]\n");
+  }
+} catch {
+  // no sessionStorage: the plain demo
+}
 const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.now() - i * 60_000]));
+/** Undo data for mock tidies: moves (from, to, text before) and link rewrites (path, text before). */
+const tidies = new Map<number, { moves: [string, string, string][]; rewrites: [string, string][] }>();
+
+/** What tidying `vault` would move, as core/src/tidy.rs plans it (notes only; the mock has no templates). */
+function tidyPlan(vault: string) {
+  const legacy = (p: string) => vaultOf(p) === vault && /^(daily|tickets|archive)\//.test(rel(p));
+  const order = (p: string) => (rel(p).startsWith("archive/") ? 1 : 0);
+  const taken = new Set([...notes.keys()].filter((p) => vaultOf(p) === vault && /^notes\/[^/]+$/.test(rel(p))).map((p) => rel(p).toLowerCase()));
+  return [...notes.keys()]
+    .filter(legacy)
+    .sort((x, y) => order(x) - order(y) || x.localeCompare(y))
+    .map((from) => {
+      let to = `notes/${stem(from)}.md`;
+      for (let n = 2; taken.has(to.toLowerCase()); n++) to = `notes/${stem(from)}-${n}.md`;
+      taken.add(to.toLowerCase());
+      return { from: rel(from), to, archive: rel(from).startsWith("archive/"), renamed: to !== `notes/${stem(from)}.md` };
+    });
+}
+
+/** Links naming an old path (`[[work:tickets/OPS-1]]`) point at the new one. */
+function tidyLinks(text: string, owner: string, vault: string, map: Map<string, string>) {
+  return text.replace(/\[\[([^\]|#]+)([^\]]*)\]\]/g, (link, target: string, rest: string) => {
+    const m = /^([a-z0-9_-]+):(.+)$/.exec(target.trim());
+    const [v, t] = m ? [m[1], m[2]] : [owner, target.trim()];
+    const to = v === vault ? map.get(t.toLowerCase().replace(/\.md$/, "")) : undefined;
+    return to ? `[[${m ? `${v}:` : ""}${to}${rest}]]` : link;
+  });
+}
 const recents = new Map<string, number>();
 const versions = new Map<string, number>();
 const pinned = new Set<string>();
@@ -935,6 +975,64 @@ export function handle(cmd: string, a: A): unknown {
         .slice(0, 10)
         .map((p) => hit(p));
       return { active: active.slice(0, 8), more: Math.max(0, active.length - 8), recent };
+    }
+    case "tidy_needed":
+      return settings.vaults.map((v) => v.id).filter((v) => tidyPlan(v).length);
+    case "tidy_preview": {
+      const plan = tidyPlan(a.vault);
+      const kind = (m: { to: string }) => meta(`${a.vault}:${m.to}`, "").kind;
+      return {
+        vault: a.vault,
+        daily: plan.filter((m) => kind(m) === "daily").length,
+        tickets: plan.filter((m) => kind(m) === "ticket").length,
+        notes: plan.filter((m) => kind(m) === "note").length,
+        archived: plan.filter((m) => m.archive).length,
+        renamed: plan.filter((m) => m.renamed),
+        files: 0,
+        left: [],
+      };
+    }
+    case "tidy_vault": {
+      const vault: string = a.vault;
+      const plan = tidyPlan(vault);
+      const map = new Map(plan.map((m) => [m.from.replace(/\.md$/, "").toLowerCase(), m.to.replace(/\.md$/, "")]));
+      const undo = { moves: [] as [string, string, string][], rewrites: [] as [string, string][] };
+      for (const m of plan) {
+        const from = `${vault}:${m.from}`;
+        const to = `${vault}:${m.to}`;
+        const before = notes.get(from)!;
+        let text = tidyLinks(before, vault, vault, map);
+        if (m.archive) text = setScalar(text, "archived", "true");
+        notes.delete(from);
+        notes.set(to, text);
+        mtimes.set(to, mtimes.get(from) ?? Date.now());
+        followMove(from, to);
+        undo.moves.push([from, to, before]);
+      }
+      for (const [p, before] of [...notes]) {
+        const after = tidyLinks(before, vaultOf(p), vault, map);
+        if (after !== before) {
+          serverEdit(p, after);
+          undo.rewrites.push([p, before]);
+        }
+      }
+      const undoId = nextUndo++;
+      tidies.set(undoId, undo);
+      setTimeout(() => mockEmit("vault-changed", []), 50);
+      return { moved: undo.moves.length, links: undo.rewrites.length, undoId };
+    }
+    case "tidy_undo": {
+      const undo = tidies.get(a.undoId);
+      if (!undo) throw new Error("nothing to undo");
+      tidies.delete(a.undoId);
+      for (const [p, before] of undo.rewrites) serverEdit(p, before);
+      for (const [from, to, before] of undo.moves.reverse()) {
+        notes.delete(to);
+        notes.set(from, before);
+        followMove(to, from);
+      }
+      setTimeout(() => mockEmit("vault-changed", []), 50);
+      return undo.moves.length;
     }
     case "note_hits":
       return (a.paths as string[]).filter((p) => notes.has(p)).map((p) => hit(p));
