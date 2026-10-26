@@ -380,7 +380,7 @@
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
       onStatus: (anchor) => (overlay = { type: "status", anchor }),
-      onTags: pickTags,
+      onAdd: pickTags,
       // Tag searches happen in the main window.
       onTag: (t) => api.openInMain(`::notes#${t}`),
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
@@ -393,6 +393,7 @@
         const p = noteLinks.find((l) => l.primary);
         return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
       },
+      showEmpty: () => !!meta && meta.kind !== "daily",
     };
     window.addEventListener("keydown", onKeydown, true);
     darkQuery.addEventListener("change", applyDark);

@@ -564,8 +564,8 @@
     return true;
   }
 
-  /** Ask for any link and attach it to the note (front matter `links`). */
-  async function addLink() {
+  /** Ask for any link and attach it to the note (front matter `links`), beside `anchor` if given. */
+  async function addLink(anchor: Anchor | null = null) {
     if (!settings || !currentPath) return;
     const clip = (await api.readClipboard().catch(() => "")).trim();
     overlay = {
@@ -573,6 +573,7 @@
       title: "Add a link to this note",
       placeholder: "https://…",
       value: isUrl(clip) ? clip : "",
+      anchor,
       submit: async (value) => {
         closeOverlay();
         const url = value.trim();
@@ -584,6 +585,20 @@
           fail(e);
         }
       },
+    };
+  }
+
+  /** The properties row's + Add: tags or a link. */
+  function addMenu(anchor: Anchor) {
+    if (!settings || !meta || meta.kind === "daily") return;
+    overlay = {
+      type: "menu",
+      label: "Add to note",
+      anchor,
+      items: [
+        { label: "Tags…", icon: "tag", hint: formatKey(settings.keys.setTags), run: () => pickTags(undefined, undefined, undefined, anchor) },
+        { label: "Link…", icon: "link", hint: formatKey(settings.keys.addLink), run: () => addLink(anchor) },
+      ],
     };
   }
 
@@ -1187,7 +1202,7 @@
     forward,
     openTicket: openPrimary,
     openLink,
-    addLink,
+    addLink: () => addLink(),
     linksPanel: () => toggleLinks("note"),
     timestamp: insertTimestamp,
     backlinks: () => {
@@ -1373,7 +1388,7 @@
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
       onStatus: (anchor) => pickStatus(undefined, undefined, undefined, anchor),
-      onTags: (anchor) => pickTags(undefined, undefined, undefined, anchor),
+      onAdd: addMenu,
       onTag: showTag,
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onPrimary: openPrimary,
@@ -1382,6 +1397,7 @@
         const p = noteLinks.find((l) => l.primary);
         return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
       },
+      showEmpty: () => !!meta && meta.kind !== "daily",
     };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
@@ -1621,7 +1637,7 @@
         onGoTo={goToSource}
         onEdit={editAttached}
         onMore={linkActions}
-        onAdd={addLink}
+        onAdd={() => addLink()}
         onOpenNote={(p) => {
           if (sideOverlay) linksOpen = false;
           navigate(p);

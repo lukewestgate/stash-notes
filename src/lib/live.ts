@@ -158,8 +158,8 @@ export interface PropertiesHooks {
   statusView(status: string): { icon: string; color: string; name: string };
   /** Open the status picker beside `anchor` (the chip that was clicked). */
   onStatus(anchor: Anchor): void;
-  /** Open the tag picker beside `anchor`. */
-  onTags(anchor: Anchor): void;
+  /** The row's + Add: tags, or a link (beside `anchor`). */
+  onAdd(anchor: Anchor): void;
   /** Show the notes with this tag. */
   onTag(tag: string): void;
   tagColor(tag: string): string | null;
@@ -168,6 +168,8 @@ export interface PropertiesHooks {
   onLinks(): void;
   /** How many links the note has, and its primary one. */
   links(): { count: number; primary: { label: string; icon: string } | null };
+  /** Show the row on a note with no front matter yet (not on daily notes). */
+  showEmpty(): boolean;
 }
 
 export const propertiesHooks: { current: PropertiesHooks | null } = { current: null };
@@ -204,31 +206,33 @@ class PropertiesWidget extends WidgetType {
     const st = this.info.status ? hooks?.statusView(this.info.status) : null;
     const chip = button(
       "cm-prop cm-prop-status",
-      st ? st.name : "no status",
+      st ? st.name : "status",
       "Set status",
       (a) => hooks?.onStatus(a),
       st?.icon ?? "circle-dashed",
     );
     if (st) chip.style.color = `var(--c-${st.color})`;
-    const links = hooks?.links();
-    if (links?.primary) button("cm-prop", links.primary.label, `Open ${links.primary.label}`, () => hooks?.onPrimary(), links.primary.icon);
-    if (links?.count) button("cm-prop", `${links.count} ${links.count === 1 ? "link" : "links"}`, "This note's links", () => hooks?.onLinks(), "link");
     for (const t of this.info.tags) {
       const b = button("cm-prop cm-prop-tag", `#${t}`, `Notes tagged #${t}`, () => hooks?.onTag(t));
       const c = hooks?.tagColor(t);
       if (c) b.style.setProperty("--c", `var(--c-${c})`);
     }
-    button("cm-prop cm-prop-add", this.info.tags.length ? "" : "tag", "Add or remove tags", (a) => hooks?.onTags(a), this.info.tags.length ? "plus" : "tag");
+    // Where the note points: its primary link, and all its links (the Links panel).
+    const links = hooks?.links();
+    if (links?.primary || links?.count) {
+      const divider = document.createElement("span");
+      divider.className = "cm-prop-divider";
+      row.appendChild(divider);
+    }
+    if (links?.primary) button("cm-prop", links.primary.label, `Open ${links.primary.label}`, () => hooks?.onPrimary(), links.primary.icon);
+    if (links?.count) button("cm-prop", `${links.count} ${links.count === 1 ? "link" : "links"}`, "This note's links", () => hooks?.onLinks(), "link");
+    button("cm-prop cm-prop-add", "Add", "Add a tag or a link", (a) => hooks?.onAdd(a), "plus");
     if (this.info.aliases.length) {
       const a = document.createElement("span");
       a.className = "cm-prop-text";
       a.textContent = `aka ${this.info.aliases.join(", ")}`;
       row.appendChild(a);
     }
-    const hint = document.createElement("span");
-    hint.className = "cm-prop-hint";
-    hint.textContent = "properties";
-    row.appendChild(hint);
     return row;
   }
   ignoreEvent() {
@@ -251,9 +255,15 @@ export const frontMatterField = StateField.define<DecorationSet>({
 
 const frontMatterLine = Decoration.line({ class: "cm-frontmatter" });
 
+const NO_FRONT_MATTER: FrontMatterInfo = { status: null, counts: {}, aliases: [], tags: [] };
+
 function buildFrontMatter(state: EditorState): DecorationSet {
   const fm = frontMatterRange(state);
-  if (!fm) return Decoration.none;
+  if (!fm) {
+    // Status, tags and links live only in this row, so a note gets it before it has any.
+    if (!liveConfig.enabled || !propertiesHooks.current?.showEmpty()) return Decoration.none;
+    return Decoration.set([Decoration.widget({ widget: new PropertiesWidget(NO_FRONT_MATTER), block: true, side: -1 }).range(0)]);
+  }
   if (!liveConfig.enabled || touches(state, fm.from, fm.to)) {
     const lines: Range<Decoration>[] = [];
     for (let n = 1; n <= state.doc.lineAt(fm.to).number; n++) lines.push(frontMatterLine.range(state.doc.line(n).from));
