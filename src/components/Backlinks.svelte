@@ -2,6 +2,7 @@
   import type { Keys, SearchHit, StatusDef } from "../lib/api";
   import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
+  import { anchorAt, anchorOf, type Anchor } from "../lib/popup";
 
   interface Props {
     items: SearchHit[];
@@ -10,8 +11,10 @@
     statuses: StatusDef[];
     onOpen: (path: string) => void;
     onToggle: () => void;
+    /** Open the note menu for a backlink (right-click, Shift+F10 or the menu key). */
+    onMenu: (hit: SearchHit, anchor: Anchor) => void;
   }
-  let { items, expanded, keys, statuses, onOpen, onToggle }: Props = $props();
+  let { items, expanded, keys, statuses, onOpen, onToggle, onMenu }: Props = $props();
 
   let sel = $state(0);
   let list = $state<HTMLDivElement>();
@@ -39,6 +42,11 @@
     } else if (e.key === "Enter" && items[sel]) {
       e.preventDefault();
       onOpen(items[sel].path);
+    } else if ((e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) && items[sel]) {
+      const el = list?.querySelector<HTMLElement>(`[data-row="${sel}"]`);
+      if (!el) return;
+      e.preventDefault();
+      onMenu(items[sel], anchorOf(el));
     }
   }
 </script>
@@ -55,6 +63,11 @@
           role="option"
           aria-selected={i === sel}
           onclick={() => onOpen(h.path)}
+          oncontextmenu={(e) => {
+            e.preventDefault();
+            sel = i;
+            onMenu(h, anchorAt(e));
+          }}
         >
           <span class="name"><StatusIcon status={h.status} {statuses} /> {name(h)}</span>
           {#if h.snippet}<span class="snippet">{h.snippet}</span>{/if}

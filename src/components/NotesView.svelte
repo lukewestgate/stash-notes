@@ -13,6 +13,7 @@
   import { api, type Keys, type SearchHit, type SortBy, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import VaultTag from "./VaultTag.svelte";
   import { formatKey } from "../lib/keys";
+  import { anchorAt, anchorOf, type Anchor } from "../lib/popup";
   import { completeTag, relTime, tagSuggestions, typingTag } from "../lib/text";
   import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
@@ -35,8 +36,10 @@
     onOpen: (path: string) => void;
     onCreate: (query: string) => void;
     onCreateLink: (input: string) => void;
+    /** Open the note menu for a row (right-click, Shift+F10 or the menu key). */
+    onMenu: (hit: SearchHit, anchor: Anchor) => void;
   }
-  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isLink, onOpen, onCreate, onCreateLink }: Props = $props();
+  let { view = $bindable(), statuses, tagColors, vault, vaults, keys, version, isLink, onOpen, onCreate, onCreateLink, onMenu }: Props = $props();
 
   let allTags = $state<TagCount[]>([]);
   $effect(() => {
@@ -225,6 +228,13 @@
     } else if (k === "Enter") {
       e.preventDefault();
       activate(sel);
+    } else if (k === "ContextMenu" || (e.shiftKey && k === "F10")) {
+      const row = rows[sel];
+      const el = list?.querySelector<HTMLElement>(".row.selected");
+      if (row?.type === "note" && el) {
+        e.preventDefault();
+        onMenu(row.hit, anchorOf(el));
+      }
     } else if (k === "Tab" && suggestions.length) {
       e.preventDefault();
       complete(suggestions[0]);
@@ -311,6 +321,12 @@
           tabindex="-1"
           onmousemove={() => (sel = i)}
           onclick={() => activate(i)}
+          oncontextmenu={(e) => {
+            if (row.type !== "note") return;
+            e.preventDefault();
+            sel = i;
+            onMenu(row.hit, anchorAt(e));
+          }}
           onkeydown={() => {}}
         >
           {#if row.type === "note"}
