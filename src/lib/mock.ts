@@ -115,7 +115,7 @@ const notes = new Map<string, string>([
   ],
   ["work:notes/OPS-4123.md", "---\nstatus: blocked\ntags: [bug, infra]\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
   ["work:notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
-  ["work:archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
+  ["work:notes/old-idea.md", "---\narchived: true\n---\n\n# Old idea\n\nSomething archived.\n"],
 ]);
 const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.now() - i * 60_000]));
 const recents = new Map<string, number>();
@@ -179,10 +179,11 @@ function frontMatter(text: string): { fields: Record<string, string | string[]>;
 }
 
 function meta(path: string, text: string): NoteMeta {
-  const archived = rel(path).startsWith("archive/");
-  const p = archived ? rel(path).slice(8) : rel(path);
+  const inArchive = rel(path).startsWith("archive/");
+  const p = inArchive ? rel(path).slice(8) : rel(path);
   const s = stem(p);
   const { fields, body } = frontMatter(text);
+  const archived = inArchive || (typeof fields.archived === "string" && /^(true|yes)$/i.test(fields.archived));
   // The file name decides the kind, in any folder.
   const kind: NoteKind = /^\d{4}-\d{2}-\d{2}$/.test(s) ? "daily" : ticketFull.test(s) ? "ticket" : "note";
   const heading = /^# (.+)$/m.exec(body)?.[1]?.trim();
@@ -202,7 +203,7 @@ function meta(path: string, text: string): NoteMeta {
     ticketUrl: typeof fields.jira === "string" ? fields.jira : null,
     fields: Object.fromEntries(
       Object.entries(fields)
-        .filter(([k]) => !["status", "tags", "aliases", "title", "jira"].includes(k))
+        .filter(([k]) => !["status", "tags", "aliases", "title", "jira", "archived"].includes(k))
         .map(([k, v]) => [k, Array.isArray(v) ? v : v ? [v] : []] as [string, string[]])
         .filter(([, v]) => v.length),
     ),
@@ -216,6 +217,29 @@ function meta(path: string, text: string): NoteMeta {
 function tagFilter(q: string): (h: SearchHit) => boolean {
   const want = q.split(/\s+/).filter((w) => w.startsWith("#")).map((w) => normalizeTag(w)).filter((t): t is string => !!t);
   return (h) => want.every((w) => h.tags.some((t) => t === w || t.startsWith(`${w}/`)));
+}
+
+/** Set or remove a front matter scalar, like the Rust `set_scalars` (an emptied block goes). */
+function setScalar(text: string, key: string, value: string | null): string {
+  const line = new RegExp(`^${key}:.*\\n`, "m");
+  let next: string;
+  if (line.test(text)) next = text.replace(line, value === null ? "" : `${key}: ${value}\n`);
+  else if (value === null) return text;
+  else if (text.startsWith("---\n")) next = `---\n${key}: ${value}\n${text.slice(4)}`;
+  else next = `---\n${key}: ${value}\n---\n${text ? "\n" : ""}${text}`;
+  return next.startsWith("---\n---\n") ? next.slice(8).replace(/^\n+/, "") : next;
+}
+
+/** Leave a pre-0.8 archive/ folder for notes/ (as Rust's `leave_archive_folder`). */
+function leaveArchive(path: string): string {
+  if (!rel(path).startsWith("archive/")) return path;
+  let to = `${vaultOf(path)}:notes/${stem(path)}.md`;
+  for (let n = 2; notes.has(to); n++) to = `${vaultOf(path)}:notes/${stem(path)}-${n}.md`;
+  notes.set(to, notes.get(path)!);
+  notes.delete(path);
+  versions.set(to, versions.get(path) ?? 0);
+  followMove(path, to);
+  return to;
 }
 
 function setTagsIn(text: string, tags: string[]): string {
@@ -573,7 +597,7 @@ export function handle(cmd: string, a: A): unknown {
     case "all_links": {
       const uses = new Map<string, LinkUse>();
       const paths = [...notes.keys()]
-        .filter((p) => (a.includeArchived || !rel(p).startsWith("archive/")) && (!a.vault || vaultOf(p) === a.vault))
+        .filter((p) => (a.includeArchived || !hit(p).archived) && (!a.vault || vaultOf(p) === a.vault))
         .sort((x, y) => (mtimes.get(y) ?? 0) - (mtimes.get(x) ?? 0));
       for (const p of paths) {
         for (const l of noteLinks(p, notes.get(p)!)) {
@@ -711,17 +735,15 @@ export function handle(cmd: string, a: A): unknown {
     case "daily_note":
       return ensure(a.date, a.vault);
     case "archive_note": {
-      const r = rel(a.path);
-      const to = `${vaultOf(a.path)}:${r.startsWith("archive/") ? r.slice(8) : `archive/${r}`}`;
       const text = notes.get(a.path);
       if (text === undefined) throw new Error("Note not found");
-      if (notes.has(to)) throw new Error("An archived note already exists at this path");
-      notes.set(to, text);
-      notes.delete(a.path);
-      followMove(a.path, to);
-      mockEmit("buffer-state", { path: to, dirty: false, meta: meta(to, text) });
-      changed(to);
-      return to;
+      const was = meta(a.path, text).archived;
+      serverEdit(a.path, setScalar(text, "archived", was ? null : "true"));
+      const path = was ? leaveArchive(a.path) : a.path;
+      const next = notes.get(path)!;
+      mockEmit("buffer-state", { path, dirty: false, meta: meta(path, next) });
+      changed(path);
+      return { path, edit: null, meta: meta(path, next) };
     }
     case "rename_note": {
       const text = notes.get(a.path);
@@ -803,23 +825,17 @@ export function handle(cmd: string, a: A): unknown {
       let path: string = a.path;
       const text = notes.get(path)!;
       const st: string | null = a.status;
-      const m = /^status:.*$/m.exec(text);
-      let edit;
-      if (m) edit = { from: m.index, to: m.index + m[0].length + (st ? 0 : 1), insert: st ? `status: ${st}` : "" };
-      else if (text.startsWith("---\n")) edit = st ? { from: 4, to: 4, insert: `status: ${st}\n` } : null;
-      else edit = st ? { from: 0, to: 0, insert: `---\nstatus: ${st}\n---\n\n` } : null;
-      const next = edit ? text.slice(0, edit.from) + edit.insert + text.slice(edit.to) : text;
+      const before = meta(path, text);
+      let next = setScalar(text, "status", st);
+      // Closing archives the note; reopening a closed, archived one unarchives it.
+      const closing = st === "closed" && !before.archived;
+      const reopening = st !== "closed" && before.archived && before.status === "closed";
+      if (closing) next = setScalar(next, "archived", "true");
+      if (reopening) next = setScalar(next, "archived", null);
       serverEdit(path, next);
-      const archived = rel(path).startsWith("archive/");
-      if ((st === "closed") !== archived) {
-        const to = `${vaultOf(path)}:${archived ? rel(path).slice(8) : `archive/${rel(path)}`}`;
-        notes.delete(path);
-        notes.set(to, next);
-        versions.set(to, versions.get(path) ?? 0);
-        path = to;
-      }
+      if (reopening) path = leaveArchive(path);
       changed(path);
-      return { path, edit: null, meta: meta(path, next) };
+      return { path, edit: null, meta: meta(path, notes.get(path)!) };
     }
     case "set_tags": {
       const text = notes.get(a.path)!;
@@ -865,7 +881,7 @@ export function handle(cmd: string, a: A): unknown {
       const prefer = a.prefer ?? current;
       const q = plain(String(a.query)).toLowerCase();
       const visible = [...notes.keys()]
-        .filter((p) => (a.includeArchived || !rel(p).startsWith("archive/")) && tagged(hit(p)) && (!scope || scope.has(vaultOf(p))))
+        .filter((p) => (a.includeArchived || !hit(p).archived) && tagged(hit(p)) && (!scope || scope.has(vaultOf(p))))
         .sort((x, y) => Number(vaultOf(y) === prefer) - Number(vaultOf(x) === prefer));
       if (!q) {
         return {
@@ -936,7 +952,7 @@ export function handle(cmd: string, a: A): unknown {
         .map((p) => hit(p));
     }
     case "archived_names":
-      return [...notes.keys()].filter((p) => vaultOf(p) === a.vault && rel(p).startsWith("archive/")).map((p) => meta(p, notes.get(p)!).title.toLowerCase());
+      return [...notes.keys()].filter((p) => vaultOf(p) === a.vault && hit(p).archived).map((p) => meta(p, notes.get(p)!).title.toLowerCase());
     case "open_url":
       window.open(a.url, "_blank", "noopener");
       return;

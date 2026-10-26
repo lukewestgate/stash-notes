@@ -190,10 +190,26 @@ test("recommends archiving, preserves edits and offers Undo", async ({ page }) =
   await archive.press("Enter");
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".header .tag")).toHaveText("archived");
-  expect(await noteText(page, "personal:archive/notes/file-actions.md")).toContain("Keep this work");
+  // Archived where it is, marked in its front matter.
+  expect(await noteText(page, "personal:notes/file-actions.md")).toContain("archived: true");
+  expect(await noteText(page, "personal:notes/file-actions.md")).toContain("Keep this work");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.locator(".header .tag")).toHaveCount(0);
   expect(await noteText(page, "personal:notes/file-actions.md")).toContain("Keep this work");
+  expect(await noteText(page, "personal:notes/file-actions.md")).not.toContain("archived:");
+});
+
+test("closing a note archives it in place, and reopening unarchives it", async ({ page }) => {
+  await page.keyboard.press("Control+Shift+s");
+  await page.keyboard.press("5");
+  await expect(page.locator(".header .tag")).toHaveText("archived");
+  await expect.poll(() => noteText(page, "personal:notes/file-actions.md")).toContain("archived: true");
+  expect(await noteText(page, "personal:notes/file-actions.md")).toContain("status: closed");
+  await page.keyboard.press("Control+Shift+s");
+  await page.keyboard.press("2");
+  await expect(page.locator(".header .tag")).toHaveCount(0);
+  expect(await noteText(page, "personal:notes/file-actions.md")).not.toContain("archived:");
+  expect(await noteText(page, "personal:notes/file-actions.md")).toContain("status: open");
 });
 
 test("archives the sidebar target without switching the open note", async ({ page }) => {
@@ -203,7 +219,7 @@ test("archives the sidebar target without switching the open note", async ({ pag
   await page.getByRole("dialog").getByRole("button", { name: "Archive note Recommended", exact: true }).click();
   await expect(page.locator(".header .main")).toHaveText("File actions");
   await expect(page.getByRole("button", { name: "Actions for Sidebar subject", exact: true })).toHaveCount(0);
-  expect(await noteText(page, "personal:archive/notes/sidebar-subject.md")).toContain("# Sidebar subject");
+  expect(await noteText(page, "personal:notes/sidebar-subject.md")).toContain("archived: true");
 });
 
 test("keeps an already archived note archived from the recommended action", async ({ page }) => {
@@ -256,7 +272,7 @@ test("the same note menu opens on Notes view rows and search results", async ({ 
   const menu = page.getByRole("menu", { name: "Note menu for Sidebar subject" });
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: /^Archive/ }).click();
-  await expect.poll(() => noteText(page, "personal:archive/notes/sidebar-subject.md")).toContain("# Sidebar subject");
+  await expect.poll(() => noteText(page, "personal:notes/sidebar-subject.md")).toContain("archived: true");
   await page.keyboard.press("Escape");
 
   await page.keyboard.press("Control+k");

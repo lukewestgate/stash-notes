@@ -283,14 +283,6 @@ impl Vault {
         format!("# {}\n\n", title.trim())
     }
 
-    /// Where archiving (or unarchiving) `rel` would move it.
-    pub fn archive_target(rel: &str) -> String {
-        match rel.strip_prefix(&format!("{ARCHIVE_DIR}/")) {
-            Some(rest) => rest.to_string(),
-            None => format!("{ARCHIVE_DIR}/{rel}"),
-        }
-    }
-
     /// Rename a regular note: move its file to a slug of `new_title`, update
     /// its `# heading`, and rewrite `[[links]]` to it across the vault.
     /// `vault_id` is this vault's id in the index; paths here are relative.
@@ -467,16 +459,14 @@ mod tests {
     }
 
     #[test]
-    fn archive_round_trip() {
+    fn move_note_never_overwrites() {
         let (_d, v, _, _) = setup();
-        v.write("tickets/PROJ-1.md", "x").unwrap();
-        let to = Vault::archive_target("tickets/PROJ-1.md");
-        assert_eq!(to, "archive/tickets/PROJ-1.md");
-        v.move_note("tickets/PROJ-1.md", &to).unwrap();
-        assert!(v.exists(&to) && !v.exists("tickets/PROJ-1.md"));
-        let back = Vault::archive_target(&to);
-        v.move_note(&to, &back).unwrap();
-        assert!(v.exists("tickets/PROJ-1.md"));
+        v.write("archive/tickets/PROJ-1.md", "x").unwrap();
+        v.write("notes/PROJ-1.md", "y").unwrap();
+        assert!(v.move_note("archive/tickets/PROJ-1.md", "notes/PROJ-1.md").is_err());
+        v.move_note("archive/tickets/PROJ-1.md", "notes/PROJ-1-2.md").unwrap();
+        assert!(v.exists("notes/PROJ-1-2.md") && !v.exists("archive/tickets/PROJ-1.md"));
+        assert_eq!(v.read("notes/PROJ-1.md").unwrap(), "y");
     }
 
     #[test]

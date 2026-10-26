@@ -8,14 +8,14 @@
   // action that still asks in a dialog; the rest are in the note menu.
   interface Props {
     title: string;
-    path: string;
+    /** Already archived: the recommendation is to keep it that way. */
+    archived: boolean;
     onArchive: () => Promise<void>;
     onDelete: () => Promise<void>;
     onClose: () => void;
   }
 
-  let { title, path, onArchive, onDelete, onClose }: Props = $props();
-  const archived = $derived(path.slice(path.indexOf(":") + 1).startsWith("archive/"));
+  let { title, archived, onArchive, onDelete, onClose }: Props = $props();
   let pending = $state<"archive" | "delete" | null>(null);
   const busy = $derived(pending !== null);
   let error = $state("");

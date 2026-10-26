@@ -390,7 +390,8 @@ export const api = {
   readImage: (path: string, source: string) => call<ArrayBuffer>("read_image", { path, source }),
   createNote: (title: string, vault: string) => call<string>("create_note", { title, vault }),
   dailyNote: (date: string, vault: string) => call<string>("daily_note", { date, vault }),
-  archiveNote: (path: string) => call<string>("archive_note", { path }),
+  /** Archive or unarchive (`archived: true` in front matter); the note stays put unless it leaves a pre-0.8 archive/ folder. */
+  archiveNote: (path: string) => call<StatusResult>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),
   moveNote: (path: string, vault: string) => call<string>("move_note", { path, vault }),
   deleteNote: (path: string) => call<number>("delete_note", { path }),

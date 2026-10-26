@@ -24,7 +24,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import { applyAppearance } from "./lib/appearance";
-  import { api, on, onWindowFocus, type Keys, type LinkSource, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type LinkSource, type MetaEdit, type NoteLink, type NoteMeta, type Opened, type SearchHit, type Settings, type StatusResult, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import type { Anchor } from "./lib/popup";
@@ -742,7 +742,7 @@
     if (currentPath === from) {
       currentPath = to;
       const vault = to.slice(0, to.indexOf(":"));
-      if (meta) meta = { ...meta, path: to, vault, archived: to.slice(to.indexOf(":") + 1).startsWith("archive/") };
+      if (meta) meta = { ...meta, path: to, vault };
       if (vault !== currentVault) enterVault(vault);
       applyTickets();
       refreshLinks(true);
@@ -764,7 +764,6 @@
     const pinned = pinnedPaths.includes(target.path);
     // The primary link is known for the open note (from its text).
     const primary = isOpen ? noteLinks.find((l) => l.primary) : undefined;
-    const archived = target.archived || target.path.slice(target.path.indexOf(":") + 1).startsWith("archive/");
     const link = `[[${vault !== currentVault ? `${vault}:` : ""}${name}]]`;
     const items: MenuEntry[] = [];
     if (!isOpen) items.push({ label: "Open", icon: "file-text", hint: "Enter", run: () => navigate(target.path) });
@@ -823,8 +822,8 @@
       });
     }
     items.push({
-      label: archived ? "Unarchive" : "Archive",
-      icon: archived ? "archive-restore" : "archive",
+      label: target.archived ? "Unarchive" : "Archive",
+      icon: target.archived ? "archive-restore" : "archive",
       hint: formatKey(s.keys.archive),
       run: () => archivePath(target.path).catch(fail),
     });
@@ -909,16 +908,15 @@
 
   async function archivePath(from: string) {
     await flush();
-    const to = await api.archiveNote(from);
-    moved(from, to);
-    clearCreation(to);
-    const archived = to.slice(to.indexOf(":") + 1).startsWith("archive/");
-    done(archived ? "Archived" : "Unarchived", {
+    const r = await api.archiveNote(from);
+    afterArchive(from, r);
+    clearCreation(r.path);
+    done(r.meta.archived ? "Archived" : "Unarchived", {
       label: "Undo",
       run: async () => {
         try {
           await flush();
-          moved(to, await api.archiveNote(to));
+          afterArchive(r.path, await api.archiveNote(r.path));
         } catch (e) {
           fail(e);
         }
@@ -926,8 +924,17 @@
     });
   }
 
+  /** A note was archived or unarchived (in place, or out of a pre-0.8 archive/ folder). */
+  function afterArchive(from: string, r: StatusResult) {
+    if (r.path !== from) moved(from, r.path);
+    // An open note receives the edit through its buffer.
+    if (currentPath === r.path) meta = r.meta;
+    listVersion++;
+    refreshSide();
+  }
+
   async function archiveInstead(target: NoteTarget) {
-    if (!target.path.slice(target.path.indexOf(":") + 1).startsWith("archive/")) await archivePath(target.path);
+    if (!target.archived) await archivePath(target.path);
     closeOverlay();
   }
 
@@ -999,10 +1006,8 @@
       const r = await api.setStatus(path, status);
       // An open note receives the edit through its buffer.
       if (path === currentPath) meta = r.meta;
-      if (r.path !== path) {
-        moved(path, r.path);
-        done(r.meta.archived ? "Closed — moved to the archive" : "Reopened — moved out of the archive");
-      }
+      if (r.path !== path) moved(path, r.path);
+      if (status === "closed" && r.meta.archived) done("Closed — archived");
       listVersion++;
       refreshSide();
     } catch (e) {
@@ -1675,7 +1680,7 @@
     <Menu label={overlay.label} items={overlay.items} anchor={overlay.anchor} statuses={settings?.statuses ?? []} onClose={closeOverlay} />
   {:else if overlay?.type === "file"}
     {@const o = overlay}
-    <FileDialog title={o.target.title} path={o.target.path}
+    <FileDialog title={o.target.title} archived={o.target.archived}
       onArchive={() => archiveInstead(o.target)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
   {:else if overlay?.type === "switcher"}
     <Switcher

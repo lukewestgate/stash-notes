@@ -272,6 +272,43 @@ pub fn set_scalar(content: &str, key: &str, value: Option<&str>) -> Option<Edit>
     value.map(|v| Edit { from: inner_start, to: inner_start, insert: format!("{key}: {v}{nl}") })
 }
 
+/// Set (or remove) several scalars as one edit, like `set_scalar` each.
+/// A front matter block left with no fields is removed, so marking a note
+/// and unmarking it again restores its text. None when nothing changes.
+pub fn set_scalars(content: &str, values: &[(&str, Option<&str>)]) -> Option<Edit> {
+    let mut text = content.to_string();
+    for (key, value) in values {
+        if let Some(e) = set_scalar(&text, key, *value) {
+            text = e.apply(&text);
+        }
+    }
+    let fm = parse(&text);
+    if let Some((start, end)) = fm.inner {
+        if fm.fields.is_empty() && text[start..end].trim().is_empty() {
+            text = text[fm.body_start..].trim_start_matches(['\r', '\n']).to_string();
+        }
+    }
+    diff_edit(content, &text)
+}
+
+/// The smallest single edit turning `old` into `new` (common prefix and suffix kept).
+pub fn diff_edit(old: &str, new: &str) -> Option<Edit> {
+    if old == new {
+        return None;
+    }
+    let (a, b) = (old.as_bytes(), new.as_bytes());
+    let mut start = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    while !old.is_char_boundary(start) || !new.is_char_boundary(start) {
+        start -= 1;
+    }
+    let max = (a.len() - start).min(b.len() - start);
+    let mut tail = a.iter().rev().zip(b.iter().rev()).take(max).take_while(|(x, y)| x == y).count();
+    while !old.is_char_boundary(a.len() - tail) || !new.is_char_boundary(b.len() - tail) {
+        tail -= 1;
+    }
+    Some(Edit { from: start, to: a.len() - tail, insert: new[start..b.len() - tail].to_string() })
+}
+
 /// Compute the edit that sets `key` to the inline list `[a, b]` (or removes
 /// the key when `items` is empty), replacing a block list if there is one.
 /// Returns None when nothing would change.
@@ -320,6 +357,22 @@ pub fn utf16_offset(text: &str, byte: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_scalars_round_trips() {
+        let plain = "# X\n\nbody\n";
+        let on = set_scalars(plain, &[("archived", Some("true"))]).unwrap().apply(plain);
+        assert_eq!(on, "---\narchived: true\n---\n\n# X\n\nbody\n");
+        assert_eq!(set_scalars(&on, &[("archived", None)]).unwrap().apply(&on), plain);
+        let fm = "---\nstatus: open\n---\n# Y\n";
+        let closed = set_scalars(fm, &[("status", Some("closed")), ("archived", Some("true"))]).unwrap().apply(fm);
+        assert_eq!(closed, "---\narchived: true\nstatus: closed\n---\n# Y\n");
+        let back = set_scalars(&closed, &[("status", Some("open")), ("archived", None)]).unwrap().apply(&closed);
+        assert_eq!(back, fm);
+        assert!(set_scalars(fm, &[("archived", None)]).is_none());
+        let e = diff_edit("héllo wörld", "héllo wörld!").unwrap();
+        assert_eq!((e.from, e.insert.as_str()), ("héllo wörld".len(), "!"));
+    }
 
     const TICKET: &str = "---\njira: https://yourco.atlassian.net/browse/PROJ-123   # optional override\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\ntitle: Rollout date question\n---\n\n- 2026-10-22 14:05 asked\n";
 

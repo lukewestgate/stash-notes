@@ -410,7 +410,7 @@
         if (m.from !== path) return;
         path = m.to;
         if (sync) sync.path = m.to;
-        if (meta) meta = { ...meta, path: m.to, vault: m.to.slice(0, m.to.indexOf(":")), archived: m.to.slice(m.to.indexOf(":") + 1).startsWith("archive/") };
+        if (meta) meta = { ...meta, path: m.to, vault: m.to.slice(0, m.to.indexOf(":")) };
         conflict = null;
         applyTickets();
         refreshDecorations(view);
