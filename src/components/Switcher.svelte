@@ -37,6 +37,8 @@
     onSize?: (height: number) => void;
     /** Open the note menu for a result (right-click, Shift+F10 or the menu key). */
     onMenu?: (hit: SearchHit, anchor: Anchor) => void;
+    /** Ctrl+Enter: show every result in the Notes view, with this query. */
+    onShowAll?: (query: string) => void;
   }
   let {
     mode,
@@ -54,6 +56,7 @@
     onClose,
     onSize,
     onMenu,
+    onShowAll,
   }: Props = $props();
 
   /** Tab cycles the vaults searched: all, the current one, then each other one. */
@@ -63,7 +66,7 @@
     ...(currentVault ? [currentVault] : []),
     ...vaults.map((v) => v.id).filter((id) => id !== currentVault),
   ]);
-  const scopeDef = $derived(vaults.find((v) => v.id === scope));
+  const vaultName = (id: string | null) => (id ? (vaults.find((v) => v.id === id)?.name ?? id) : "All vaults");
 
   function cycleScope() {
     scope = scopes[(scopes.indexOf(scope) + 1) % scopes.length];
@@ -127,6 +130,13 @@
 
   onMount(() => input.focus());
 
+  /** The Notes view lists one vault unless told otherwise, so name the scope's vaults. */
+  function showAll() {
+    const ids = scope ? [scope] : vaults.map((v) => v.id);
+    const words = query.split(/\s+/).filter((w) => w && !w.startsWith("in:"));
+    onShowAll?.([...words, ...(vaults.length > 1 ? ids.map((id) => `in:${id}`) : [])].join(" "));
+  }
+
   function choose(i: number, peek: boolean) {
     if (i < hits.length) onChoose(hits[i], peek);
     else if (showCreate && linkish) linking = true;
@@ -143,6 +153,9 @@
     } else if (e.key === "ArrowUp" || (e.key === "p" && e.ctrlKey)) {
       e.preventDefault();
       sel = rowCount ? (sel - 1 + rowCount) % rowCount : 0;
+    } else if (e.key === "Enter" && e.ctrlKey && onShowAll) {
+      e.preventDefault();
+      showAll();
     } else if (e.key === "Enter") {
       e.preventDefault();
       choose(sel, e.altKey);
@@ -180,12 +193,27 @@
         autocomplete="off"
       />
       {#if includeArchived}<span class="flag">+ archived</span>{/if}
-      {#if vaults.length > 1}
-        <button class="scope" class:narrow={scopeDef} style:--vc={scopeDef ? `var(--c-${scopeDef.color})` : null} onclick={cycleScope} title="Which vaults to search (Tab)">
-          {#if scopeDef}<span class="dot"></span>{scopeDef.name}{:else}All vaults{/if}
-        </button>
-      {/if}
     </div>
+    {#if vaults.length > 1}
+      <div class="scopes" role="tablist" aria-label="Vaults to search">
+        {#each scopes as id (id ?? "")}
+          {@const def = vaults.find((v) => v.id === id)}
+          <button
+            class="scope"
+            class:on={scope === id}
+            role="tab"
+            aria-selected={scope === id}
+            tabindex="-1"
+            style:--vc={def ? `var(--c-${def.color})` : null}
+            onclick={() => {
+              scope = id;
+              input.focus();
+            }}
+          >{#if def}<span class="dot"></span>{/if}{vaultName(id)}</button>
+        {/each}
+        <span class="shint"><kbd>Tab</kbd> next</span>
+      </div>
+    {/if}
     {#if suggestions.length}
       <div class="suggest">
         <span class="shint"><kbd>Tab</kbd></span>
@@ -270,9 +298,11 @@
       <span><kbd>Enter</kbd> {mode === "link" ? "link" : "open"}</span>
       {#if mode === "open"}<span><kbd>Alt+Enter</kbd> peek</span>{/if}
       {#if onMenu && mode === "open"}<span><kbd>Shift+F10</kbd> note menu</span>{/if}
-      {#if vaults.length > 1}<span><kbd>Tab</kbd> vaults</span>{/if}
       <span><kbd>Alt+A</kbd> {includeArchived ? "hide" : "include"} closed</span>
       <span><kbd>Esc</kbd> close</span>
+      {#if onShowAll && mode === "open"}
+        <button class="all" onclick={showAll} title="Show every result in the Notes view (Ctrl+Enter)"><kbd>Ctrl+Enter</kbd> all in Notes view</button>
+      {/if}
     </div>
     {/if}
   </div>
@@ -354,25 +384,39 @@
     border: 1px solid var(--border);
     border-radius: 3px;
   }
+  .scopes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .scopes .shint {
+    margin-left: auto;
+  }
   .scope {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    margin-right: 10px;
     font: inherit;
-    font-size: 11.5px;
+    font-size: 12px;
     white-space: nowrap;
     color: var(--fg-muted);
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     border-radius: 999px;
-    padding: 1px 8px;
+    padding: 1px 9px;
     cursor: pointer;
   }
-  .scope.narrow {
+  .scope:hover {
+    background: var(--hover);
+  }
+  .scope.on {
     color: var(--fg);
-    border-color: color-mix(in srgb, var(--vc) 50%, transparent);
-    background: color-mix(in srgb, var(--vc) 12%, transparent);
+    font-weight: 600;
+    border-color: color-mix(in srgb, var(--vc, var(--accent)) 45%, transparent);
+    background: color-mix(in srgb, var(--vc, var(--accent)) 12%, transparent);
   }
   .scope .dot {
     width: 7px;
@@ -484,5 +528,18 @@
     border-radius: 3px;
     padding: 0 4px;
     margin-right: 2px;
+  }
+  .all {
+    margin-left: auto;
+    font: inherit;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 0 4px;
+    cursor: pointer;
+  }
+  .all:hover {
+    background: var(--hover);
   }
 </style>

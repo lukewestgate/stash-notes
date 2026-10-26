@@ -1693,6 +1693,10 @@
       onChoose={switcherChoose}
       onCreate={switcherCreate}
       onMenu={overlay.mode === "open" ? openNoteMenu : undefined}
+      onShowAll={(q) => {
+        closeOverlay();
+        openNotesView(q);
+      }}
       onClose={closeOverlay}
     />
   {:else if overlay?.type === "help" && settings}
