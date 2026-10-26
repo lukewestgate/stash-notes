@@ -248,3 +248,25 @@ test("opening an existing note does not offer to discard it as a new creation", 
   await expect(page.locator(".toast").filter({ hasText: "Created File actions" })).toHaveCount(0);
   await expect(page.locator(".header .main")).toHaveText("File actions");
 });
+
+test("the same note menu opens on Notes view rows and search results", async ({ page }) => {
+  await page.keyboard.press("Control+l");
+  await page.getByPlaceholder(/^Search notes/).fill("Sidebar subject");
+  await page.getByRole("option", { name: /Sidebar subject/ }).click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Note menu for Sidebar subject" });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: /^Archive/ }).click();
+  await expect.poll(() => noteText(page, "personal:archive/notes/sidebar-subject.md")).toContain("# Sidebar subject");
+  await page.keyboard.press("Escape");
+
+  await page.keyboard.press("Control+k");
+  const switcher = page.getByRole("dialog", { name: "Quick switcher", exact: true });
+  await switcher.getByRole("textbox").fill("Collision");
+  await expect(switcher.locator(".row").first()).toContainText("Collision");
+  await page.keyboard.press("Shift+F10");
+  await expect(switcher).toHaveCount(0);
+  await expect(page.getByRole("menu", { name: "Note menu for Collision" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /^Open/ })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".header .main")).toHaveText("Collision");
+});

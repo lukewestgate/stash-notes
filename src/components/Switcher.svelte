@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import { dismissOnBackdrop } from "../lib/popup";
+  import { anchorAt, anchorOf, dismissOnBackdrop, type Anchor } from "../lib/popup";
   import { api, type SearchHit, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import VaultTag from "./VaultTag.svelte";
   import { completeTag, tagSuggestions, typingTag } from "../lib/text";
@@ -32,6 +32,8 @@
     onClose: () => void;
     /** Embedded only: the content's height changed. */
     onSize?: (height: number) => void;
+    /** Open the note menu for a result (right-click, Shift+F10 or the menu key). */
+    onMenu?: (hit: SearchHit, anchor: Anchor) => void;
   }
   let {
     mode,
@@ -47,6 +49,7 @@
     embedded = false,
     onClose,
     onSize,
+    onMenu,
   }: Props = $props();
 
   /** Tab cycles the vaults searched: all, the current one, then each other one. */
@@ -143,6 +146,11 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       choose(sel, e.altKey);
+    } else if (onMenu && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) && hits[sel]) {
+      const el = list?.querySelector<HTMLElement>(`[data-row="${sel}"]`);
+      if (!el) return;
+      e.preventDefault();
+      onMenu(hits[sel], anchorOf(el));
     } else if (e.key === "Tab" && suggestions.length) {
       e.preventDefault();
       query = completeTag(query, suggestions[0]);
@@ -193,6 +201,11 @@
           data-row={i}
           onmousemove={() => (sel = i)}
           onclick={(e) => choose(i, e.altKey)}
+          oncontextmenu={(e) => {
+            if (!onMenu) return;
+            e.preventDefault();
+            onMenu(hit, anchorAt(e));
+          }}
         >
           <span class="line">
             <span class="kind {hit.kind}">{hit.kind}</span>
@@ -242,6 +255,7 @@
       <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
       <span><kbd>Enter</kbd> {mode === "link" ? "link" : "open"}</span>
       {#if mode === "open"}<span><kbd>Alt+Enter</kbd> peek</span>{/if}
+      {#if onMenu && mode === "open"}<span><kbd>Shift+F10</kbd> note menu</span>{/if}
       {#if vaults.length > 1}<span><kbd>Tab</kbd> vaults</span>{/if}
       <span><kbd>Alt+A</kbd> {includeArchived ? "hide" : "include"} closed</span>
       <span><kbd>Esc</kbd> close</span>

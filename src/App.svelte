@@ -1480,6 +1480,7 @@
         navigate(p);
       }}
       onToggle={() => actions.backlinks()}
+      onMenu={openNoteMenu}
     />
   {/if}
   </div>
@@ -1509,6 +1510,7 @@
       isTicket={startsWithTicket}
       {pasteKey}
       onOpen={(p) => navigate(p)}
+      onMenu={openNoteMenu}
       onCreate={async (q) => {
         try {
           navigate(await api.createNote(q, currentVault));
@@ -1538,6 +1540,7 @@
       {currentVault}
       onChoose={switcherChoose}
       onCreate={switcherCreate}
+      onMenu={overlay.mode === "open" ? openNoteMenu : undefined}
       onClose={closeOverlay}
     />
   {:else if overlay?.type === "help" && settings}
