@@ -103,17 +103,17 @@ const settings: Settings = {
 };
 
 const notes = new Map<string, string>([
-  [`personal:daily/${today}.md`, `# ${today}\n\n## Todo\n\n- [ ] groceries, see [[Shopping list]]\n\n## Notes\n\n`],
+  [`personal:notes/${today}.md`, `# ${today}\n\n## Todo\n\n- [ ] groceries, see [[Shopping list]]\n\n## Notes\n\n`],
   ["personal:notes/shopping-list.md", "---\ntags: [home]\n---\n# Shopping list\n\n- milk\n- coffee\n"],
   [
-    `work:daily/${today}.md`,
+    `work:notes/${today}.md`,
     `# ${today}\n\n## Todo\n\n- [x] reply to PROJ-123 rollout question\n- [ ] review [[Rollout plan]]\n- [ ] \n\n## Notes\n\n`,
   ],
   [
-    "work:tickets/PROJ-123.md",
+    "work:notes/PROJ-123.md",
     `---\nstatus: open\ngerrit:\n  - 12345\n  - https://gerrit.example.com/c/proj/+/12399\n---\n\n# PROJ-123 Rollout date question\n\n- ${today} 14:05 asked about rollout date, see [[Rollout plan]]\n- ${today} 16:40 fix pushed, waiting on review\n`,
   ],
-  ["work:tickets/OPS-4123.md", "---\nstatus: blocked\ntags: [bug, infra]\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
+  ["work:notes/OPS-4123.md", "---\nstatus: blocked\ntags: [bug, infra]\ngerrit:\n---\n\n# OPS-4123 Disk alerts on build agents\n\n"],
   ["work:notes/rollout-plan.md", "# Rollout plan\n\nPhase one: internal users. Tracked in PROJ-123.\n\nSee https://example.com/rollout\n"],
   ["work:archive/notes/old-idea.md", "# Old idea\n\nSomething archived.\n"],
 ]);
@@ -183,7 +183,8 @@ function meta(path: string, text: string): NoteMeta {
   const p = archived ? rel(path).slice(8) : rel(path);
   const s = stem(p);
   const { fields, body } = frontMatter(text);
-  const kind: NoteKind = p.startsWith("daily/") ? "daily" : p.startsWith("tickets/") && ticketFull.test(s) ? "ticket" : "note";
+  // The file name decides the kind, in any folder.
+  const kind: NoteKind = /^\d{4}-\d{2}-\d{2}$/.test(s) ? "daily" : ticketFull.test(s) ? "ticket" : "note";
   const heading = /^# (.+)$/m.exec(body)?.[1]?.trim();
   const named = heading?.startsWith(s) ? heading.slice(s.length).replace(/^[\s:–—-]+/, "") : heading;
   const label = named || (typeof fields.title === "string" ? fields.title : null);
@@ -266,12 +267,12 @@ function ensure(target: string, vault: string, announce = false): string {
   let path: string;
   let body: string;
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
-    path = `${vault}:daily/${t}.md`;
+    path = `${vault}:notes/${t}.md`;
     body = dailyTemplate.replace("{{date}}", t);
   } else if (ticketFull.test(t.split(/\s+/)[0].toUpperCase())) {
     const [key, ...name] = t.split(/\s+/);
     // Ticket keys live in the work vault in the demo.
-    path = `work:tickets/${key.toUpperCase()}.md`;
+    path = `work:notes/${key.toUpperCase()}.md`;
     body = `---\nstatus: open\n---\n\n# ${key.toUpperCase()} ${name.join(" ")}\n\n`;
   } else {
     path = `${vault}:notes/${slug(t)}.md`;
@@ -914,7 +915,7 @@ export function handle(cmd: string, a: A): unknown {
       const recent = [...recents.entries()]
         .sort((x, y) => y[1] - x[1])
         .map(([p]) => p)
-        .filter((p) => notes.has(p) && vaultOf(p) === a.vault && !rel(p).startsWith("daily/") && !rel(p).startsWith("archive/") && !active.some((h) => h.path === p))
+        .filter((p) => notes.has(p) && vaultOf(p) === a.vault && hit(p).kind !== "daily" && !hit(p).archived && !active.some((h) => h.path === p))
         .slice(0, 10)
         .map((p) => hit(p));
       return { active: active.slice(0, 8), more: Math.max(0, active.length - 8), recent };

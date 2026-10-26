@@ -1490,8 +1490,9 @@
         s.notices.forEach((n) => toaster.show(n, "info", undefined, 15000));
         let path = s.lastPath;
         const today = isoDate();
-        const rel = path ? path.slice(path.indexOf(":") + 1) : "";
-        const staleDaily = rel.startsWith("daily/") && rel < `daily/${today}.md`;
+        // A daily note is named by its date, in any folder.
+        const name = path ? (path.split("/").pop() ?? "").replace(/\.md$/, "") : "";
+        const staleDaily = /^\d{4}-\d{2}-\d{2}$/.test(name) && name < today;
         if (!path || s.settings.onSummon === "daily" || staleDaily) {
           path = await api.dailyNote(today, currentVault);
         }

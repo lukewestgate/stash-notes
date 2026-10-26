@@ -392,30 +392,14 @@ impl Index {
         self.vaults.iter().filter(|v| v.id != from).find_map(|v| self.resolve_in(t, &v.id))
     }
 
-    /// Resolve within one vault: dates and ticket keys by path (active before
-    /// archived), then exact file name, then title, then alias. Ties go to
-    /// the most recently edited note.
+    /// Resolve within one vault: dates to daily notes and ticket keys to
+    /// ticket notes (wherever they are; active before archived), then exact
+    /// file name, then title, then alias. Ties go to the most recently
+    /// edited note, active ones first.
     fn resolve_in(&self, t: &str, vault: &str) -> Option<String> {
         if t.is_empty() {
             return None;
         }
-        let by_path = |rel: String| -> Option<String> {
-            [note::join_path(vault, &rel), note::join_path(vault, &format!("archive/{rel}"))]
-                .into_iter()
-                .find(|p| self.notes.contains_key(p))
-        };
-        if dates::parse_iso(t).is_some() {
-            if let Some(p) = by_path(format!("daily/{t}.md")) {
-                return Some(p);
-            }
-        }
-        if let Some(key) = self.tickets_for(vault).as_key(t) {
-            if let Some(p) = by_path(format!("tickets/{key}.md")) {
-                return Some(p);
-            }
-        }
-        let lower = t.to_lowercase();
-        let lower = lower.strip_suffix(".md").unwrap_or(&lower);
         let pick = |pred: &dyn Fn(&NoteEntry) -> bool| -> Option<String> {
             self.notes
                 .values()
@@ -423,6 +407,18 @@ impl Index {
                 .max_by_key(|e| (!e.meta.archived, e.mtime))
                 .map(|e| e.meta.path.clone())
         };
+        if let Some(date) = dates::parse_iso(t) {
+            if let Some(p) = pick(&|e| e.meta.kind == NoteKind::Daily && e.meta.date == Some(date)) {
+                return Some(p);
+            }
+        }
+        if let Some(key) = self.tickets_for(vault).as_key(t) {
+            if let Some(p) = pick(&|e| e.meta.kind == NoteKind::Ticket && e.meta.key.as_deref() == Some(key.as_str())) {
+                return Some(p);
+            }
+        }
+        let lower = t.to_lowercase();
+        let lower = lower.strip_suffix(".md").unwrap_or(&lower);
         pick(&|e| e.stem_lower == lower || e.path_lower == lower)
             .or_else(|| pick(&|e| e.title_lower == lower))
             .or_else(|| pick(&|e| e.aliases_lower.iter().any(|a| a == lower)))
@@ -522,6 +518,15 @@ impl Index {
     /// The listed notes, in order, skipping any that no longer exist (the sidebar's pinned notes).
     pub fn hits(&self, paths: &[String]) -> Vec<SearchHit> {
         paths.iter().filter_map(|p| self.notes.get(p)).map(|e| e.summary(None, 0)).collect()
+    }
+
+    /// Vault `vault`'s daily note for `date`, wherever it is (active before archived).
+    pub fn daily(&self, vault: &str, date: chrono::NaiveDate) -> Option<String> {
+        self.notes
+            .values()
+            .filter(|e| e.vault() == vault && e.meta.kind == NoteKind::Daily && e.meta.date == Some(date))
+            .max_by_key(|e| (!e.meta.archived, e.mtime))
+            .map(|e| e.meta.path.clone())
     }
 
     /// Notes that link to or mention `path`, most recently edited first.
@@ -1004,6 +1009,22 @@ mod tests {
         assert_eq!(i.resolve("2026-10-22", "").as_deref(), Some("daily/2026-10-22.md"));
         assert_eq!(i.resolve("Old idea", "").as_deref(), Some("archive/notes/old-idea.md"));
         assert_eq!(i.resolve("nope", ""), None);
+    }
+
+    #[test]
+    fn resolve_dates_and_keys_in_any_folder() {
+        let mut i = idx();
+        // 0.8 puts every note in notes/; a vault mid-way keeps both layouts.
+        i.upsert("notes/2026-10-23.md", "# 2026-10-23\n", 10);
+        i.upsert("notes/OPS-9.md", "# OPS-9 thing\n", 10);
+        i.upsert("notes/PROJ-5.md", "---\narchived: true\n---\n# PROJ-5\n", 20);
+        i.upsert("tickets/PROJ-5.md", "# PROJ-5\n", 5);
+        assert_eq!(i.resolve("2026-10-23", "").as_deref(), Some("notes/2026-10-23.md"));
+        assert_eq!(i.resolve("ops-9", "").as_deref(), Some("notes/OPS-9.md"));
+        // Active before archived, even when older.
+        assert_eq!(i.resolve("PROJ-5", "").as_deref(), Some("tickets/PROJ-5.md"));
+        let d = dates::parse_iso("2026-10-22").unwrap();
+        assert_eq!(i.daily("", d).as_deref(), Some("daily/2026-10-22.md"));
     }
 
     #[test]

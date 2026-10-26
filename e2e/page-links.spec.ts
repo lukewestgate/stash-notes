@@ -128,7 +128,7 @@ test("supports multiple links on one line and keyboard collapse", async ({ page 
 });
 
 test("previews links in a pinned window and opens them in the main window", async ({ page }) => {
-  await page.goto("/?pin=work:tickets/PROJ-123.md");
+  await page.goto("/?pin=work:notes/PROJ-123.md");
   await expandLink(page, "Rollout plan");
   const preview = page.getByRole("region", { name: "Preview of Rollout plan" });
   await expect(preview.getByText("Phase one: internal users.", { exact: false })).toBeVisible();

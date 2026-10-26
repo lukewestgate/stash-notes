@@ -4,7 +4,7 @@
 
 use crate::frontmatter;
 use crate::index::Index;
-use crate::note::{self, NoteKind, TicketMatcher, ARCHIVE_DIR, DAILY_DIR, NOTES_DIR, TEMPLATES_DIR, TICKETS_DIR};
+use crate::note::{self, NoteKind, TicketMatcher, ARCHIVE_DIR, NOTES_DIR, TEMPLATES_DIR};
 use chrono::NaiveDate;
 use std::fmt;
 use std::fs;
@@ -218,12 +218,14 @@ impl Vault {
         out
     }
 
+    /// Where a new daily note goes: `notes/2026-10-22.md` (its name makes it daily).
     pub fn daily_path(date: NaiveDate) -> String {
-        format!("{DAILY_DIR}/{}.md", date.format("%Y-%m-%d"))
+        format!("{NOTES_DIR}/{}.md", date.format("%Y-%m-%d"))
     }
 
+    /// Where a new ticket note goes: `notes/PROJ-123.md` (its name makes it a ticket).
     pub fn ticket_path(key: &str) -> String {
-        format!("{TICKETS_DIR}/{key}.md")
+        format!("{NOTES_DIR}/{key}.md")
     }
 
     /// Daily note text: `templates/daily.md` if present, else the built-in

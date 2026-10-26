@@ -472,13 +472,12 @@ fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<CreatedNote>
 #[tauri::command]
 pub fn daily_note(state: State<AppState>, date: String, vault: String) -> Res<String> {
     let d = dates::parse_iso(&date).ok_or_else(|| format!("bad date {date}"))?;
-    let rel = Vault::daily_path(d);
-    let v = vault_or_err(&state, &vault)?;
-    let archived = format!("archive/{rel}");
-    if !v.exists(&rel) && v.exists(&archived) {
-        return Ok(note::join_path(&vault, &archived));
+    // An existing one wherever it is: `notes/`, or a folder from before 0.8.
+    if let Some(p) = state.index.read().unwrap().daily(&vault, d) {
+        return Ok(p);
     }
-    Ok(create_file(&state, &vault, &rel, &v.daily_content(d))?.path)
+    let v = vault_or_err(&state, &vault)?;
+    Ok(create_file(&state, &vault, &Vault::daily_path(d), &v.daily_content(d))?.path)
 }
 
 /// Archive a note, or unarchive it if it is already archived. Returns the new path.

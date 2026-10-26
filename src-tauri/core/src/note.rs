@@ -1,4 +1,4 @@
-//! What a note is: its kind (by folder), title, ticket key and the links it contains.
+//! What a note is: its kind (by file name), title, ticket key and the links it contains.
 
 use crate::{dates, frontmatter};
 use chrono::NaiveDate;
@@ -6,9 +6,14 @@ use regex::Regex;
 use serde::Serialize;
 use std::sync::OnceLock;
 
+/// Where every note the app creates goes.
+pub const NOTES_DIR: &str = "notes";
+/// The app's own files in a vault (templates, trash), hidden from the index.
+pub const STASH_DIR: &str = ".stash";
+// Folders from before 0.8. Notes in them are still read (and tidied into
+// `notes/` on request), but nothing new is put there.
 pub const DAILY_DIR: &str = "daily";
 pub const TICKETS_DIR: &str = "tickets";
-pub const NOTES_DIR: &str = "notes";
 pub const ARCHIVE_DIR: &str = "archive";
 pub const TEMPLATES_DIR: &str = "templates";
 
@@ -177,16 +182,26 @@ pub fn unarchived_path(path: &str) -> (&str, bool) {
     }
 }
 
-/// Decide a note's kind from its (relative, `/`-separated) path.
+/// Decide a note's kind from its file name, wherever it is: a date
+/// (`2026-10-22.md`) is a daily note, a key in its canonical form
+/// (`PROJ-123.md`) is a ticket, anything else a regular note. Also says
+/// whether the path is in the pre-0.8 `archive/` folder.
 pub fn classify(path: &str, tickets: &TicketMatcher) -> (NoteKind, bool) {
     let (p, archived) = unarchived_path(split_path(path).1);
     let s = stem(p);
-    let kind = match p.split_once('/') {
-        Some((DAILY_DIR, rest)) if !rest.contains('/') && dates::parse_iso(s).is_some() => NoteKind::Daily,
-        Some((TICKETS_DIR, rest)) if !rest.contains('/') && tickets.as_key(s).as_deref() == Some(s) => NoteKind::Ticket,
-        _ => NoteKind::Note,
+    let kind = if dates::parse_iso(s).is_some() {
+        NoteKind::Daily
+    } else if tickets.as_key(s).as_deref() == Some(s) {
+        NoteKind::Ticket
+    } else {
+        NoteKind::Note
     };
     (kind, archived)
+}
+
+/// Front matter `archived: true`: the note is archived where it is.
+pub fn archived_flag(fm: &frontmatter::FrontMatter) -> bool {
+    fm.scalar("archived").is_some_and(|v| matches!(v.to_lowercase().as_str(), "true" | "yes"))
 }
 
 /// The first `# heading` of the body, if any.
@@ -239,8 +254,9 @@ pub struct NoteMeta {
 
 /// Parse a note's metadata from its path and content.
 pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMeta {
-    let (kind, archived) = classify(path, tickets);
+    let (kind, in_archive) = classify(path, tickets);
     let fm = frontmatter::parse(content);
+    let archived = in_archive || archived_flag(&fm);
     let body = &content[fm.body_start..];
     let s = stem(path).to_string();
     let fm_title = fm.scalar("title").map(str::to_string);
@@ -265,7 +281,7 @@ pub fn parse_meta(path: &str, content: &str, tickets: &TicketMatcher) -> NoteMet
         fields: fm
             .fields
             .keys()
-            .filter(|k| !["status", "tags", "aliases", "title", "jira"].contains(&k.as_str()))
+            .filter(|k| !["status", "tags", "aliases", "title", "jira", "archived"].contains(&k.as_str()))
             .map(|k| (k.clone(), fm.list(k)))
             .filter(|(_, v)| !v.is_empty())
             .collect(),
@@ -295,6 +311,11 @@ mod tests {
         let t = TicketMatcher::default_pattern();
         assert_eq!(classify("daily/2026-10-22.md", &t), (NoteKind::Daily, false));
         assert_eq!(classify("daily/notes.md", &t), (NoteKind::Note, false));
+        // The file name decides, in any folder.
+        assert_eq!(classify("notes/2026-10-22.md", &t), (NoteKind::Daily, false));
+        assert_eq!(classify("notes/PROJ-123.md", &t), (NoteKind::Ticket, false));
+        assert_eq!(classify("projects/q4/PROJ-9.md", &t), (NoteKind::Ticket, false));
+        assert_eq!(classify("notes/proj-123.md", &t), (NoteKind::Note, false));
         assert_eq!(classify("tickets/PROJ-123.md", &t), (NoteKind::Ticket, false));
         assert_eq!(classify("tickets/proj-123.md", &t), (NoteKind::Note, false));
         assert_eq!(classify("archive/tickets/PROJ-123.md", &t), (NoteKind::Ticket, true));
@@ -377,5 +398,15 @@ mod tests {
         assert!(m.tags.is_empty());
         assert!(m.archived);
         assert_eq!(m.date, dates::parse_iso("2026-10-22"));
+    }
+
+    #[test]
+    fn archived_by_front_matter() {
+        let t = TicketMatcher::default_pattern();
+        assert!(parse_meta("notes/x.md", "---\narchived: true\n---\n# X\n", &t).archived);
+        assert!(parse_meta("notes/x.md", "---\narchived: Yes\n---\n", &t).archived);
+        assert!(!parse_meta("notes/x.md", "---\narchived: false\n---\n", &t).archived);
+        let m = parse_meta("notes/PROJ-1.md", "---\narchived: true\n---\n# PROJ-1 x\n", &t);
+        assert!(m.archived && !m.fields.contains_key("archived"));
     }
 }

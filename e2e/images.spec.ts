@@ -150,7 +150,7 @@ test("does not insert an outstanding import into a different note", async ({ pag
 });
 
 test("inserts and previews an image in a pinned note", async ({ page }) => {
-  await page.goto("/?pin=work:tickets/PROJ-123.md");
+  await page.goto("/?pin=work:notes/PROJ-123.md");
   await expect(page.getByRole("button", { name: "Insert image" })).toBeEnabled();
   await insertFile(page);
   await expect(page.getByRole("img", { name: "Screenshot" })).toBeVisible();
