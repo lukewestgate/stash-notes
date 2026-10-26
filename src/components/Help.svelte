@@ -43,7 +43,8 @@
   const extra = $derived<[string, string][]>([
     ["[[", "Link picker"],
     ["Ctrl+Click", "Follow link"],
-    ["Ctrl+V", "Paste an image (or drop files / use Insert image)"],
+    ["Ctrl+V", "Paste an image (or drop files / note menu › Insert image)"],
+    ["Shift+F10", "Note menu for the selected note (or right-click it)"],
     [keys.rename, "Rename note (updates links)"],
     [keys.openSettings, "Settings"],
     ["Ctrl+Shift+V", "Paste without converting ticket or link URLs"],
@@ -53,6 +54,7 @@
     ["↑ ↓", "Move"],
     ["Enter", "Open / create"],
     ["Alt+Enter", "Peek without adding to history"],
+    ["Ctrl+Enter", "Show every result in the Notes view"],
     ["Tab", "Search all vaults / this vault / each vault (or complete a #tag)"],
     ["Alt+A", "Include closed and archived notes"],
     ["#tag  @status  in:vault", "Filter as you type"],
