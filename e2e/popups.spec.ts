@@ -164,3 +164,19 @@ test("pinned notes are listed in the sidebar", async ({ page }) => {
   await expect(page.locator(".sidebar .group").filter({ hasText: "Pinned" })).toBeVisible();
   await expect(page.locator(".sidebar button.note").filter({ hasText: "Popup test" })).toHaveCount(1);
 });
+
+test("Ctrl+K shows its vault tabs and carries the query into the Notes view", async ({ page }) => {
+  await page.keyboard.press("Control+k");
+  const popup = page.getByRole("dialog", { name: "Quick switcher", exact: true });
+  const tabs = popup.getByRole("tablist", { name: "Vaults to search" });
+  await expect(tabs.getByRole("tab", { name: "All vaults" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Tab");
+  await expect(tabs.getByRole("tab", { name: "Personal" })).toHaveAttribute("aria-selected", "true");
+  await tabs.getByRole("tab", { name: "Work" }).click();
+  await expect(popup.getByRole("textbox")).toBeFocused();
+  await popup.getByRole("textbox").fill("rollout");
+  await page.keyboard.press("Control+Enter");
+  await expect(popup).toHaveCount(0);
+  await expect(page.getByPlaceholder(/^Search notes/)).toHaveValue("rollout in:work");
+  await expect(page.getByRole("option", { name: /Rollout plan/ }).first()).toBeVisible();
+});
