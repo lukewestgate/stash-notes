@@ -288,6 +288,7 @@ export const api = {
   quit: () => call<void>("quit_app"),
   saveSession: (path: string | null, anchor: number | null) => call<void>("save_session", { path, anchor }),
   readClipboard: () => call<string>("read_clipboard"),
+  writeClipboard: (text: string) => call<void>("write_clipboard", { text }),
   openSettingsFile: () => call<void>("open_settings_file"),
   openVaultFolder: (vault: string) => call<void>("open_vault_folder", { vault }),
 };

@@ -98,6 +98,7 @@ const mtimes = new Map<string, number>([...notes.keys()].map((k, i) => [k, Date.
 const recents = new Map<string, number>();
 const versions = new Map<string, number>();
 const pinned = new Set<string>();
+let mockClipboard = "";
 let nextUndo = 1;
 const deletedNotes = new Map<number, { path: string; text: string }>();
 const renamedNotes = new Map<number, { from: string; to: string; previous: Map<string, string> }>();
@@ -686,7 +687,10 @@ export function handle(cmd: string, a: A): unknown {
       window.open(a.url, "_blank", "noopener");
       return;
     case "read_clipboard":
-      return "";
+      return mockClipboard;
+    case "write_clipboard":
+      mockClipboard = a.text;
+      return;
     case "hide_window":
     case "quit_app":
     case "save_session":

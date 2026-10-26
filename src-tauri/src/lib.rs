@@ -169,6 +169,7 @@ pub fn run() {
             commands::quit_app,
             commands::save_session,
             commands::read_clipboard,
+            commands::write_clipboard,
             commands::open_settings_file,
             commands::open_vault_folder,
         ])

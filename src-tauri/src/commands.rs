@@ -1036,6 +1036,12 @@ pub fn read_clipboard(app: AppHandle) -> String {
 }
 
 #[tauri::command]
+pub fn write_clipboard(app: AppHandle, text: String) -> Res<()> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard().write_text(text).map_err(err)
+}
+
+#[tauri::command]
 pub fn open_settings_file(app: AppHandle, state: State<AppState>) -> Res<()> {
     let path = state.settings_path.clone();
     if !path.exists() {

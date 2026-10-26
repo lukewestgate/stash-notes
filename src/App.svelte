@@ -10,7 +10,7 @@
   import Backlinks from "./components/Backlinks.svelte";
   import Help from "./components/Help.svelte";
   import Prompt from "./components/Prompt.svelte";
-  import NoteActions from "./components/NoteActions.svelte";
+  import Menu, { type MenuEntry } from "./components/Menu.svelte";
   import FileDialog from "./components/FileDialog.svelte";
   import Picker from "./components/Picker.svelte";
   import StatusPicker from "./components/StatusPicker.svelte";
@@ -47,10 +47,11 @@
     todoCursor,
   } from "./lib/text";
 
-  type NoteTarget = Pick<NoteMeta, "path" | "title" | "kind" | "status" | "key">;
+  /** A note an action applies to: the open note, or a row in a list. */
+  type NoteTarget = Pick<NoteMeta, "path" | "title" | "kind" | "status" | "key" | "tags" | "archived">;
   type Overlay =
-    | { type: "noteActions"; target: NoteTarget }
-    | { type: "file"; mode: "move" | "delete"; target: NoteTarget }
+    | { type: "menu"; label: string; items: MenuEntry[]; anchor: Anchor }
+    | { type: "file"; mode: "delete"; target: NoteTarget }
     | { type: "switcher"; mode: "open" | "link"; sel?: { from: number; to: number; text: string } }
     | { type: "help" }
     | { type: "prompt"; title: string; value: string; placeholder?: string; submit: (v: string) => void; anchor?: Anchor | null }
@@ -632,17 +633,106 @@
     refreshSide();
   }
 
-  function noteActions(target: NoteTarget | null = meta) {
-    if (target) overlay = { type: "noteActions", target };
+  /** The note menu (right-click, or …) for `target`, opened at `anchor`. */
+  function openNoteMenu(target: NoteTarget | null, anchor: Anchor) {
+    if (!target || !settings) return;
+    const s = settings;
+    const isOpen = screen === "editor" && target.path === currentPath;
+    const vault = target.path.slice(0, target.path.indexOf(":"));
+    const vaultDef = s.vaults.find((v) => v.id === vault);
+    const name = target.kind === "ticket" && target.key ? target.key : target.title;
+    const pinned = pinnedPaths.includes(target.path);
+    const ticket = target.kind === "ticket" && target.key ? systemForKey(vaultDef, target.key) : null;
+    const archived = target.archived || target.path.slice(target.path.indexOf(":") + 1).startsWith("archive/");
+    const link = `[[${vault !== currentVault ? `${vault}:` : ""}${name}]]`;
+    const items: MenuEntry[] = [];
+    if (!isOpen) items.push({ label: "Open", icon: "file-text", hint: "Enter", run: () => navigate(target.path) });
+    items.push({
+      label: pinned ? "Unpin" : "Pin beside your work",
+      icon: pinned ? "pin-off" : "pin",
+      hint: s.keys.pinNote.split(/\s+/).map(formatKey).join(", "),
+      run: () => pinPath(target.path),
+    });
+    items.push("-");
+    if (target.kind !== "daily") {
+      items.push({
+        label: "Status",
+        status: target.status ?? undefined,
+        icon: "circle-dashed",
+        hint: target.status ?? "none",
+        numbered: true,
+        items: [
+          ...s.statuses.map((st) => ({ label: st.name, status: st.name, checked: st.name === target.status, run: () => applyStatus(target.path, st.name) })),
+          "-",
+          { label: "No status", icon: "x", checked: !target.status, run: () => applyStatus(target.path, null) },
+        ],
+      });
+      items.push({
+        label: "Tags…",
+        icon: target.tags.length > 1 ? "tags" : "tag",
+        hint: target.tags.map((t) => `#${t}`).join(" ") || formatKey(s.keys.setTags),
+        run: () => pickTags(target.path, target.tags, name, anchor),
+      });
+    }
+    if (ticket && target.key) {
+      const key = target.key;
+      items.push({ label: `Open in ${ticket.name}`, icon: ticket.icon, hint: formatKey(s.keys.openTicket), run: () => (isOpen ? openTicket() : openExternal(ticketUrl(ticket, key))) });
+    }
+    items.push({ label: "Copy link", icon: "copy", hint: link, run: () => copyText(link, "Link copied") });
+    if (isOpen) {
+      items.push({
+        label: "Insert image…",
+        icon: "image-plus",
+        run: () => pickImages(view, { path: () => currentPath, imageError: (message) => toaster.show(message, "error") }),
+      });
+    }
+    items.push("-");
+    items.push({
+      label: "Rename…",
+      icon: "pencil",
+      hint: formatKey(s.keys.rename),
+      disabled: target.kind !== "note",
+      title: target.kind === "daily" ? "Daily notes are named by their date" : target.kind === "ticket" ? "Ticket notes are named by their key" : undefined,
+      run: () => startRename(target),
+    });
+    const others = s.vaults.filter((v) => v.id !== vault);
+    if (others.length) {
+      items.push({
+        label: "Move to",
+        icon: "folder-input",
+        items: others.map((v) => ({ label: v.name, badge: { text: v.name.slice(0, 1).toUpperCase(), color: v.color }, run: () => moveNote(target, v.id) })),
+      });
+    }
+    items.push({
+      label: archived ? "Unarchive" : "Archive",
+      icon: archived ? "archive-restore" : "archive",
+      hint: formatKey(s.keys.archive),
+      run: () => archivePath(target.path).catch(fail),
+    });
+    items.push("-");
+    items.push({ label: "Delete…", icon: "trash", danger: true, run: () => (overlay = { type: "file", mode: "delete", target }) });
+    overlay = { type: "menu", label: `Note menu for ${name}`, items, anchor };
+  }
+
+  async function copyText(text: string, notice: string) {
+    try {
+      await api.writeClipboard(text);
+      done(notice);
+    } catch (e) {
+      fail(e);
+    }
   }
 
   async function moveNote(target: NoteTarget, vault: string) {
-    await flush();
-    const to = await api.moveNote(target.path, vault);
-    moved(target.path, to);
-    closeOverlay();
-    const name = settings?.vaults.find((v) => v.id === vault)?.name ?? vault;
-    done(`Moved to ${name}`);
+    try {
+      await flush();
+      const to = await api.moveNote(target.path, vault);
+      moved(target.path, to);
+      const name = settings?.vaults.find((v) => v.id === vault)?.name ?? vault;
+      done(`Moved to ${name}`);
+    } catch (e) {
+      fail(e);
+    }
   }
 
   function clearCreation(path?: string) {
@@ -860,7 +950,10 @@
   async function togglePin() {
     const hit = sidebarHasFocus() ? sidebar?.focusedHit() : screen === "notes" ? notesView?.selected() : null;
     const path = hit?.path ?? (screen === "editor" ? currentPath : null);
-    if (!path) return;
+    if (path) await pinPath(path);
+  }
+
+  async function pinPath(path: string) {
     try {
       await flush();
       const pinned = await api.pinToggle(path);
@@ -1098,7 +1191,7 @@
     }
 
     if (overlay) {
-      if (e.key === "Tab" && ["noteActions", "file"].includes(overlay.type)) {
+      if (e.key === "Tab" && overlay.type === "file") {
         const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
         const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)')] : [];
         const first = controls[0], last = controls[controls.length - 1];
@@ -1107,6 +1200,8 @@
           (e.shiftKey ? last : first).focus();
         }
       }
+      // Menus handle Esc themselves: it closes a submenu before the menu.
+      if (overlay.type === "menu") return;
       if (is("hide") || (overlay.type === "help" && is("help")) || (overlay.type === "switcher" && is("quickSwitcher"))) {
         stop();
         if (!e.repeat || is("hide")) closeOverlay();
@@ -1325,8 +1420,8 @@
       onNotes={(q) => openNotesView(q)}
       onSettings={() => toggleSettings()}
       onOpen={(p) => navigate(p)}
-      onActions={noteActions}
-      onCurrentActions={() => noteActions()}
+      onMenu={openNoteMenu}
+      onCurrentMenu={(anchor) => openNoteMenu(meta, anchor)}
       onLeave={focusMain}
     />
   {/if}
@@ -1353,7 +1448,7 @@
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}
       onArchive={toggleArchive}
-      onActions={() => noteActions()}
+      onActions={(anchor) => openNoteMenu(meta, anchor)}
       onImage={() => pickImages(view, { path: () => currentPath, imageError: (message) => toaster.show(message, "error") })}
     />
   {/if}
@@ -1425,17 +1520,12 @@
   {/if}
   </div>
 
-  {#if overlay?.type === "noteActions"}
-    {@const target = overlay.target}
-    <NoteActions title={target.title} canRename={target.kind === "note"} canStatus={target.kind !== "daily"}
-      onRename={() => startRename(target)}
-      onMove={() => (overlay = { type: "file", mode: "move", target })}
-      onDelete={() => (overlay = { type: "file", mode: "delete", target })}
-      onStatus={() => pickStatus(target.path, target.status, target.key ?? target.title)} onClose={closeOverlay} />
+  {#if overlay?.type === "menu"}
+    <Menu label={overlay.label} items={overlay.items} anchor={overlay.anchor} statuses={settings?.statuses ?? []} onClose={closeOverlay} />
   {:else if overlay?.type === "file"}
     {@const o = overlay}
-    <FileDialog mode={o.mode} title={o.target.title} path={o.target.path} vaults={settings?.vaults ?? []}
-      onMove={(vault) => moveNote(o.target, vault)} onArchive={() => archiveInstead(o.target)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
+    <FileDialog title={o.target.title} path={o.target.path}
+      onArchive={() => archiveInstead(o.target)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
   {:else if overlay?.type === "switcher"}
     <Switcher
       mode={overlay.mode}

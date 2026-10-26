@@ -3,7 +3,7 @@
 
 import {
   BookOpen, FileCode, FolderInput, GitBranch, GitMerge, Globe, Link, MessageSquare, Ellipsis, Pencil,
-  Archive, ArrowDown, ArrowUp, Bookmark, Bug, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Archive, ArchiveRestore, Copy, Folder, PanelLeft, ArrowDown, ArrowUp, Bookmark, Bug, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleHelp, CirclePause, CirclePlay, CircleSlash,
   CircleX, Clock, Diamond, ExternalLink, Eye, FilePlus, FileText, Flag, Flame, GitPullRequest, Hourglass,
   ImagePlus, Inbox, Info, Keyboard, List, Menu, Pin, PinOff, Plus, Search, SearchX, Settings, Square, Star, Ticket,
@@ -16,6 +16,10 @@ const ICONS = {
   "folder-input": FolderInput,
   "image-plus": ImagePlus,
   archive: Archive,
+  "archive-restore": ArchiveRestore,
+  copy: Copy,
+  folder: Folder,
+  "panel-left": PanelLeft,
   "arrow-down": ArrowDown,
   "arrow-up": ArrowUp,
   bookmark: Bookmark,
