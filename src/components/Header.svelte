@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { Keys, NoteLink, NoteMeta, StatusDef } from "../lib/api";
+  // Where you are (back, forward and a breadcrumb) and what you can do with
+  // the window's note (pin it, or the note menu). A note's status, tags,
+  // ticket and links live in its properties row, not here.
+  import type { Keys, NoteMeta, VaultDef } from "../lib/api";
   import Icon from "./Icon.svelte";
-  import StatusIcon from "./StatusIcon.svelte";
   import { formatKey } from "../lib/keys";
   import { weekday } from "../lib/text";
   import { anchorOf, type Anchor } from "../lib/popup";
@@ -11,54 +13,28 @@
     dirty: boolean;
     canBack: boolean;
     canForward: boolean;
-    /** The note's links (the primary one first, if it has one). */
-    links: NoteLink[];
     keys: Keys;
-    statuses: StatusDef[];
-    onStatus: () => void;
-    onTags: () => void;
+    vaults: VaultDef[];
     onBack: () => void;
     onForward: () => void;
-    onPrimary: () => void;
-    /** The Links panel shows this note's links. */
-    linksOn: boolean;
-    onLinks: () => void;
-    onSwitcher: () => void;
     /** The current note is open in a pinned window. */
     pinned: boolean;
     onPin: () => void;
-    onArchive: () => void;
-    onImage: () => void;
     /** Open the note menu beside the … button. */
     onActions: (anchor: Anchor) => void;
   }
-  let {
-    meta,
-    dirty,
-    canBack,
-    canForward,
-    links,
-    keys,
-    statuses,
-    onStatus,
-    onTags,
-    onBack,
-    onForward,
-    onPrimary,
-    linksOn,
-    onLinks,
-    onSwitcher,
-    pinned,
-    onPin,
-    onArchive,
-    onImage,
-    onActions,
-  }: Props = $props();
+  let { meta, dirty, canBack, canForward, keys, vaults, onBack, onForward, pinned, onPin, onActions }: Props = $props();
 
   const pinKeys = $derived(keys.pinNote.split(/\s+/).map(formatKey).join(" then "));
-  const primary = $derived(links.find((l) => l.primary) ?? null);
-  /** "Open PROJ-123" for a recognised link, else its site. */
-  const primaryName = $derived(primary ? (primary.rule || primary.key ? primary.label : primary.domain) : "");
+  const KIND = { daily: "Daily", ticket: "Tickets", note: "Notes" } as const;
+  const crumbs = $derived.by(() => {
+    if (!meta) return [];
+    const out: string[] = [];
+    if (vaults.length > 1) out.push(vaults.find((v) => v.id === meta.vault)?.name ?? meta.vault);
+    if (meta.archived) out.push("Archive");
+    out.push(KIND[meta.kind]);
+    return out;
+  });
 </script>
 
 <header class="header">
@@ -74,9 +50,10 @@
     >
   </div>
 
-  <button class="title" onclick={onSwitcher} title="Switch note ({formatKey(keys.quickSwitcher)})">
+  <nav class="title" aria-label="Breadcrumb">
+    {#each crumbs as c}<span class="crumb">{c}</span><span class="slash" aria-hidden="true">/</span>{/each}
     {#if meta}
-      <span class="main" class:archived={meta.archived}>{meta.title}</span>
+      <span class="main" class:archived={meta.archived} aria-current="page">{meta.title}</span>
       {#if meta.kind === "ticket" && meta.label}
         <span class="sub">{meta.label}</span>
       {:else if meta.kind === "daily" && meta.date}
@@ -85,42 +62,11 @@
       {#if meta.archived}<span class="tag">archived</span>{/if}
     {/if}
     <span class="dot" class:visible={dirty} title="Unsaved changes"></span>
-  </button>
+  </nav>
 
-  <div class="actions">
-    {#if meta && meta.kind !== "daily"}
-      <button class="chip" onclick={onStatus} title="Set status ({formatKey(keys.setStatus)})">
-        {#if meta.status}<StatusIcon status={meta.status} {statuses} label />{:else}<span class="nostatus"
-            ><Icon name="circle-dashed" size={14} />status</span
-          >{/if}
-      </button>
-    {/if}
-    {#if meta && meta.kind !== "daily"}
+  {#if meta}
+    <div class="actions">
       <button
-        class="action"
-        class:icon={!meta.tags.length}
-        onclick={onTags}
-        title="Tags ({formatKey(keys.setTags)})"
-        aria-label="Tags"
-      >
-        <Icon name={meta.tags.length > 1 ? "tags" : "tag"} size={15} />{#if meta.tags.length}<span class="count">{meta.tags.length}</span>{/if}
-      </button>
-    {/if}
-    {#if primary}
-      <button class="action primary" onclick={onPrimary} title="Open {primary.label} — {primary.url} ({formatKey(keys.openTicket)})" aria-label="Open {primaryName}">
-        <Icon name={primary.rule?.icon ?? "external-link"} size={15} /><span class="pname">{primaryName}</span>
-      </button>
-    {/if}
-    {#if meta}
-      <button class="action" class:on={linksOn} onclick={onLinks} title="This note's links ({formatKey(keys.linksPanel)})" aria-label="Links ({links.length})" aria-pressed={linksOn}>
-        <Icon name="link" size={15} /><span>Links ({links.length})</span>
-      </button>
-      <button class="action icon" onclick={onImage} title="Insert image (or paste / drop an image)" aria-label="Insert image">
-        <Icon name="image-plus" size={15} />
-      </button>
-      <span class="divider"></span>
-      <button
-        class="action icon"
         class:on={pinned}
         onclick={onPin}
         title="{pinned ? 'Unpin' : 'Pin beside your work'} ({pinKeys})"
@@ -129,17 +75,11 @@
       >
         <Icon name={pinned ? "pin-off" : "pin"} size={15} />
       </button>
-      <button
-        class="action icon"
-        onclick={onArchive}
-        title="{meta.archived ? 'Unarchive' : 'Archive'} ({formatKey(keys.archive)})"
-        aria-label={meta.archived ? "Unarchive" : "Archive"}
-      >
-        <Icon name="archive" size={15} />
+      <button onclick={(e) => onActions(anchorOf(e.currentTarget))} title="Note menu" aria-label="Note menu" aria-haspopup="menu">
+        <Icon name="ellipsis" size={15} />
       </button>
-      <button class="action icon" onclick={(e) => onActions(anchorOf(e.currentTarget))} title="Note menu" aria-label="Note menu"><Icon name="ellipsis" size={15} /></button>
-    {/if}
-  </div>
+    </div>
+  {/if}
 </header>
 
 <style>
@@ -154,17 +94,22 @@
     user-select: none;
     flex-shrink: 0;
   }
-  .nav {
+  .nav,
+  .actions {
     display: flex;
     gap: 2px;
   }
   button {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 26px;
+    padding: 0;
     font: inherit;
     color: var(--fg-muted);
     background: transparent;
     border: 1px solid transparent;
     border-radius: 5px;
-    padding: 2px 8px;
     cursor: pointer;
   }
   button:hover:not(:disabled) {
@@ -175,23 +120,28 @@
     opacity: 0.35;
     cursor: default;
   }
-  .nav button {
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
+  button.on {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
   .title {
     flex: 1;
     min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: 10px;
-    text-align: left;
+    gap: 7px;
+    padding: 0 4px;
     color: var(--fg);
     overflow: hidden;
     white-space: nowrap;
+  }
+  .crumb,
+  .slash {
+    color: var(--fg-muted);
+    font-size: 12.5px;
+  }
+  .slash {
+    opacity: 0.6;
   }
   .main {
     font-weight: 600;
@@ -222,55 +172,5 @@
   }
   .dot.visible {
     visibility: visible;
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .action {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    height: 26px;
-    padding: 0 8px;
-  }
-  .action.icon {
-    width: 28px;
-    padding: 0;
-    justify-content: center;
-  }
-  .action.on {
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    height: 26px;
-    margin-right: 2px;
-  }
-  .divider {
-    width: 1px;
-    height: 16px;
-    margin: 0 4px;
-    background: var(--border);
-  }
-  .nostatus {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 12px;
-    color: var(--fg-muted);
-  }
-  .count {
-    color: var(--fg-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .pname {
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

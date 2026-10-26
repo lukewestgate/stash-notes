@@ -391,7 +391,7 @@
       },
       links: () => {
         const p = noteLinks.find((l) => l.primary);
-        return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
+        return { count: noteLinks.length, primary: p ? { label: p.rule || p.key ? p.label : p.domain, icon: p.rule?.icon ?? "external-link" } : null };
       },
       showEmpty: () => !!meta && meta.kind !== "daily",
     };

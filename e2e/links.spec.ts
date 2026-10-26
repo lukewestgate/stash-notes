@@ -31,13 +31,13 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("collects pasted and typed links without setup, leaving code out", async ({ page }) => {
-  const header = page.getByRole("button", { name: /^Links \(\d+\)$/ });
-  await expect(header).toHaveText("Links (0)");
-  await header.click();
+  const count = page.locator(".cm-properties").getByRole("button", { name: /^\d+ links?$/ });
+  await expect(count).toHaveCount(0);
+  await page.keyboard.press("Control+Shift+L");
   const panel = page.getByRole("complementary", { name: "Links" });
   await expect(panel.getByText("Links you paste into this note appear here.")).toBeVisible();
   await setDocument(page, "# Links test\n\nWatch https://www.youtube.com/watch?v=abc123 and [the plan](https://docs.example.com/plan).\n\n`https://code.example.com/x`\n\nAgain: https://www.youtube.com/watch?v=abc123\n");
-  await expect(header).toHaveText("Links (2)");
+  await expect(count).toHaveText("2 links");
   const rows = panel.getByRole("listitem");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText("https://www.youtube.com/watch?v=abc123");
@@ -93,13 +93,13 @@ test("a rule's paste format keeps the destination, and undo restores the text", 
   // Several links with prose stay as pasted.
   await paste(page, "see https://yourco.atlassian.net/browse/PROJ-9 and https://example.com/a");
   await expect.poll(() => doc(page)).toContain("see https://yourco.atlassian.net/browse/PROJ-9 and https://example.com/a");
-  await expect(page.getByRole("button", { name: /^Links \(\d+\)$/ })).toHaveText("Links (2)");
+  await expect(page.locator(".cm-properties").getByRole("button", { name: "2 links" })).toBeVisible();
 });
 
 test("a primary link opens with Ctrl+J, and changing it keeps the old one attached", async ({ page }) => {
   await setDocument(page, "---\nprimary_link: https://example.com/one\n---\n# Links test\n");
   await expect(page.getByRole("button", { name: "Open example.com" })).toBeVisible();
-  await page.getByRole("button", { name: /^Links \(\d+\)$/ }).click();
+  await page.locator(".cm-properties").getByRole("button", { name: "1 link" }).dispatchEvent("mousedown");
   const panel = page.getByRole("complementary", { name: "Links" });
   await panel.getByRole("button", { name: "Add link" }).first().click();
   await page.getByRole("dialog").getByRole("textbox").fill("https://example.com/two");

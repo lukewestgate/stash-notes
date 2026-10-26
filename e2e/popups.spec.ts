@@ -57,7 +57,7 @@ test("the configured switcher shortcut also closes it", async ({ page }) => {
     settings.keys.quickSwitcher = "Ctrl+Shift+K";
     await api.setSettings(settings);
   });
-  await expect(page.locator(".header .title")).toHaveAttribute("title", "Switch note (Ctrl+Shift+K)");
+  await expect(page.getByRole("button", { name: /^Search or create/ })).toHaveAttribute("title", "Search or create (Ctrl+Shift+K)");
   await page.keyboard.press("Control+Shift+k");
   await expect(page.getByRole("dialog", { name: "Quick switcher", exact: true })).toBeVisible();
   await page.keyboard.press("Control+Shift+k");

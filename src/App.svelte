@@ -1418,7 +1418,7 @@
       onLinks: () => toggleLinks("note", false),
       links: () => {
         const p = noteLinks.find((l) => l.primary);
-        return { count: noteLinks.length, primary: p ? { label: p.label, icon: p.rule?.icon ?? "external-link" } : null };
+        return { count: noteLinks.length, primary: p ? { label: p.rule || p.key ? p.label : p.domain, icon: p.rule?.icon ?? "external-link" } : null };
       },
       showEmpty: () => !!meta && meta.kind !== "daily",
     };
@@ -1565,22 +1565,13 @@
       {dirty}
       canBack={nav.canBack}
       canForward={nav.canForward}
-      links={noteLinks}
       keys={settings.keys}
-      statuses={settings.statuses}
-      onStatus={() => pickStatus()}
-      onTags={() => pickTags()}
+      vaults={settings.vaults}
       onBack={back}
       onForward={forward}
-      onPrimary={openPrimary}
-      linksOn={linksOpen && linksScope === "note"}
-      onLinks={() => toggleLinks("note")}
-      onSwitcher={openSwitcher}
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
-      onPin={togglePin}
-      onArchive={toggleArchive}
+      onPin={() => currentPath && pinPath(currentPath)}
       onActions={(anchor) => openNoteMenu(meta, anchor)}
-      onImage={() => pickImages(view, { path: () => currentPath, imageError: (message) => toaster.show(message, "error") })}
     />
   {/if}
 

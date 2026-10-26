@@ -224,7 +224,10 @@ class PropertiesWidget extends WidgetType {
       divider.className = "cm-prop-divider";
       row.appendChild(divider);
     }
-    if (links?.primary) button("cm-prop", links.primary.label, `Open ${links.primary.label}`, () => hooks?.onPrimary(), links.primary.icon);
+    if (links?.primary) {
+      const b = button("cm-prop", links.primary.label, `Open ${links.primary.label}`, () => hooks?.onPrimary(), links.primary.icon);
+      b.setAttribute("aria-label", `Open ${links.primary.label}`);
+    }
     if (links?.count) button("cm-prop", `${links.count} ${links.count === 1 ? "link" : "links"}`, "This note's links", () => hooks?.onLinks(), "link");
     button("cm-prop cm-prop-add", "Add", "Add a tag or a link", (a) => hooks?.onAdd(a), "plus");
     if (this.info.aliases.length) {
