@@ -145,6 +145,37 @@ button:disabled {
   cursor: default;
 }
 
+/* ---- popups (lib/popup.ts) ----
+   Opened with a key: centered over a dimmed window. Opened from an element
+   or a right-click: beside it, with nothing dimmed. */
+
+.popup-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  background: var(--scrim);
+  z-index: 25;
+}
+.popup-backdrop.anchored {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+.popup-panel {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  outline: none;
+}
+.popup-backdrop.anchored .popup-panel {
+  border-radius: 8px;
+}
+
 /* ---- editor ---- */
 
 .cm-editor {

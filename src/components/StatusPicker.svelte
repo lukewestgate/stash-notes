@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import { dismissOnBackdrop } from "../lib/popup";
+  import { dismissOnBackdrop, placeAt, type Anchor } from "../lib/popup";
   import { onMount } from "svelte";
   import type { StatusDef } from "../lib/api";
   import Icon from "./Icon.svelte";
@@ -12,8 +12,10 @@
     title: string;
     onChoose: (status: string | null) => void;
     onClose: () => void;
+    /** Open beside this (e.g. the status chip) instead of centered. */
+    anchor?: Anchor | null;
   }
-  let { statuses, current, title, onChoose, onClose }: Props = $props();
+  let { statuses, current, title, onChoose, onClose, anchor = null }: Props = $props();
 
   let filter = $state("");
   let sel = $state(0);
@@ -49,8 +51,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
-  <div class="picker" in:pop role="dialog" aria-label={title}>
+<div class="popup-backdrop" class:anchored={!!anchor} role="presentation" in:dim use:dismissOnBackdrop={onClose}>
+  <div class="picker popup-panel" use:placeAt={anchor} in:pop role="dialog" aria-label={title}>
     <input bind:this={input} bind:value={filter} oninput={() => (sel = 0)} onkeydown={keydown} placeholder={title} spellcheck="false" />
     {#each items as item, i (item.label)}
       <button class="row" class:selected={i === sel} onmousemove={() => (sel = i)} onclick={() => onChoose(item.name)}>
@@ -64,22 +66,8 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 14vh;
-    background: var(--scrim);
-    z-index: 25;
-  }
   .picker {
     width: min(300px, calc(100vw - 32px));
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow);
     padding: 6px;
   }
   input {

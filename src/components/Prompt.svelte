@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import { dismissOnBackdrop } from "../lib/popup";
+  import { dismissOnBackdrop, placeAt, type Anchor } from "../lib/popup";
   import { onMount } from "svelte";
 
   interface Props {
@@ -9,8 +9,10 @@
     placeholder?: string;
     onSubmit: (value: string) => void;
     onClose: () => void;
+    /** Open beside this (e.g. the button that opened it) instead of centered. */
+    anchor?: Anchor | null;
   }
-  let { title, value, placeholder = "", onSubmit, onClose }: Props = $props();
+  let { title, value, placeholder = "", onSubmit, onClose, anchor = null }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let text = $state(value);
@@ -29,8 +31,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
-  <div class="prompt" in:pop role="dialog" aria-label={title}>
+<div class="popup-backdrop" class:anchored={!!anchor} role="presentation" in:dim use:dismissOnBackdrop={onClose}>
+  <div class="prompt popup-panel" class:narrow={!!anchor} use:placeAt={anchor} in:pop role="dialog" aria-label={title}>
     <label>
       <span>{title}</span>
       <input bind:this={input} bind:value={text} {placeholder} onkeydown={keydown} spellcheck="false" autocomplete="off" />
@@ -40,23 +42,12 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 14vh;
-    background: var(--scrim);
-    z-index: 25;
-  }
   .prompt {
     width: min(520px, calc(100vw - 32px));
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow);
     padding: 12px 14px;
+  }
+  .prompt.narrow {
+    width: min(360px, calc(100vw - 16px));
   }
   label {
     display: flex;

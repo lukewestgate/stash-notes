@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dim, pop } from "../lib/motion";
-  import { dismissOnBackdrop } from "../lib/popup";
+  import { dismissOnBackdrop, placeAt, type Anchor } from "../lib/popup";
   import { onMount } from "svelte";
 
   interface Props {
@@ -9,8 +9,10 @@
     items: { label: string; detail?: string; color?: string }[];
     onChoose: (index: number) => void;
     onClose: () => void;
+    /** Open beside this (e.g. the button that opened it) instead of centered. */
+    anchor?: Anchor | null;
   }
-  let { title, items, onChoose, onClose }: Props = $props();
+  let { title, items, onChoose, onClose, anchor = null }: Props = $props();
 
   let sel = $state(0);
   let box: HTMLDivElement;
@@ -34,8 +36,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
-  <div class="picker" in:pop role="listbox" aria-label={title} tabindex="-1" bind:this={box} onkeydown={keydown}>
+<div class="popup-backdrop" class:anchored={!!anchor} role="presentation" in:dim use:dismissOnBackdrop={onClose}>
+  <div class="picker popup-panel" class:narrow={!!anchor} use:placeAt={anchor} in:pop role="listbox" aria-label={title} tabindex="-1" bind:this={box} onkeydown={keydown}>
     <div class="title">{title}</div>
     {#each items as item, i}
       <button
@@ -56,24 +58,12 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 14vh;
-    background: var(--scrim);
-    z-index: 25;
-  }
   .picker {
     width: min(560px, calc(100vw - 32px));
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow);
     padding: 6px;
-    outline: none;
+  }
+  .picker.narrow {
+    width: min(300px, calc(100vw - 16px));
   }
   .title {
     font-size: 12px;

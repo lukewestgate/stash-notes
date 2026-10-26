@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Keys, NoteMeta, SearchHit, StatusDef, VaultDef } from "../lib/api";
   import { formatKey } from "../lib/keys";
+  import { anchorOf, type Anchor } from "../lib/popup";
   import { isoDate, relTime } from "../lib/text";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
@@ -8,8 +9,8 @@
   interface Props {
     vaults: VaultDef[];
     currentVault: string;
-    /** Open the vault switcher. */
-    onVault: () => void;
+    /** Open the vault switcher beside the vault row. */
+    onVault: (anchor: Anchor) => void;
     active: SearchHit[];
     more: number;
     recent: SearchHit[];
@@ -239,7 +240,7 @@
       {@const v = vaults.find((x) => x.id === currentVault) ?? vaults[0]}
       <button
         class="row nav vault"
-        onclick={onVault}
+        onclick={(e) => onVault(anchorOf(e.currentTarget))}
         title="Vault: {v.name} — switch ({formatKey(keys.switchVault)})"
         tabindex="-1"
         style:--vc="var(--c-{v.color})"

@@ -5,7 +5,7 @@
   import type { TagCount } from "../lib/api";
   import { normalizeTag } from "../lib/text";
   import { dim, pop } from "../lib/motion";
-  import { dismissOnBackdrop } from "../lib/popup";
+  import { dismissOnBackdrop, placeAt, type Anchor } from "../lib/popup";
   import Icon from "./Icon.svelte";
   import TagChip from "./TagChip.svelte";
 
@@ -18,8 +18,10 @@
     colors: Record<string, string>;
     onChange: (tags: string[]) => void;
     onClose: () => void;
+    /** Open beside this (e.g. the tag chips) instead of centered. */
+    anchor?: Anchor | null;
   }
-  let { title, tags, all, colors, onChange, onClose }: Props = $props();
+  let { title, tags, all, colors, onChange, onClose, anchor = null }: Props = $props();
 
   // The picker owns the list while it's open; the note catches up as each change saves.
   // svelte-ignore state_referenced_locally
@@ -81,8 +83,8 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" in:dim use:dismissOnBackdrop={onClose}>
-  <div class="picker" role="dialog" aria-label={title} in:pop>
+<div class="popup-backdrop" class:anchored={!!anchor} role="presentation" in:dim use:dismissOnBackdrop={onClose}>
+  <div class="picker popup-panel" use:placeAt={anchor} role="dialog" aria-label={title} in:pop>
     <div class="title">{title}</div>
     <div class="field">
       {#each current as t (t)}
@@ -124,22 +126,8 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 14vh;
-    background: var(--scrim);
-    z-index: 25;
-  }
   .picker {
     width: min(380px, calc(100vw - 32px));
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow);
     padding: 8px;
   }
   .title {
