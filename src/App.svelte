@@ -1496,23 +1496,13 @@
       {dirty}
       canBack={nav.canBack}
       canForward={nav.canForward}
-      ticket={ticketKey ? systemForKey(noteVault(), ticketKey) : null}
-      linkTypes={noteVault()?.links ?? []}
       keys={settings.keys}
-      statuses={settings.statuses}
-      onStatus={() => pickStatus()}
-      onTags={() => pickTags()}
+      vaults={settings.vaults}
       onBack={back}
       onForward={forward}
-      onTicket={openTicket}
-      onLink={() => openLink()}
-      onAddLink={() => addLink()}
-      onSwitcher={openSwitcher}
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
-      onPin={togglePin}
-      onArchive={toggleArchive}
+      onPin={() => currentPath && pinPath(currentPath)}
       onActions={(anchor) => openNoteMenu(meta, anchor)}
-      onImage={() => pickImages(view, { path: () => currentPath, imageError: (message) => toaster.show(message, "error") })}
     />
   {/if}
 

@@ -11,7 +11,12 @@ async function setDocument(page: Page, text: string) {
 
 async function insertFile(page: Page, name = "Screenshot.png", buffer = png) {
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Insert image", exact: true }).click();
+  if (page.url().includes("pin=")) await page.getByRole("button", { name: "Insert image", exact: true }).click();
+  else {
+    // The main window has it in the note menu.
+    await page.getByRole("button", { name: "Note menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Insert image…", exact: true }).click();
+  }
   await (await chooser).setFiles({ name, mimeType: "image/png", buffer });
 }
 
