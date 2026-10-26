@@ -658,6 +658,8 @@ export function handle(cmd: string, a: A): unknown {
         .map((p) => hit(p));
       return { active: active.slice(0, 8), more: Math.max(0, active.length - 8), recent };
     }
+    case "note_hits":
+      return (a.paths as string[]).filter((p) => notes.has(p)).map((p) => hit(p));
     case "set_ui":
       return;
     case "backlinks": {

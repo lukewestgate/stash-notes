@@ -159,6 +159,7 @@ pub fn run() {
             commands::search,
             commands::list_notes,
             commands::sidebar,
+            commands::note_hits,
             commands::set_ui,
             commands::backlinks,
             commands::set_status,

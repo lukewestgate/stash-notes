@@ -11,6 +11,8 @@
     currentVault: string;
     /** Open the vault switcher beside the vault row. */
     onVault: (anchor: Anchor) => void;
+    /** Notes open in pinned windows (any vault). */
+    pinned: SearchHit[];
     active: SearchHit[];
     more: number;
     recent: SearchHit[];
@@ -31,6 +33,10 @@
     onToday: () => void;
     onNotes: (query?: string) => void;
     onSettings: () => void;
+    /** Keyboard shortcuts (the ? button). */
+    onHelp: () => void;
+    /** The search box: opens Ctrl+K. */
+    onSearch: () => void;
     onOpen: (path: string) => void;
     /** Open the note menu for a row, at the pointer or beside its … button. */
     onMenu: (hit: SearchHit, anchor: Anchor) => void;
@@ -42,6 +48,7 @@
     vaults,
     currentVault,
     onVault,
+    pinned,
     active,
     more,
     recent,
@@ -58,6 +65,8 @@
     onToday,
     onNotes,
     onSettings,
+    onHelp,
+    onSearch,
     onOpen,
     onMenu,
     onCurrentMenu,
@@ -72,22 +81,17 @@
     | { kind: "note"; hit: SearchHit };
 
   const isToday = $derived(open?.kind === "daily" && open.date === isoDate());
-  /** The open note, when no other row stands for it: shown under "Open" so it's clear where you are. */
-  const openHit = $derived.by<SearchHit | null>(() => {
-    if (!open || isToday) return null;
-    const listed = active.some((h) => h.path === open.path) || (expanded && recent.some((h) => h.path === open.path));
-    if (listed) return null;
-    const { path, vault, kind, title, label, key, status, tags, archived } = open;
-    return { path, vault, kind, title, label, key, status, tags, archived, mtime: 0, snippet: null, score: 0 };
-  });
+  /** Recent notes not already listed under Pinned. */
+  const recentShown = $derived(recent.filter((h) => !pinned.some((p) => p.path === h.path)));
+  const vault = $derived(vaults.find((x) => x.id === currentVault) ?? vaults[0]);
 
   const items = $derived<Item[]>([
     { kind: "today" },
     { kind: "notes" },
-    ...(openHit ? [{ kind: "note" as const, hit: openHit }] : []),
+    ...pinned.map((hit) => ({ kind: "note" as const, hit })),
     ...active.map((hit) => ({ kind: "note" as const, hit })),
     ...(more > 0 ? [{ kind: "more" as const }] : []),
-    ...(expanded ? recent.map((hit) => ({ kind: "note" as const, hit })) : []),
+    ...(expanded ? recentShown.map((hit) => ({ kind: "note" as const, hit })) : []),
     { kind: "settings" },
   ]);
 
@@ -187,7 +191,7 @@
   </button>
 {/snippet}
 
-{#snippet noteRow(it: Item & { kind: "note" })}
+{#snippet noteRow(it: Item & { kind: "note" }, isPinned = false)}
   {@const i = indexOf(it)}
   <div class="note-row">
   <button
@@ -204,7 +208,9 @@
     }}
   >
     <span class="ico sym">
-      {#if it.hit.status}<StatusIcon status={it.hit.status} {statuses} />{:else}<span class="dot"><Icon name="file-text" size={14} /></span>{/if}
+      {#if isPinned}<span class="dot"><Icon name="pin" size={14} /></span>
+      {:else if it.hit.status}<StatusIcon status={it.hit.status} {statuses} />
+      {:else}<span class="dot"><Icon name="file-text" size={14} /></span>{/if}
     </span>
     {#if expanded}
       <span class="label">
@@ -231,34 +237,55 @@
   aria-label="Sidebar"
 >
   <div class="top">
-    <button class="row nav menu" onclick={onToggle} title="{expanded ? 'Collapse' : 'Expand'} sidebar ({formatKey(keys.toggleSidebar)})" tabindex="-1">
-      <span class="ico">{@render icon("menu")}</span>
-      {#if expanded}<span class="label brand">Stash Notes</span>{/if}
-    </button>
-    {#if vaults.length > 1}
-      {@const v = vaults.find((x) => x.id === currentVault) ?? vaults[0]}
+    <div class="head">
+      {#if expanded}
+        {#if vaults.length > 1}
+          <button
+            class="row nav vault"
+            onclick={(e) => onVault(anchorOf(e.currentTarget))}
+            title="Vault: {vault.name} — switch ({formatKey(keys.switchVault)})"
+            aria-haspopup="menu"
+            tabindex="-1"
+            style:--vc="var(--c-{vault.color})"
+          >
+            <span class="ico"><span class="badge">{vault.name.slice(0, 1).toUpperCase()}</span></span>
+            <span class="label vname">{vault.name}</span>
+            <span class="chev"><Icon name="chevron-down" size={14} /></span>
+          </button>
+        {:else}
+          <span class="row brand">Stash Notes</span>
+        {/if}
+      {/if}
+      <button class="row nav menu" onclick={onToggle} title="{expanded ? 'Collapse' : 'Expand'} sidebar ({formatKey(keys.toggleSidebar)})" tabindex="-1">
+        <span class="ico"><Icon name="panel-left" size={17} /></span>
+      </button>
+    </div>
+    {#if !expanded && vaults.length > 1}
       <button
         class="row nav vault"
-        onclick={(e) => onVault(anchorOf(e.currentTarget))}
-        title="Vault: {v.name} — switch ({formatKey(keys.switchVault)})"
+        onclick={(e) => onVault(anchorOf(e.currentTarget, "right"))}
+        title="Vault: {vault.name} — switch ({formatKey(keys.switchVault)})"
+        aria-haspopup="menu"
         tabindex="-1"
-        style:--vc="var(--c-{v.color})"
+        style:--vc="var(--c-{vault.color})"
       >
-        <span class="ico"><span class="badge">{v.name.slice(0, 1).toUpperCase()}</span></span>
-        {#if expanded}
-          <span class="label vname">{v.name}</span>
-          <span class="chev"><Icon name="chevron-down" size={14} /></span>
-        {/if}
+        <span class="ico"><span class="badge">{vault.name.slice(0, 1).toUpperCase()}</span></span>
       </button>
     {/if}
+    <button class="row search" onclick={onSearch} title="Search or create ({formatKey(keys.quickSwitcher)})" tabindex="-1">
+      <span class="ico"><Icon name="search" size={16} /></span>
+      {#if expanded}<span class="label">Search or create</span><span class="hint">{formatKey(keys.quickSwitcher)}</span>{/if}
+    </button>
     {@render row(items[0], "Today", "today", formatKey(keys.dailyNote), isToday)}
-    {@render row(items[1], "Notes", "notes", formatKey(keys.notesView), screen === "notes")}
+    {@render row(items[1], "All notes", "notes", formatKey(keys.notesView), screen === "notes")}
   </div>
 
   <div class="groups">
-    {#if openHit}
-      {#if expanded}<div class="group">Open</div>{:else}<div class="sep"></div>{/if}
-      {@render noteRow(items[2] as Item & { kind: "note" })}
+    {#if pinned.length}
+      {#if expanded}<div class="group">Pinned</div>{:else}<div class="sep"></div>{/if}
+      {#each items.filter((it) => it.kind === "note" && pinned.includes(it.hit)) as it (it.kind === "note" ? it.hit.path : "")}
+        {@render noteRow(it as Item & { kind: "note" }, true)}
+      {/each}
     {/if}
     {#if active.length}
       {#if expanded}<div class="group">Active</div>{:else}<div class="sep"></div>{/if}
@@ -269,13 +296,13 @@
         {@const it = items.find((x) => x.kind === "more")!}
         <button class="row more" data-i={indexOf(it)} tabindex={focused === indexOf(it) ? 0 : -1} onclick={() => run(it)} title="Show all active notes" onfocus={() => (focused = indexOf(it))}>
           <span class="ico">+{more}</span>
-          {#if expanded}<span class="label">more</span>{/if}
+          {#if expanded}<span class="label">more active</span>{/if}
         </button>
       {/if}
     {/if}
-    {#if expanded && recent.length}
+    {#if expanded && recentShown.length}
       <div class="group">Recent</div>
-      {#each items.filter((it) => it.kind === "note" && recent.includes(it.hit)) as it (it.kind === "note" ? it.hit.path : "")}
+      {#each items.filter((it) => it.kind === "note" && recentShown.includes(it.hit)) as it (it.kind === "note" ? it.hit.path : "")}
         {@render noteRow(it as Item & { kind: "note" })}
       {/each}
     {/if}
@@ -283,6 +310,11 @@
 
   <div class="bottom">
     {@render row(items[items.length - 1], "Settings", "settings", formatKey(keys.openSettings), screen === "settings")}
+    {#if expanded}
+      <button class="row nav help" onclick={onHelp} title="Keyboard shortcuts ({formatKey(keys.help)})" aria-label="Keyboard shortcuts" tabindex="-1">
+        <span class="ico"><Icon name="circle-question-mark" size={17} /></span>
+      </button>
+    {/if}
   </div>
 
   {#if expanded}
@@ -324,7 +356,39 @@
     gap: 1px;
   }
   .bottom {
+    flex-direction: row;
     border-top: 1px solid var(--border);
+  }
+  .expanded .bottom > .row:first-child {
+    flex: 1;
+  }
+  .head {
+    display: flex;
+    gap: 2px;
+  }
+  .head .vault,
+  .head .brand {
+    flex: 1;
+    min-width: 0;
+  }
+  .expanded .head .menu,
+  .help {
+    flex: 0 0 30px;
+    padding: 0;
+    justify-content: center;
+  }
+  .search {
+    margin: 4px 0 6px;
+    color: var(--fg-muted);
+  }
+  .expanded .search {
+    height: 30px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .expanded .search:hover {
+    border-color: var(--fg-muted);
   }
   .groups {
     flex: 1;
@@ -425,6 +489,10 @@
   .brand {
     font-weight: 600;
     color: var(--fg);
+    cursor: default;
+  }
+  .brand:hover {
+    background: transparent;
   }
   .badge {
     display: grid;
