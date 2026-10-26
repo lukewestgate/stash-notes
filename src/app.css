@@ -318,17 +318,17 @@ button:disabled {
 }
 .cm-prop-add {
   color: var(--fg-muted);
+  background: transparent;
   border-style: dashed;
-  padding: 1px 6px;
+}
+.cm-prop-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border);
 }
 .cm-prop-text {
   color: var(--fg-muted);
-}
-.cm-prop-hint {
-  margin-left: auto;
-  color: var(--fg-muted);
-  opacity: 0.6;
-  font-size: 11px;
 }
 .cm-meta {
   color: var(--fg-muted);

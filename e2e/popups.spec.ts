@@ -122,3 +122,23 @@ test("outside dismissal returns focus to a pinned note", async ({ page }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".cm-content")).toBeFocused();
 });
+
+test("a new note has a properties row whose pickers open beside it", async ({ page }) => {
+  const row = page.locator(".cm-properties");
+  await expect(row).toBeVisible();
+  const chip = row.getByRole("button", { name: "status", exact: true });
+  const at = (await chip.boundingBox())!;
+  await chip.dispatchEvent("mousedown");
+  const picker = page.getByRole("dialog", { name: "Status for Popup test" });
+  await expect.poll(async () => Math.round((await picker.boundingBox())!.x - at.x)).toBe(0);
+  expect((await picker.boundingBox())!.y).toBeGreaterThan(at.y + at.height);
+  await page.keyboard.press("2");
+  await expect(row.getByRole("button", { name: "open", exact: true })).toBeVisible();
+
+  await row.getByRole("button", { name: "Add", exact: true }).dispatchEvent("mousedown");
+  const tags = page.getByRole("dialog", { name: "Tags for Popup test" });
+  await tags.getByRole("textbox").fill("demo");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(row.getByRole("button", { name: "#demo", exact: true })).toBeVisible();
+});

@@ -19,7 +19,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import { applyAppearance } from "./lib/appearance";
-  import { api, on, onWindowFocus, type Keys, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
+  import { api, on, onWindowFocus, type Keys, type LinkType, type NoteMeta, type Opened, type SearchHit, type Settings, type TagCount } from "./lib/api";
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import type { Anchor } from "./lib/popup";
@@ -493,7 +493,7 @@
   }
 
   /** Open one of the note's attached links (a picker when there are several). */
-  async function openLink() {
+  async function openLink(anchor: Anchor | null = null) {
     if (!settings || !meta) return;
     await flush();
     const v = noteVault();
@@ -506,6 +506,7 @@
       overlay = {
         type: "picker",
         title: "Open link",
+        anchor,
         items: items.map((l) => ({ label: `${l.type.name} · ${l.item}`, detail: l.url })),
         choose: (i) => {
           closeOverlay();
@@ -515,11 +516,14 @@
     }
   }
 
-  /** Ask for a link to attach: its URL picks the link type (or a picker, for a bare id). */
-  async function addLink() {
+  /**
+   * Ask for a link to attach: its URL picks the link type (or a picker, for a bare id).
+   * `only`: attach as this link type (from + Add › Gerrit change…).
+   */
+  async function addLink(anchor: Anchor | null = null, only: LinkType | null = null) {
     if (!settings || !currentPath || !meta) return;
     const v = noteVault();
-    const types = v?.links ?? [];
+    const types = only ? [only] : (v?.links ?? []);
     if (!types.length) {
       toast("This vault has no link types — add one in Settings → Vaults");
       return;
@@ -530,12 +534,13 @@
       type: "prompt",
       title: `Add a link (${names}) — paste a URL${types.length === 1 ? " or type an id" : ""}`,
       placeholder: types.length === 1 ? `https://… or 12345` : "https://…",
-      value: linkTypeForUrl(clip, v) ? clip : "",
+      value: linkTypeForUrl(clip, v) && (!only || linkTypeForUrl(clip, v)?.field === only.field) ? clip : "",
+      anchor,
       submit: (value) => {
         closeOverlay();
         const text = value.trim();
         if (!text) return;
-        const type = linkTypeForUrl(text, v) ?? (types.length === 1 ? types[0] : null);
+        const type = (only ?? linkTypeForUrl(text, v)) ?? (types.length === 1 ? types[0] : null);
         if (type) attachLink(type.field, type.name, text, false);
         else
           overlay = {
@@ -548,6 +553,31 @@
             },
           };
       },
+    };
+  }
+
+  /** The properties row's + Add: tags, or a link of one of the vault's types. */
+  function addMenu(anchor: Anchor) {
+    if (!settings || !meta || meta.kind === "daily") return;
+    const types = noteVault()?.links ?? [];
+    if (!types.length) {
+      pickTags(undefined, undefined, undefined, anchor);
+      return;
+    }
+    overlay = {
+      type: "menu",
+      label: "Add to note",
+      anchor,
+      items: [
+        { label: "Tags…", icon: "tag", hint: formatKey(settings.keys.setTags), run: () => pickTags(undefined, undefined, undefined, anchor) },
+        "-",
+        ...types.map((t) => ({
+          label: `${t.name}…`,
+          icon: t.icon,
+          hint: types.length === 1 ? formatKey(settings!.keys.addLink) : undefined,
+          run: () => addLink(anchor, t),
+        })),
+      ],
     };
   }
 
@@ -1119,8 +1149,8 @@
     back,
     forward,
     openTicket,
-    openLink,
-    addLink,
+    openLink: () => openLink(),
+    addLink: () => addLink(),
     timestamp: insertTimestamp,
     backlinks: () => {
       backlinksOpen = !backlinksOpen;
@@ -1294,13 +1324,14 @@
     propertiesHooks.current = {
       statusView: (st) => statusInfo(st, settings?.statuses ?? []),
       onStatus: (anchor) => pickStatus(undefined, undefined, undefined, anchor),
-      onTags: (anchor) => pickTags(undefined, undefined, undefined, anchor),
+      onAdd: addMenu,
       onTag: showTag,
       tagColor: (t) => settings?.tagColors[t] ?? settings?.tagColors[t.split("/")[0]] ?? null,
       onTicket: openTicket,
       onLink: openLink,
       ticket: () => (ticketKey ? systemForKey(noteVault(), ticketKey) : null),
       linkTypes: () => noteVault()?.links ?? [],
+      showEmpty: () => !!meta && meta.kind !== "daily",
     };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
@@ -1442,8 +1473,8 @@
       onBack={back}
       onForward={forward}
       onTicket={openTicket}
-      onLink={openLink}
-      onAddLink={addLink}
+      onLink={() => openLink()}
+      onAddLink={() => addLink()}
       onSwitcher={openSwitcher}
       pinned={!!currentPath && pinnedPaths.includes(currentPath)}
       onPin={togglePin}
