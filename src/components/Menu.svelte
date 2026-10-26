@@ -52,7 +52,10 @@
 
   const buttons = (panel: HTMLElement | undefined) => [...(panel?.querySelectorAll<HTMLButtonElement>(":scope > button:not([aria-disabled='true'])") ?? [])];
 
-  onMount(() => buttons(main)[0]?.focus());
+  onMount(() => {
+    const list = buttons(main);
+    (list.find((b) => b.getAttribute("aria-checked") === "true") ?? list[0])?.focus();
+  });
 
   async function openSubmenu(i: number, el: HTMLElement, focus: boolean) {
     openSub = i;
@@ -156,7 +159,9 @@
           class="item"
           class:danger={it.danger}
           class:open={openSub === i}
-          role="menuitem"
+          class:checked={it.checked}
+          role={it.checked === undefined ? "menuitem" : "menuitemradio"}
+          aria-checked={it.checked === undefined ? undefined : it.checked}
           data-i={i}
           tabindex="-1"
           title={it.title}
@@ -168,7 +173,8 @@
         >
           {@render lead(it)}
           <span class="label">{it.label}</span>
-          {#if it.hint}<span class="hint">{it.hint}</span>{/if}
+          {#if it.checked}<span class="hint"><Icon name="check" size={14} /></span>
+          {:else if it.hint}<span class="hint">{it.hint}</span>{/if}
           {#if it.items}<span class="chev"><Icon name="chevron-right" size={14} /></span>{/if}
         </button>
       {/if}

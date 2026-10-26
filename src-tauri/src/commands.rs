@@ -1246,6 +1246,12 @@ pub fn sidebar(state: State<AppState>, vault: String) -> stash_core::Sidebar {
     state.index.read().unwrap().sidebar(&vault, &recents, &statuses, 8, 10)
 }
 
+/// Notes by path, for the sidebar's pinned notes.
+#[tauri::command]
+pub fn note_hits(state: State<AppState>, paths: Vec<String>) -> Vec<SearchHit> {
+    state.index.read().unwrap().hits(&paths)
+}
+
 #[tauri::command]
 pub fn read_clipboard(app: AppHandle) -> String {
     use tauri_plugin_clipboard_manager::ClipboardExt;

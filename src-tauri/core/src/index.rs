@@ -519,6 +519,11 @@ impl Index {
         }
     }
 
+    /// The listed notes, in order, skipping any that no longer exist (the sidebar's pinned notes).
+    pub fn hits(&self, paths: &[String]) -> Vec<SearchHit> {
+        paths.iter().filter_map(|p| self.notes.get(p)).map(|e| e.summary(None, 0)).collect()
+    }
+
     /// Notes that link to or mention `path`, most recently edited first.
     pub fn backlinks(&self, path: &str) -> Vec<SearchHit> {
         let Some(target) = self.notes.get(path) else {
@@ -816,6 +821,16 @@ mod tests {
             recents,
             statuses: STATUSES.get_or_init(status::default_statuses),
         }
+    }
+
+    #[test]
+    fn hits_by_path_keep_order_and_skip_missing() {
+        let i = idx();
+        let paths = ["notes/rollout-plan.md", "notes/gone.md", "tickets/PROJ-123.md"].map(String::from);
+        let hits = i.hits(&paths);
+        let got: Vec<_> = hits.iter().map(|h| h.path.as_str()).collect();
+        assert_eq!(got, ["notes/rollout-plan.md", "tickets/PROJ-123.md"]);
+        assert_eq!(hits[1].label.as_deref(), Some("Rollout date question"));
     }
 
     #[test]

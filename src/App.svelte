@@ -99,6 +99,8 @@
   let notesView = $state<NotesView>();
 
   let side = $state<{ active: SearchHit[]; more: number; recent: SearchHit[] }>({ active: [], more: 0, recent: [] });
+  /** The notes in `pinnedPaths`, for the sidebar's Pinned group. */
+  let pinnedHits = $state<SearchHit[]>([]);
   /** Thin rail by default; the hamburger (Ctrl+\\) expands it. Remembered. */
   let sideExpanded = $state(false);
   let sideWidth = $state(240);
@@ -343,10 +345,30 @@
     }
   }
 
+  /** Switch vault: a list from the keyboard, a dropdown from the sidebar's vault row. */
   function pickVault(anchor: Anchor | null = null) {
     const vs = settings?.vaults ?? [];
     if (vs.length < 2) {
       toast("Add another vault in Settings → Vaults to switch between them");
+      return;
+    }
+    if (anchor) {
+      overlay = {
+        type: "menu",
+        label: "Switch vault",
+        anchor,
+        items: [
+          ...vs.map((v) => ({
+            label: v.name,
+            badge: { text: v.name.slice(0, 1).toUpperCase(), color: v.color },
+            checked: v.id === currentVault,
+            run: () => v.id !== currentVault && switchVault(v.id),
+          })),
+          "-",
+          { label: "Open vault folder", icon: "folder", run: () => api.openVaultFolder(currentVault).catch(fail) },
+          { label: "Manage vaults…", icon: "settings", run: () => toggleSettings(true) },
+        ],
+      };
       return;
     }
     overlay = {
@@ -363,7 +385,7 @@
 
   async function refreshSidebar() {
     try {
-      side = await api.sidebar(currentVault);
+      [side, pinnedHits] = await Promise.all([api.sidebar(currentVault), api.noteHits(pinnedPaths)]);
     } catch {
       // keep the previous groups
     }
@@ -1054,13 +1076,14 @@
 
   // ---------- overlays ----------
 
-  function openSwitcher() {
+  /** Ctrl+K: search, or link the selected text. `search`: always search (the sidebar's box). */
+  function openSwitcher(search = false) {
     if (overlay?.type === "switcher") {
       closeOverlay();
       return;
     }
     const sel = view.state.selection.main;
-    if (!sel.empty) {
+    if (!sel.empty && !search && screen === "editor") {
       overlay = {
         type: "switcher",
         mode: "link",
@@ -1195,7 +1218,7 @@
 
   const actions: Record<keyof Keys, () => void> = {
     hide: () => {},
-    quickSwitcher: openSwitcher,
+    quickSwitcher: () => openSwitcher(),
     dailyNote: openDaily,
     followLink: followOrToggle,
     back,
@@ -1401,7 +1424,10 @@
     };
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("contextmenu", onContextMenu);
-    api.pinnedPaths().then((p) => (pinnedPaths = p), () => {});
+    api.pinnedPaths().then((p) => {
+      pinnedPaths = p;
+      refreshSidebar();
+    }, () => {});
 
     const unlisten: Promise<() => void>[] = [
       on<null>("summoned", onSummoned),
@@ -1413,7 +1439,10 @@
       on<NoteMeta>("note-created", noteCreated),
       // `::notes#tag` (from a pinned window's tag chip) opens the Notes view on that tag.
       on<string>("open-note", (p) => (p.startsWith(`${NOTES}#`) ? showTag(p.slice(NOTES.length + 1)) : navigate(p))),
-      on<string[]>("pins-changed", (p) => (pinnedPaths = p)),
+      on<string[]>("pins-changed", (p) => {
+        pinnedPaths = p;
+        refreshSidebar();
+      }),
       on<null>("open-settings", () => toggleSettings(true)),
       on<null>("index-ready", () => {
         indexing = false;
@@ -1501,6 +1530,7 @@
       vaults={settings.vaults}
       {currentVault}
       onVault={pickVault}
+      pinned={pinnedHits}
       active={side.active}
       more={side.more}
       recent={side.recent}
@@ -1519,6 +1549,8 @@
       linksOn={linksOpen && linksScope === "all"}
       onLinks={() => toggleLinks("all")}
       onSettings={() => toggleSettings()}
+      onHelp={() => (overlay = { type: "help" })}
+      onSearch={() => openSwitcher(true)}
       onOpen={(p) => navigate(p)}
       onMenu={openNoteMenu}
       onCurrentMenu={(anchor) => openNoteMenu(meta, anchor)}

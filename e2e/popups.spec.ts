@@ -143,3 +143,25 @@ test("a new note has a properties row whose pickers open beside it", async ({ pa
   await page.keyboard.press("Escape");
   await expect(row.getByRole("button", { name: "#demo", exact: true })).toBeVisible();
 });
+
+test("the sidebar's vault row opens a dropdown beside it, and its search box opens Ctrl+K", async ({ page }) => {
+  await page.getByTitle(/Expand sidebar/).click();
+  await page.locator(".sidebar .vault").click();
+  const menu = page.getByRole("menu", { name: "Switch vault" });
+  await expect(menu.getByRole("menuitemradio", { name: "Personal" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator(".popup-backdrop.anchored")).toBeVisible();
+  await menu.getByRole("menuitemradio", { name: "Work" }).click();
+  await expect(page.locator(".sidebar .vname")).toHaveText("Work");
+
+  await page.getByRole("button", { name: /^Search or create/ }).click();
+  await expect(page.getByRole("dialog", { name: "Quick switcher", exact: true })).toBeVisible();
+});
+
+test("pinned notes are listed in the sidebar", async ({ page }) => {
+  await page.getByTitle(/Expand sidebar/).click();
+  await expect(page.locator(".sidebar .group").filter({ hasText: "Pinned" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Note menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Pin beside your work/ }).click();
+  await expect(page.locator(".sidebar .group").filter({ hasText: "Pinned" })).toBeVisible();
+  await expect(page.locator(".sidebar button.note").filter({ hasText: "Popup test" })).toHaveCount(1);
+});

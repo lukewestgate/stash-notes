@@ -407,6 +407,8 @@ export const api = {
   listNotes: (query: string, includeDaily: boolean, includePutAway: boolean, sort: SortBy, vault: string) =>
     call<SearchResults>("list_notes", { query, includeDaily, includePutAway, sort, vault }),
   sidebar: (vault: string) => call<{ active: SearchHit[]; more: number; recent: SearchHit[] }>("sidebar", { vault }),
+  /** Notes by path (skipping missing ones): the sidebar's pinned notes. */
+  noteHits: (paths: string[]) => call<SearchHit[]>("note_hits", { paths }),
   setUi: (key: string, value: unknown) => call<void>("set_ui", { key, value }),
   backlinks: (path: string) => call<SearchHit[]>("backlinks", { path }),
   archivedNames: (vault: string) => call<string[]>("archived_names", { vault }),
