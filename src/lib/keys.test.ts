@@ -22,6 +22,7 @@ describe("keys", () => {
   it("formats for display", () => {
     expect(formatKey("ctrl+shift+b")).toBe("Ctrl+Shift+B");
     expect(formatKey("alt+left")).toBe("Alt+Left");
+    expect(formatKey("Alt+PageDown")).toBe("Alt+PgDn");
   });
 });
 

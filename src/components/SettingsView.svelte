@@ -67,6 +67,8 @@
     ["quickSwitcher", "Quick switcher"],
     ["dailyNote", "Today's daily note"],
     ["carryTodos", "Bring open todos from the previous daily note"],
+    ["prevDaily", "Previous daily note"],
+    ["nextDaily", "Next daily note"],
     ["notesView", "Notes view"],
     ["followLink", "Follow link / toggle checkbox"],
     ["back", "Back"],

@@ -116,6 +116,17 @@ export interface TagCount {
 export interface SearchResults {
   hits: SearchHit[];
   exact: boolean;
+  /** The day the query names (`last week tue`), as `yyyy-MM-dd`. */
+  date: string | null;
+}
+
+/** An open todo carried from earlier daily notes. */
+export interface TodoAge {
+  /** The item's text, lower case. */
+  text: string;
+  /** The day it was first written (`yyyy-MM-dd`). */
+  since: string;
+  days: number;
 }
 
 export interface Keys {
@@ -124,6 +135,9 @@ export interface Keys {
   dailyNote: string;
   /** Bring the previous daily note's open todos into this one. */
   carryTodos: string;
+  /** The daily note before / after the open one. */
+  prevDaily: string;
+  nextDaily: string;
   followLink: string;
   back: string;
   forward: string;
@@ -430,6 +444,11 @@ export const api = {
   dailyNote: (date: string, vault: string) => call<string>("daily_note", { date, vault }),
   /** Pull the previous daily note's open todos into this one; says what happened. */
   carryTodos: (path: string) => call<string>("carry_todos", { path }),
+  /** Add `- [ ] text` to a vault's daily note for `date` (the current vault when null); says where. */
+  addTodo: (text: string, date: string, vault: string | null) => call<string>("add_todo", { text, date, vault }),
+  /** The daily note before or after the one at `path` (from another note: the latest up to today). */
+  adjacentDaily: (path: string, today: string, forward: boolean) => call<string | null>("adjacent_daily", { path, today, forward }),
+  todoAges: (path: string) => call<TodoAge[]>("todo_ages", { path }),
   /** Archive or unarchive (`archived: true` in front matter); the note stays put unless it leaves a pre-0.8 archive/ folder. */
   archiveNote: (path: string) => call<StatusResult>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),

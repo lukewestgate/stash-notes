@@ -189,6 +189,8 @@ pub struct SearchResults {
     pub hits: Vec<SearchHit>,
     /// Some hit is an exact match for the query (so no "Create" row is needed).
     pub exact: bool,
+    /// The day the query names (`last week tue`), if it reads as a date.
+    pub date: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -490,7 +492,7 @@ impl Index {
             SortBy::Title => all.sort_by_key(|e| sort_name(e)),
         }
         let hits = all.into_iter().take(opts.limit).map(|e| e.summary(e.first_line(), 0)).collect();
-        SearchResults { hits, exact: false }
+        SearchResults { hits, exact: false, date: None }
     }
 
     /// The sidebar: notes with an active status (open, then blocked, then the
@@ -543,6 +545,28 @@ impl Index {
             .filter(|e| e.vault() == vault && e.meta.kind == NoteKind::Daily && e.meta.date.is_some_and(|d| d < date))
             .max_by_key(|e| (e.meta.date, !e.meta.archived, e.mtime))
             .map(|e| e.meta.path.clone())
+    }
+
+    /// The vault's earliest daily note from after `date`.
+    pub fn daily_after(&self, vault: &str, date: chrono::NaiveDate) -> Option<String> {
+        self.notes
+            .values()
+            .filter(|e| e.vault() == vault && e.meta.kind == NoteKind::Daily && e.meta.date.is_some_and(|d| d > date))
+            .min_by_key(|e| (e.meta.date, e.meta.archived, -e.mtime))
+            .map(|e| e.meta.path.clone())
+    }
+
+    /// The vault's daily notes from before `date`, newest first, one per day
+    /// and at most `limit`: (date, text without front matter).
+    pub fn dailies_before(&self, vault: &str, date: chrono::NaiveDate, limit: usize) -> Vec<(chrono::NaiveDate, &str)> {
+        let mut days: Vec<&NoteEntry> = self
+            .notes
+            .values()
+            .filter(|e| e.vault() == vault && e.meta.kind == NoteKind::Daily && e.meta.date.is_some_and(|d| d < date))
+            .collect();
+        days.sort_by_key(|e| std::cmp::Reverse((e.meta.date, !e.meta.archived, e.mtime)));
+        days.dedup_by_key(|e| e.meta.date);
+        days.into_iter().take(limit).filter_map(|e| Some((e.meta.date?, e.body.as_str()))).collect()
     }
 
     /// Notes that link to or mention `path`, most recently edited first.
@@ -607,12 +631,12 @@ impl Index {
         let q = parsed.text.trim();
         if q.is_empty() {
             if !parsed.has_filters() || (parsed.statuses.is_empty() && parsed.tags.is_empty()) {
-                return SearchResults { hits: self.recent(opts, &in_scope), exact: false };
+                return SearchResults { hits: self.recent(opts, &in_scope), exact: false, date: None };
             }
             let mut all: Vec<&NoteEntry> = self.notes.values().filter(|e| visible(e)).collect();
             all.sort_by(|a, b| b.mtime.cmp(&a.mtime));
             let hits = all.into_iter().take(opts.limit).map(|e| e.summary(None, 0)).collect();
-            return SearchResults { hits, exact: false };
+            return SearchResults { hits, exact: false, date: None };
         }
         let mut matcher = Matcher::new(Config::DEFAULT);
         let pattern = Pattern::new(q, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy);
@@ -711,7 +735,7 @@ impl Index {
             .into_iter()
             .map(|(score, e, body_only)| e.summary(if body_only { e.matching_line(&words) } else { None }, score))
             .collect();
-        SearchResults { hits, exact }
+        SearchResults { hits, exact, date }
     }
 
     /// `PROJ-1234 Do this thing`: the key, if the query starts with a ticket
@@ -1054,6 +1078,10 @@ mod tests {
         assert_eq!(i.daily_before("", d("2026-10-26")).as_deref(), Some("notes/2026-10-23.md"));
         assert_eq!(i.daily_before("", d("2026-10-28")).as_deref(), Some("notes/2026-10-26.md"));
         assert_eq!(i.daily_before("", d("2026-10-20")), None);
+        assert_eq!(i.daily_after("", d("2026-10-20")).as_deref(), Some("notes/2026-10-23.md"));
+        assert_eq!(i.daily_after("", d("2026-10-26")), None);
+        let before: Vec<_> = i.dailies_before("", d("2026-10-26"), 5).into_iter().map(|(d, _)| d.to_string()).collect();
+        assert_eq!(before, ["2026-10-23", "2026-10-20"]);
     }
 
     #[test]
@@ -1064,6 +1092,8 @@ mod tests {
         let recents = HashMap::new();
         let first = |i: &Index| i.search("3/10", &opts(&recents)).hits.first().map(|h| h.path.clone());
         assert_eq!(first(&i).as_deref(), Some("notes/2026-03-10.md"));
+        assert_eq!(i.search("3/10", &opts(&recents)).date, dates::parse_iso("2026-03-10"));
+        assert_eq!(i.search("rollout", &opts(&recents)).date, None);
         i.set_day_first(true);
         assert_eq!(first(&i).as_deref(), Some("notes/2026-10-03.md"));
     }

@@ -267,6 +267,18 @@ button:disabled {
 .cm-moved-line {
   color: var(--fg-muted);
 }
+/* How long a carried todo has been open: `5d`. */
+.cm-todo-age {
+  margin-left: 0.6em;
+  padding: 0 0.4em;
+  border-radius: 4px;
+  font-size: 0.78em;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 12%, transparent);
+  vertical-align: 0.08em;
+  cursor: default;
+  user-select: none;
+}
 .cm-done-line {
   color: var(--fg-muted);
   text-decoration: line-through;

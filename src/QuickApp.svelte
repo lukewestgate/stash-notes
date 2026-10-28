@@ -7,6 +7,7 @@
   import { applyAppearance } from "./lib/appearance";
   import { isLinkInput } from "./lib/links";
   import { daily } from "./lib/daily.svelte";
+  import { isoDate } from "./lib/text";
 
   let settings = $state<Settings | null>(null);
   /** Bumped each time the pop-up is shown, to start from an empty query. */
@@ -28,6 +29,15 @@
   async function create(query: string, vault: string | null) {
     try {
       await api.quickCreate(query, vault);
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function addTodo(text: string, vault: string | null) {
+    try {
+      await api.addTodo(text, isoDate(), vault);
+      await api.quickHide();
     } catch (e) {
       error = String(e);
     }
@@ -69,6 +79,7 @@
         createLink={(input, vault, title, rule) => api.quickCreateFromLink(input, vault, title, rule)}
         onCreatedLink={() => {}}
         onClose={() => api.quickHide()}
+        onAddTodo={addTodo}
         onSize={(h) => api.quickResize(h + (error ? 24 : 0) + 2)}
       />
     {/key}

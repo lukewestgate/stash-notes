@@ -70,12 +70,16 @@ export function matches(e: KeyboardEvent, spec: KeySpec | null): boolean {
   return key === spec.key || codeKey(e.code) === spec.key;
 }
 
+const DISPLAY: Record<string, string> = { esc: "Esc", pageup: "PgUp", pagedown: "PgDn" };
+
 /** Display form: "Ctrl+Shift+G". */
 export function formatKey(spec: string): string {
   const k = parseKey(spec);
   if (!k) return spec;
   const name =
-    k.key.length === 1 ? k.key.toUpperCase() : k.key === "esc" ? "Esc" : k.key[0].toUpperCase() + k.key.slice(1);
+    k.key.length === 1
+      ? k.key.toUpperCase()
+      : (DISPLAY[k.key] ?? k.key[0].toUpperCase() + k.key.slice(1));
   return [k.ctrl && "Ctrl", k.alt && "Alt", k.shift && "Shift", k.meta && "Win", name].filter(Boolean).join("+");
 }
 

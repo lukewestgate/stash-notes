@@ -471,28 +471,86 @@ fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<CreatedNote>
 #[tauri::command]
 pub fn daily_note(app: AppHandle, state: State<AppState>, date: String, vault: String) -> Res<String> {
     let d = dates::parse_iso(&date).ok_or_else(|| format!("bad date {date}"))?;
+    ensure_daily(&app, &state, &vault, d)
+}
+
+fn ensure_daily(app: &AppHandle, state: &AppState, vault: &str, d: chrono::NaiveDate) -> Res<String> {
     // An existing one wherever it is: `notes/`, or a folder from before 0.8.
-    if let Some(p) = state.index.read().unwrap().daily(&vault, d) {
+    if let Some(p) = state.index.read().unwrap().daily(vault, d) {
         return Ok(p);
     }
-    let v = vault_or_err(&state, &vault)?;
+    let v = vault_or_err(state, vault)?;
     let (format, mode) = {
         let s = state.settings.read().unwrap();
         (s.daily_date_format.clone(), s.carry_todos)
     };
     let content = v.daily_content(d, &format);
-    let carried = plan_carry(&app, &state, &vault, d, &content, mode);
+    let carried = plan_carry(app, state, vault, d, &content, mode);
     let content = carried.as_ref().map_or(content, |(_, c)| c.to.clone());
-    let note = create_file(&state, &vault, &Vault::daily_path(d), &content)?;
+    let note = create_file(state, vault, &Vault::daily_path(d), &content)?;
     if let (true, Some((from, c))) = (note.created, carried) {
-        match rewrite_note(&app, &state, &from, &c.from) {
+        match rewrite_note(app, state, &from, &c.from) {
             Ok(()) => {
-                let _ = app.emit_to(window::MAIN, "todos-carried", carried_message(&state, &from, c.count, mode));
+                let _ = app.emit_to(window::MAIN, "todos-carried", carried_message(state, &from, c.count, mode));
             }
             Err(e) => state.warn(format!("couldn't mark the todos moved in {from}: {e}")),
         }
     }
     Ok(note.path)
+}
+
+/// Add `- [ ] text` to the todo list of vault `vault`'s daily note for
+/// `date` (the current vault when None), creating the note if needed.
+/// Returns what happened, for a toast.
+#[tauri::command]
+pub fn add_todo(app: AppHandle, state: State<AppState>, text: String, date: String, vault: Option<String>) -> Res<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Type the todo after the +".into());
+    }
+    let d = dates::parse_iso(&date).ok_or_else(|| format!("bad date {date}"))?;
+    let vault = vault.unwrap_or_else(|| state.current_vault());
+    let path = ensure_daily(&app, &state, &vault, d)?;
+    let current = match buffers::text(&app, &path) {
+        Some(t) => t,
+        None => state.read_note(&path)?,
+    };
+    rewrite_note(&app, &state, &path, &todos::add_item(&current, text))?;
+    Ok(format!("Added to {}", state.file_name(&path)))
+}
+
+/// The daily note before or after the one at `path` in its vault; from
+/// another note, the latest one up to `today` (or none after it).
+#[tauri::command]
+pub fn adjacent_daily(state: State<AppState>, path: String, today: String, forward: bool) -> Res<Option<String>> {
+    let path = state.qualify(&path)?;
+    let index = state.index.read().unwrap();
+    let meta = index.get(&path).map(|e| e.meta.clone());
+    let vault = note::split_path(&path).0;
+    let today = dates::parse_iso(&today).ok_or_else(|| format!("bad date {today}"))?;
+    Ok(match meta.and_then(|m| m.date.filter(|_| m.kind == stash_core::NoteKind::Daily)) {
+        Some(d) if forward => index.daily_after(vault, d),
+        Some(d) => index.daily_before(vault, d),
+        None if forward => None,
+        None => index.daily(vault, today).or_else(|| index.daily_before(vault, today)),
+    })
+}
+
+/// When each open todo of the daily note at `path` was first written, for
+/// the ones carried from earlier notes.
+#[tauri::command]
+pub fn todo_ages(app: AppHandle, state: State<AppState>, path: String) -> Res<Vec<todos::TodoAge>> {
+    let path = state.qualify(&path)?;
+    let text = match buffers::text(&app, &path) {
+        Some(t) => t,
+        None => state.read_note(&path)?,
+    };
+    let meta = meta_for(&state, &path, &text);
+    let Some(date) = meta.date.filter(|_| meta.kind == stash_core::NoteKind::Daily) else {
+        return Ok(Vec::new());
+    };
+    let index = state.index.read().unwrap();
+    Ok(todos::ages(&text, date, &index.dailies_before(&meta.vault, date, 90)))
 }
 
 /// Bring the open todos of the previous daily note into the daily note at

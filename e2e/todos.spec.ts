@@ -33,3 +33,40 @@ test("daily notes are named in the chosen date format", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator(".header .main")).toHaveText(`${d}/${m}/${y}`);
 });
+
+test("+ in the switcher adds a todo to today's note", async ({ page }) => {
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("+ chase Sam about the demo");
+  await expect(page.locator(".row.selected .name")).toHaveText('Add "chase Sam about the demo"');
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".toast").last()).toContainText("Added to");
+  await expect.poll(() => page.evaluate(doc)).toContain("- [ ] chase Sam about the demo\n- [ ] \n");
+});
+
+test("a date query shows the day it means and offers its daily note", async ({ page }) => {
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("yesterday");
+  await expect(page.locator(".datehint")).toBeVisible();
+  await expect(page.locator(".row.create .name")).toHaveText(/^Create daily note for /);
+});
+
+test("carried todos show how long they've been open", async ({ page }) => {
+  await setDocument(page, "## Todo\n\n- [ ] old thing\n- [ ] new thing\n- [x] old thing done\n");
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { decoConfig, refreshDecorations } = await import("/src/lib/editor.ts");
+    decoConfig.todoAges = new Map([
+      ["old thing", { since: "2026-10-22", days: 6 }],
+      ["new thing", { since: "2026-10-27", days: 1 }],
+    ]);
+    refreshDecorations((window as any).__view());
+  });
+  await expect(page.locator(".cm-todo-age")).toHaveCount(1);
+  await expect(page.locator(".cm-todo-age")).toHaveText("6d");
+});
+
+test("Alt+PageUp steps to the previous daily note", async ({ page }) => {
+  // The demo vault has one daily note.
+  await page.keyboard.press("Alt+PageUp");
+  await expect(page.locator(".toast").last()).toContainText("No earlier daily note");
+});
