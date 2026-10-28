@@ -574,6 +574,12 @@ impl Index {
         days.into_iter().take(limit).filter_map(|e| Some((e.meta.date?, e.body.as_str()))).collect()
     }
 
+    /// The vault's notes whose text contains `needle`: (meta, text without
+    /// front matter).
+    pub fn containing(&self, vault: &str, needle: &str) -> Vec<(&NoteMeta, &str)> {
+        self.notes.values().filter(|e| e.vault() == vault && e.body.contains(needle)).map(|e| (&e.meta, e.body.as_str())).collect()
+    }
+
     /// Notes that link to or mention `path`, most recently edited first.
     pub fn backlinks(&self, path: &str) -> Vec<SearchHit> {
         let Some(target) = self.notes.get(path) else {

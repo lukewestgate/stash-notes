@@ -12,7 +12,7 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { Compartment, EditorState, type Extension, type Range, StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, Prec, type Range, StateEffect } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -46,6 +46,41 @@ export interface EditorHooks {
   /** Handle pasted text specially; return true if it was handled. */
   paste(text: string): boolean;
   imageError(message: string): void;
+  /**
+   * Send the line at `from` (its text was `text`) to a daily note: the day
+   * its trailing `@today` / `@fri` names, or today when `now`.
+   */
+  sendLine?(from: number, text: string, now: boolean): void;
+  /** A todo sent to or from a daily note was ticked or unticked (`text` is its line now). */
+  todoToggled?(text: string): void;
+}
+
+/** A line ending in `@` and a word or two: maybe a day to send it to. */
+const SEND_RE = /\s@[\p{L}\d][^@]*$/u;
+
+/** Put `next` in place of the line that read `old`, the one nearest `near`. */
+export function replaceLine(view: EditorView, near: number, old: string, next: string): boolean {
+  const doc = view.state.doc;
+  let best: { from: number; to: number } | null = null;
+  for (let n = 1; n <= doc.lines; n++) {
+    const l = doc.line(n);
+    if (l.text === old && (!best || Math.abs(l.from - near) < Math.abs(best.from - near))) best = l;
+  }
+  if (best) view.dispatch({ changes: { from: best.from, to: best.to, insert: next } });
+  return !!best;
+}
+
+/** Lines whose box went between open and done in this update. */
+function toggledLines(u: ViewUpdate): string[] {
+  const out: string[] = [];
+  u.changes.iterChanges((fromA, _toA, fromB, toB) => {
+    const after = u.state.doc.lineAt(fromB);
+    if (toB > after.to) return;
+    const was = checkboxToggle(u.startState.doc.lineAt(fromA).text);
+    const now = checkboxToggle(after.text);
+    if (was && now && !was.moved && !now.moved && was.done !== now.done) out.push(after.text);
+  });
+  return out;
 }
 
 /** What the decorations need from settings and the index. */
@@ -333,6 +368,21 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
       activateOnTyping: true,
       maxRenderedOptions: 30,
     }),
+    // Enter at the end of `… @today`: send the line, then carry on as usual
+    // (ahead of the markdown keymap, which continues lists).
+    Prec.highest(
+      keymap.of([
+        {
+          key: "Enter",
+          run: (view) => {
+            const sel = view.state.selection.main;
+            const line = view.state.doc.lineAt(sel.head);
+            if (hooks.sendLine && sel.empty && sel.head === line.to && SEND_RE.test(line.text)) hooks.sendLine(line.from, line.text, false);
+            return false;
+          },
+        },
+      ]),
+    ),
     keymap.of([
       ...completionKeymap,
       { key: "Mod-b", run: toggleWrap("**") },
@@ -342,7 +392,9 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
       indentWithTab,
     ]),
     EditorView.updateListener.of((u) => {
-      if (u.docChanged) hooks.onChange();
+      if (!u.docChanged) return;
+      hooks.onChange();
+      if (hooks.todoToggled) for (const line of toggledLines(u)) if (/ (·|→) \[\[[^\]]+\]\]\s*$/.test(line)) hooks.todoToggled(line);
     }),
     EditorView.domEventHandlers({
       paste(e) {

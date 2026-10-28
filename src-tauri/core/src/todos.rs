@@ -99,7 +99,8 @@ fn open_todos(text: &str) -> Vec<Open> {
         if is_fence(line) {
             fenced = !fenced;
         }
-        let open = if fenced { None } else { task(line).filter(|t| t.mark == ' ' && !t.text.is_empty()) };
+        // A todo sent to a daily note (`→ [[day]]`) is open there, not here.
+        let open = if fenced { None } else { task(line).filter(|t| t.mark == ' ' && !t.text.is_empty() && !matches!(sent_parts(t.text).1, Some(Sent::Origin { .. }))) };
         let Some(t) = open else {
             i += 1;
             continue;
@@ -144,6 +145,8 @@ pub struct Carry {
     /// when copying).
     pub from: String,
     pub count: usize,
+    /// The text of each carried item's own line, after its box.
+    pub items: Vec<String>,
 }
 
 /// Carry the open todos of `from` into `to`, skipping any `to` already has.
@@ -158,11 +161,13 @@ pub fn carry(from: &str, to: &str, mode: CarryTodos) -> Option<Carry> {
     let nl = if to.contains("\r\n") || (!to.contains('\n') && from.contains("\r\n")) { "\r\n" } else { "\n" };
     let mut block = String::new();
     let mut marks = Vec::new();
+    let mut items = Vec::new();
     for o in open_todos(from) {
         let first = src[o.first].1;
         if item_key(first).is_some_and(|k| have.contains(&k)) {
             continue;
         }
+        items.extend(task(first).map(|t| t.text.to_string()));
         let indent = &first[..first.len() - first.trim_start().len()];
         let mut lines: Vec<&str> = src[o.first..o.end].iter().map(|(_, l)| *l).collect();
         while lines.last().is_some_and(|l| l.trim().is_empty()) {
@@ -184,7 +189,109 @@ pub fn carry(from: &str, to: &str, mode: CarryTodos) -> Option<Carry> {
             moved.replace_range(*at..*at + 1, ">");
         }
     }
-    Some(Carry { to: insert_block(to, &block), from: moved, count: marks.len() })
+    Some(Carry { to: insert_block(to, &block), from: moved, count: marks.len(), items })
+}
+
+// Todos sent to a daily note from another note (a ticket, say). The daily
+// note gets `- [ ] text · [[PROJ-123]]`, and the line where it was written
+// becomes `- [ ] text → [[2026-10-28]]`, so each links to the other.
+
+fn sent_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^(.*?)\s+(·|→)\s+\[\[([^\[\]\n]+)\]\]\s*$").unwrap())
+}
+
+/// Which end of a sent todo a line is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sent {
+    /// In a daily note: `text · [[source]]`.
+    Copy { source: String },
+    /// Where it was written: `text → [[2026-10-28]]`.
+    Origin { day: String },
+}
+
+/// A task line's text without its sent marker, and the marker.
+pub fn sent_parts(item: &str) -> (&str, Option<Sent>) {
+    match sent_regex().captures(item) {
+        Some(c) => {
+            let (text, link) = (c.get(1).map_or("", |m| m.as_str()), c[3].trim().to_string());
+            let sent = if &c[2] == "·" { Sent::Copy { source: link } } else { Sent::Origin { day: link } };
+            (text.trim(), Some(sent))
+        }
+        None => (item.trim(), None),
+    }
+}
+
+/// A sent todo seen from a task line: its box mark, its text without the
+/// marker, and the marker. None for other lines.
+pub fn sent_task(line: &str) -> Option<(char, String, Sent)> {
+    let t = task(line)?;
+    let (text, sent) = sent_parts(t.text);
+    Some((t.mark, text.to_string(), sent?))
+}
+
+/// The line `line` becomes once sent to the daily note for `day`
+/// (`yyyy-MM-dd`): a todo (keeping its indent, list mark and box, or made
+/// one) with `→ [[day]]` after its text, and that text. `text` is the line's
+/// text with the `@date` words already taken off.
+pub fn sent_origin(line: &str, text: &str, day: &str) -> (String, String) {
+    let indent = &line[..line.len() - line.trim_start().len()];
+    let prefix = match task(line) {
+        Some(t) => line[..t.mark_at + 2].to_string(),
+        None => format!("{indent}- [ ]"),
+    };
+    let body = text.trim();
+    // A list item without a box (`- call Sam`) loses its mark to the box's.
+    let body = if task(line).is_none() { body.strip_prefix(['-', '*', '+']).map_or(body, str::trim_start) } else { body };
+    let body = task(body).map_or(body, |t| t.text);
+    (format!("{prefix} {body} → [[{day}]]"), body.to_string())
+}
+
+/// Set the box of the sent todo in `note` with this text (any case) and
+/// marker kind to `mark`. None when there's no such line or it's already so.
+pub fn mark_sent(note: &str, text: &str, origin: bool, mark: char) -> Option<String> {
+    let want = text.to_lowercase();
+    for (at, line) in lines(note) {
+        let Some((m, t, sent)) = sent_task(line) else { continue };
+        if t.to_lowercase() != want || matches!(sent, Sent::Origin { .. }) != origin || m == '>' {
+            continue;
+        }
+        if m == mark {
+            return None;
+        }
+        let t = task(line)?;
+        let mut out = note.to_string();
+        out.replace_range(at + t.mark_at..at + t.mark_at + 1, &mark.to_string());
+        return Some(out);
+    }
+    None
+}
+
+/// Point the origin of a sent todo at the day it lives on now
+/// (`→ [[from]]` to `→ [[to]]`), after it was carried. None if not found.
+pub fn retarget(note: &str, text: &str, from: &str, to: &str) -> Option<String> {
+    let want = text.to_lowercase();
+    for (at, line) in lines(note) {
+        let Some((_, t, Sent::Origin { day })) = sent_task(line) else { continue };
+        if t.to_lowercase() == want && day == from {
+            let link = format!("[[{from}]]");
+            let i = line.rfind(&link)?;
+            let mut out = note.to_string();
+            out.replace_range(at + i..at + i + link.len(), &format!("[[{to}]]"));
+            return Some(out);
+        }
+    }
+    None
+}
+
+/// The open todos in `note` sent ahead to `day` (`→ [[day]]`), by text.
+pub fn scheduled(note: &str, day: &str) -> Vec<String> {
+    lines(note)
+        .into_iter()
+        .filter_map(|(_, l)| sent_task(l))
+        .filter(|(m, _, sent)| *m == ' ' && *sent == Sent::Origin { day: day.to_string() })
+        .map(|(_, t, _)| t)
+        .collect()
 }
 
 /// Add `- [ ] item` to the note's todo list, where carried todos go.
@@ -383,6 +490,40 @@ mod tests {
             ]
         );
         assert!(ages(today, d("2026-10-28"), &[]).is_empty());
+    }
+
+    #[test]
+    fn sending_a_line() {
+        let day = "2026-10-28";
+        assert_eq!(sent_origin("- [ ] chase Sam @today", "- [ ] chase Sam", day), ("- [ ] chase Sam → [[2026-10-28]]".into(), "chase Sam".into()));
+        assert_eq!(sent_origin("  * [ ] a", "  * [ ] a", day).0, "  * [ ] a → [[2026-10-28]]");
+        assert_eq!(sent_origin("  - call Sam", "  - call Sam", day).0, "  - [ ] call Sam → [[2026-10-28]]");
+        assert_eq!(sent_origin("call Sam", "call Sam", day).0, "- [ ] call Sam → [[2026-10-28]]");
+        assert_eq!(sent_parts("chase Sam · [[PROJ-123]]"), ("chase Sam", Some(Sent::Copy { source: "PROJ-123".into() })));
+        assert_eq!(sent_parts("a → [[2026-10-28]] "), ("a", Some(Sent::Origin { day: day.into() })));
+        assert_eq!(sent_parts("plain [[link]]"), ("plain [[link]]", None));
+    }
+
+    #[test]
+    fn ticking_either_end() {
+        let ticket = "# PROJ-1\n\n- [ ] Chase Sam → [[2026-10-28]]\n- [ ] other\n";
+        let ticked = mark_sent(ticket, "chase sam", true, 'x').unwrap();
+        assert_eq!(ticked, "# PROJ-1\n\n- [x] Chase Sam → [[2026-10-28]]\n- [ ] other\n");
+        assert_eq!(mark_sent(&ticked, "chase sam", true, 'x'), None);
+        // Only the matching end.
+        assert_eq!(mark_sent(ticket, "chase sam", false, 'x'), None);
+        let daily = "- [>] chase Sam · [[PROJ-1]]\n- [ ] chase Sam · [[PROJ-1]]\n";
+        assert_eq!(mark_sent(daily, "chase sam", false, 'x').unwrap(), "- [>] chase Sam · [[PROJ-1]]\n- [x] chase Sam · [[PROJ-1]]\n");
+    }
+
+    #[test]
+    fn carried_and_scheduled() {
+        let ticket = "- [ ] a → [[2026-10-27]]\n- [ ] b → [[2026-10-30]]\n- [x] c → [[2026-10-30]]\n";
+        assert_eq!(retarget(ticket, "A", "2026-10-27", "2026-10-28").unwrap(), "- [ ] a → [[2026-10-28]]\n- [ ] b → [[2026-10-30]]\n- [x] c → [[2026-10-30]]\n");
+        assert_eq!(retarget(ticket, "a", "2026-10-26", "2026-10-28"), None);
+        assert_eq!(scheduled(ticket, "2026-10-30"), vec!["b"]);
+        let c = carry("- [ ] x · [[PROJ-1]]\n- [ ] y\n", "## Todo\n", CarryTodos::Move).unwrap();
+        assert_eq!(c.items, vec!["x · [[PROJ-1]]", "y"]);
     }
 
     #[test]

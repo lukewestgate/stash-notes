@@ -137,6 +137,8 @@ export interface Keys {
   dailyNote: string;
   /** Bring the previous daily note's open todos into this one. */
   carryTodos: string;
+  /** Send the todo on the cursor's line to today's daily note. */
+  sendTodo: string;
   /** The daily note before / after the open one. */
   prevDaily: string;
   nextDaily: string;
@@ -451,6 +453,11 @@ export const api = {
   /** The daily note before or after the one at `path` (from another note: the latest up to today). */
   adjacentDaily: (path: string, today: string, forward: boolean) => call<string | null>("adjacent_daily", { path, today, forward }),
   todoAges: (path: string) => call<TodoAge[]>("todo_ages", { path }),
+  /** Send a line to a daily note (its `@day`, or today when `now`): what the line becomes, or null. */
+  sendTodo: (path: string, line: string, today: string, now: boolean) =>
+    call<{ line: string; message: string } | null>("send_todo", { path, line, today, now }),
+  /** A sent todo was ticked or unticked: tick the other end to match. */
+  syncTodo: (path: string, line: string) => call<void>("sync_todo", { path, line }),
   /** Archive or unarchive (`archived: true` in front matter); the note stays put unless it leaves a pre-0.8 archive/ folder. */
   archiveNote: (path: string) => call<StatusResult>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),

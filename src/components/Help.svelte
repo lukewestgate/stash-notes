@@ -23,6 +23,7 @@
     [keys.quickSwitcher, "Quick switcher: find, open or create a note", "with text selected: link it"],
     [keys.dailyNote, "Today's daily note"],
     [keys.carryTodos, "Bring open todos from the previous daily note"],
+    [keys.sendTodo, "Send this line's todo to today's daily note", "or end it with @today, @fri… and press Enter"],
     [keys.prevDaily, "Previous daily note", "skips days without one; from another note, the latest"],
     [keys.nextDaily, "Next daily note"],
     [keys.notesView, "Notes view: browse, sort and filter every note"],
