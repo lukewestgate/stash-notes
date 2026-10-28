@@ -27,6 +27,7 @@ import { api, type SearchHit } from "./api";
 import { frontMatterField, frontMatterSyntax, liveConfig, liveDecorations, liveWikiLinks, previewText, toggleWrap } from "./live";
 import { isPageLink, pageEmbeds, pageLinkSyntax } from "./page-links";
 import { checkboxToggle, refAt, URL_RE, WIKI_RE, wikiTarget } from "./text";
+import { noteName } from "./daily.svelte";
 import "./page-links.css";
 import { imageEmbeds, imageInput } from "./images";
 
@@ -66,7 +67,9 @@ const ticketDim = Decoration.mark({ class: "cm-ticket cm-archived" });
 const urlMark = Decoration.mark({ class: "cm-url" });
 const boxOpen = Decoration.mark({ class: "cm-checkbox" });
 const boxDone = Decoration.mark({ class: "cm-checkbox cm-checkbox-done" });
+const boxMoved = Decoration.mark({ class: "cm-checkbox cm-checkbox-moved" });
 const doneLine = Decoration.line({ class: "cm-done-line" });
+const movedLine = Decoration.line({ class: "cm-moved-line" });
 
 function buildDecorations(view: EditorView): DecorationSet {
   const doc = view.state.doc;
@@ -110,9 +113,9 @@ function buildDecorations(view: EditorView): DecorationSet {
       }
       const box = checkboxToggle(text);
       if (box) {
-        const done = box.insert === " ";
-        out.push((done ? boxDone : boxOpen).range(line.from + box.at - 1, line.from + box.at + 2));
-        if (done) out.push(doneLine.range(line.from));
+        out.push((box.done ? boxDone : box.moved ? boxMoved : boxOpen).range(line.from + box.at - 1, line.from + box.at + 2));
+        if (box.done) out.push(doneLine.range(line.from));
+        if (box.moved) out.push(movedLine.range(line.from));
       }
       if (line.to >= to || line.number >= doc.lines) break;
       line = doc.line(line.number + 1);
@@ -174,7 +177,7 @@ function linkCompletions(hooks: EditorHooks) {
       const elsewhere = here !== null && h.vault !== here;
       return {
         // Tickets show their name too ("PROJ-1234 Do this thing"); the link stays [[PROJ-1234]].
-        label: h.label ? `${h.title} ${h.label}` : h.title,
+        label: h.label ? `${h.title} ${h.label}` : noteName(h),
         detail: [
           elsewhere ? (hooks.vaultName?.(h.vault) ?? h.vault) : null,
           (seen.get(h.title.toLowerCase()) ?? 0) > 1 ? h.path.slice(h.path.indexOf(":") + 1) : null,

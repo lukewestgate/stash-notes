@@ -165,6 +165,7 @@ pub fn run() {
             commands::read_image,
             commands::create_note,
             commands::daily_note,
+            commands::carry_todos,
             commands::archive_note,
             commands::rename_note,
             commands::move_note,

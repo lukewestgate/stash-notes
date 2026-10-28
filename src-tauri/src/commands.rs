@@ -8,6 +8,7 @@ use stash_core::frontmatter;
 use stash_core::links;
 use stash_core::index::{SearchHit, SearchOptions, SearchResults};
 use stash_core::note::{self, NoteMeta};
+use stash_core::todos::{self, CarryTodos};
 use stash_core::{dates, Settings, Vault};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -346,7 +347,8 @@ fn ensure_note(state: &AppState, target: &str, vault: &str) -> Res<CreatedNote> 
     let tickets = state.tickets_for(vault);
     let (id, rel, content) = if let Some(date) = dates::parse_iso(target) {
         let v = vault_or_err(state, vault)?;
-        (vault.to_string(), Vault::daily_path(date), v.daily_content(date))
+        let format = state.settings.read().unwrap().daily_date_format.clone();
+        (vault.to_string(), Vault::daily_path(date), v.daily_content(date, &format))
     } else if let Some(key) = tickets.as_key(target).or_else(|| key_anywhere(state, target)) {
         (vault.to_string(), Vault::ticket_path(&key), stash_core::vault::ticket_stub(&key, &state.settings.read().unwrap().default_status, ""))
     } else {
@@ -463,16 +465,92 @@ fn create_titled(state: &AppState, title: &str, vault: &str) -> Res<CreatedNote>
     ensure_note(state, title, vault)
 }
 
-/// Vault `vault`'s daily note for `date`, created from its template if missing.
+/// Vault `vault`'s daily note for `date`, created from its template if
+/// missing. A new one takes the open todos of the vault's previous daily
+/// note (as the carry setting says) and toasts how many it took.
 #[tauri::command]
-pub fn daily_note(state: State<AppState>, date: String, vault: String) -> Res<String> {
+pub fn daily_note(app: AppHandle, state: State<AppState>, date: String, vault: String) -> Res<String> {
     let d = dates::parse_iso(&date).ok_or_else(|| format!("bad date {date}"))?;
     // An existing one wherever it is: `notes/`, or a folder from before 0.8.
     if let Some(p) = state.index.read().unwrap().daily(&vault, d) {
         return Ok(p);
     }
     let v = vault_or_err(&state, &vault)?;
-    Ok(create_file(&state, &vault, &Vault::daily_path(d), &v.daily_content(d))?.path)
+    let (format, mode) = {
+        let s = state.settings.read().unwrap();
+        (s.daily_date_format.clone(), s.carry_todos)
+    };
+    let content = v.daily_content(d, &format);
+    let carried = plan_carry(&app, &state, &vault, d, &content, mode);
+    let content = carried.as_ref().map_or(content, |(_, c)| c.to.clone());
+    let note = create_file(&state, &vault, &Vault::daily_path(d), &content)?;
+    if let (true, Some((from, c))) = (note.created, carried) {
+        match rewrite_note(&app, &state, &from, &c.from) {
+            Ok(()) => {
+                let _ = app.emit_to(window::MAIN, "todos-carried", carried_message(&state, &from, c.count, mode));
+            }
+            Err(e) => state.warn(format!("couldn't mark the todos moved in {from}: {e}")),
+        }
+    }
+    Ok(note.path)
+}
+
+/// Bring the open todos of the previous daily note into the daily note at
+/// `path` (open in the editor), skipping ones it already has. Moves them
+/// unless the carry setting says to copy. Returns what happened, for a toast.
+#[tauri::command]
+pub fn carry_todos(app: AppHandle, state: State<AppState>, path: String) -> Res<String> {
+    let path = state.qualify(&path)?;
+    let text = match buffers::text(&app, &path) {
+        Some(t) => t,
+        None => state.read_note(&path)?,
+    };
+    let meta = meta_for(&state, &path, &text);
+    let Some(date) = meta.date.filter(|_| meta.kind == stash_core::NoteKind::Daily) else {
+        return Err("Pulling todos forward works in daily notes".into());
+    };
+    let mode = match state.settings.read().unwrap().carry_todos {
+        CarryTodos::Copy => CarryTodos::Copy,
+        _ => CarryTodos::Move,
+    };
+    let Some(before) = state.index.read().unwrap().daily_before(&meta.vault, date) else {
+        return Ok("No earlier daily note to take todos from".into());
+    };
+    let Some((from, c)) = plan_carry(&app, &state, &meta.vault, date, &text, mode) else {
+        return Ok(format!("No open todos to bring from {}", state.file_name(&before)));
+    };
+    rewrite_note(&app, &state, &path, &c.to)?;
+    rewrite_note(&app, &state, &from, &c.from)?;
+    Ok(carried_message(&state, &from, c.count, mode))
+}
+
+/// The open todos of `vault`'s latest daily note before `date`, carried into
+/// `to`: (that note's path, the result). None if there are none to carry.
+fn plan_carry(app: &AppHandle, state: &AppState, vault: &str, date: chrono::NaiveDate, to: &str, mode: CarryTodos) -> Option<(String, todos::Carry)> {
+    if mode == CarryTodos::Off {
+        return None;
+    }
+    let from = state.index.read().unwrap().daily_before(vault, date)?;
+    let text = buffers::text(app, &from).or_else(|| state.read_note(&from).ok())?;
+    todos::carry(&text, to, mode).map(|c| (from, c))
+}
+
+/// "Moved 3 todos from 27/10/2026".
+fn carried_message(state: &AppState, from: &str, count: usize, mode: CarryTodos) -> String {
+    let verb = if mode == CarryTodos::Copy { "Copied" } else { "Moved" };
+    let what = if count == 1 { "todo".to_string() } else { format!("{count} todos") };
+    format!("{verb} {what} from {}", state.file_name(from))
+}
+
+/// Replace a note's text: through its buffer when it's open (so every
+/// window showing it updates), else straight to disk.
+fn rewrite_note(app: &AppHandle, state: &AppState, path: &str, text: &str) -> Res<()> {
+    if buffers::apply_server_change(app, path, text, true) {
+        return Ok(());
+    }
+    let mtime = state.write_note(path, text)?;
+    state.index.write().unwrap().upsert(path, text, mtime);
+    Ok(())
 }
 
 /// Archive a note, or unarchive it if it is already archived: `archived:

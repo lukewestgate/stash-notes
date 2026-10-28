@@ -7,6 +7,7 @@
   import { api, type LinkPreview, type SearchHit, type VaultDef } from "../lib/api";
   import Icon from "./Icon.svelte";
   import VaultTag from "./VaultTag.svelte";
+  import { noteName } from "../lib/daily.svelte";
 
   interface Props {
     /** The link or key, then optionally a title: `PROJ-123 Fix the login`. */
@@ -149,7 +150,7 @@
       <span class="muted">Already a note about this link:</span>
       {#each p.existing as h (h.path)}
         <button class="note" onclick={() => onOpen(h)}>
-          <Icon name="file-text" size={13} /><span>{h.label ? `${h.title} ${h.label}` : h.title}</span>
+          <Icon name="file-text" size={13} /><span>{h.label ? `${h.title} ${h.label}` : noteName(h)}</span>
           {#if vaults.length > 1}<VaultTag vault={h.vault} {vaults} />{/if}
           {#if h.archived}<span class="muted">archived</span>{/if}
         </button>

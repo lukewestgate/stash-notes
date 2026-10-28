@@ -6,6 +6,7 @@
   import { api, on, type SearchHit, type Settings } from "./lib/api";
   import { applyAppearance } from "./lib/appearance";
   import { isLinkInput } from "./lib/links";
+  import { daily } from "./lib/daily.svelte";
 
   let settings = $state<Settings | null>(null);
   /** Bumped each time the pop-up is shown, to start from an empty query. */
@@ -34,6 +35,7 @@
 
   function use(s: Settings) {
     settings = s;
+    daily.format = s.dailyDateFormat;
     applyAppearance(s);
   }
 

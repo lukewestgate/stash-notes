@@ -77,25 +77,29 @@ class BulletWidget extends WidgetType {
   }
 }
 
+/** A todo's box: open, done, or moved to a later daily note (`[>]`). */
+type TaskState = "open" | "done" | "moved";
+
 class CheckboxWidget extends WidgetType {
   constructor(
-    readonly checked: boolean,
+    readonly state: TaskState,
     readonly markPos: number,
   ) {
     super();
   }
   eq(o: CheckboxWidget) {
-    return o.checked === this.checked && o.markPos === this.markPos;
+    return o.state === this.state && o.markPos === this.markPos;
   }
   toDOM(view: EditorView) {
     const box = document.createElement("span");
-    box.className = "cm-task" + (this.checked ? " cm-task-done" : "");
+    box.className = "cm-task" + (this.state === "open" ? "" : ` cm-task-${this.state}`);
     box.setAttribute("role", "checkbox");
-    box.setAttribute("aria-checked", String(this.checked));
+    box.setAttribute("aria-checked", this.state === "done" ? "true" : this.state === "moved" ? "mixed" : "false");
+    if (this.state === "moved") box.title = "Moved to a later daily note";
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
       if (view.state.readOnly) return;
-      view.dispatch({ changes: { from: this.markPos, to: this.markPos + 1, insert: this.checked ? " " : "x" } });
+      view.dispatch({ changes: { from: this.markPos, to: this.markPos + 1, insert: this.state === "open" ? "x" : " " } });
     });
     return box;
   }
@@ -382,7 +386,7 @@ export function liveDecorations(view: EditorView): { decos: Range<Decoration>[];
             if (line.from < node.from) out.push(indentMark.range(line.from, node.from));
             const task = checkboxToggle(line.text);
             if (task) {
-              const done = task.insert === " ";
+              const done: TaskState = task.done ? "done" : task.moved ? "moved" : "open";
               if (!lineTouched(state, node.from)) {
                 const markPos = line.from + task.at;
                 const end = markPos + 2 + (state.sliceDoc(markPos + 2, markPos + 3) === " " ? 1 : 0);

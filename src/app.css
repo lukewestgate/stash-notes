@@ -248,6 +248,25 @@ button:disabled {
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
+/* A todo moved on to a later daily note: `[>]`. */
+.cm-task-moved {
+  position: relative;
+  border-style: dashed;
+}
+.cm-task-moved::after {
+  content: "";
+  position: absolute;
+  left: 0.16em;
+  top: 0.24em;
+  width: 0.3em;
+  height: 0.3em;
+  border: solid var(--fg-muted);
+  border-width: 2px 2px 0 0;
+  transform: rotate(45deg);
+}
+.cm-moved-line {
+  color: var(--fg-muted);
+}
 .cm-done-line {
   color: var(--fg-muted);
   text-decoration: line-through;
@@ -361,6 +380,9 @@ button:disabled {
 }
 .cm-checkbox-done {
   color: var(--ok);
+}
+.cm-checkbox-moved {
+  color: var(--fg-muted);
 }
 .cm-frontmatter {
   color: var(--fg-muted);

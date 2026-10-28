@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Keys, SearchHit, StatusDef } from "../lib/api";
   import StatusIcon from "./StatusIcon.svelte";
+  import { noteName } from "../lib/daily.svelte";
   import { formatKey } from "../lib/keys";
   import { anchorAt, anchorOf, type Anchor } from "../lib/popup";
 
@@ -19,7 +20,7 @@
   let sel = $state(0);
   let list = $state<HTMLDivElement>();
 
-  const name = (h: SearchHit) => (h.kind === "daily" ? `${h.title} (daily)` : h.label ? `${h.title} ${h.label}` : h.title);
+  const name = (h: SearchHit) => (h.kind === "daily" ? `${noteName(h)} (daily)` : h.label ? `${h.title} ${h.label}` : h.title);
 
   $effect(() => {
     if (expanded && list) {

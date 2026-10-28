@@ -8,7 +8,7 @@
   import TagChip from "./TagChip.svelte";
   import { sameKeys } from "../lib/keys";
   import { COLORS } from "../lib/status";
-  import { timestamp } from "../lib/text";
+  import { formatDate, timestamp } from "../lib/text";
   import { RULE_PRESETS, adaptFormat, ruleId } from "../lib/links";
   import { LINK_ICONS } from "../lib/icons";
   import KeyRecorder from "./KeyRecorder.svelte";
@@ -55,7 +55,7 @@
     Vaults: [],
     // Rules are yours: Reset only restores paste formatting.
     Links: ["smartPaste"],
-    Notes: ["defaultStatus"],
+    Notes: ["defaultStatus", "dailyDateFormat", "carryTodos"],
     "Notes view": ["notesView"],
     Statuses: ["statuses"],
     Tags: ["tagColors"],
@@ -66,6 +66,7 @@
   const ACTIONS: [keyof Keys, string][] = [
     ["quickSwitcher", "Quick switcher"],
     ["dailyNote", "Today's daily note"],
+    ["carryTodos", "Bring open todos from the previous daily note"],
     ["notesView", "Notes view"],
     ["followLink", "Follow link / toggle checkbox"],
     ["back", "Back"],
@@ -404,6 +405,8 @@
   }
 
   const sample = new Date(2026, 9, 22, 14, 5);
+  /** Daily note date formats to choose from; any other is kept if typed into settings.json. */
+  const DATE_FORMATS = ["yyyy-MM-dd", "dd/MM/yyyy", "d MMM yyyy", "EEE d MMM yyyy", "EEEE d MMMM yyyy", "MM/dd/yyyy"];
 </script>
 
 {#snippet linkIcon(key: string, icon: string, pick: (icon: string) => void)}
@@ -698,8 +701,24 @@
             {#each draft.statuses as s}<option value={s.name}>{s.name}</option>{/each}
           </select>
         </div>
+        <div class="row">
+          <span class="text">Daily note date<span class="hint">how daily notes are named on screen and in the template's {"{{date}}"}; files stay named 2026-10-22.md so they sort by date</span></span>
+          <select value={draft.dailyDateFormat} onchange={(e) => set("dailyDateFormat", e.currentTarget.value)}>
+            {#each DATE_FORMATS.includes(draft.dailyDateFormat) ? DATE_FORMATS : [...DATE_FORMATS, draft.dailyDateFormat] as f}
+              <option value={f}>{formatDate("2026-10-22", f)}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="row">
+          <span class="text">Open todos in a new daily note<span class="hint">unticked items from the previous daily note, with the lines under them; {draft.keys.carryTodos} brings them in by hand</span></span>
+          <select value={draft.carryTodos} onchange={(e) => set("carryTodos", e.currentTarget.value as Settings["carryTodos"])}>
+            <option value="move">move them, marked [&gt;] where they were</option>
+            <option value="copy">copy them, leaving the earlier note as it was</option>
+            <option value="off">leave them</option>
+          </select>
+        </div>
         <div class="block">
-          <span class="text">Daily note template<span class="hint">{"{{date}}"} and {"{{weekday}}"} are filled in; saved to .stash/templates/daily.md in the vault</span></span>
+          <span class="text">Daily note template<span class="hint">{"{{date}}"} (in the date format above) and {"{{weekday}}"} are filled in; saved to .stash/templates/daily.md in the vault</span></span>
           {#if draft.vaults.length > 1}
             <select bind:value={templateVault} aria-label="Vault">
               {#each draft.vaults as v}<option value={v.id}>{v.name}</option>{/each}

@@ -74,10 +74,13 @@ const settings: Settings = {
   ],
   tagColors: { bug: "red" },
   defaultStatus: "open",
+  dailyDateFormat: "yyyy-MM-dd",
+  carryTodos: "move",
   keys: {
     hide: "Esc",
     quickSwitcher: "Ctrl+K",
     dailyNote: "Ctrl+D",
+    carryTodos: "Ctrl+Shift+D",
     followLink: "Ctrl+Enter",
     back: "Alt+Left",
     forward: "Alt+Right",
@@ -774,6 +777,9 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "daily_note":
       return ensure(a.date, a.vault);
+    case "carry_todos":
+      // The real carrying is in Rust (stash_core::todos); the demo has one day.
+      return "No earlier daily note to take todos from";
     case "archive_note": {
       const text = notes.get(a.path);
       if (text === undefined) throw new Error("Note not found");

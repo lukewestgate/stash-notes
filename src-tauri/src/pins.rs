@@ -52,7 +52,7 @@ pub fn paths(app: &AppHandle) -> Vec<String> {
 }
 
 fn build(app: &AppHandle, pin: &Pin) -> tauri::Result<WebviewWindow> {
-    let title = std::path::Path::new(&pin.path).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let title = app.state::<AppState>().file_name(&pin.path);
     let mut b = WebviewWindowBuilder::new(app, &pin.label, WebviewUrl::App("index.html".into()))
         .title(format!("{title} - Stash Notes"))
         .inner_size(pin.width, pin.height)
@@ -217,6 +217,7 @@ pub fn list_for_menu(app: &AppHandle) -> Vec<(String, String)> {
                 .get(&p.path)
                 .map(|e| match &e.meta.label {
                     Some(l) => format!("{} {}", e.meta.title, l),
+                    None if e.meta.kind == stash_core::NoteKind::Daily => state.file_name(&p.path),
                     None => e.meta.title.clone(),
                 })
                 .unwrap_or_else(|| p.path.clone());

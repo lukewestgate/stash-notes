@@ -8,6 +8,7 @@
   import EmptyState from "./EmptyState.svelte";
   import Icon from "./Icon.svelte";
   import VaultTag from "./VaultTag.svelte";
+  import { noteName } from "../lib/daily.svelte";
 
   interface Props {
     scope: "note" | "all";
@@ -184,7 +185,7 @@
           </div>
           <div class="notes">
             {#each l.notes as n (n.path)}
-              {@const name = n.label ? `${n.title} ${n.label}` : n.title}
+              {@const name = n.label ? `${n.title} ${n.label}` : noteName(n)}
               {@const inVault = vaults.length > 1 ? ` in ${vaults.find((v) => v.id === n.vault)?.name ?? n.vault}` : ""}
               <button class="note" class:archived={n.archived} onclick={() => onOpenNote(n.path)} aria-label="Open note {name}{inVault}" title="Open {name}">
                 <Icon name="file-text" size={12} /><span class="nt">{name}</span>

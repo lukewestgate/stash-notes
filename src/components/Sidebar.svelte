@@ -3,6 +3,7 @@
   import { formatKey } from "../lib/keys";
   import { anchorAt, anchorOf, type Anchor } from "../lib/popup";
   import { isoDate, relTime } from "../lib/text";
+  import { noteName } from "../lib/daily.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
@@ -170,9 +171,9 @@
     window.addEventListener("pointerup", up);
   }
 
-  const name = (h: SearchHit) => (h.kind === "ticket" && h.key ? h.key : h.title);
+  const name = (h: SearchHit) => (h.kind === "ticket" && h.key ? h.key : noteName(h));
   const tip = (h: SearchHit) =>
-    `${h.kind === "ticket" && h.label ? `${h.key} ${h.label}` : h.title}${h.status ? ` — ${h.status}` : ""}` +
+    `${h.kind === "ticket" && h.label ? `${h.key} ${h.label}` : noteName(h)}${h.status ? ` — ${h.status}` : ""}` +
     `${h.tags.length ? `\n${h.tags.map((t) => `#${t}`).join(" ")}` : ""}\nEdited ${relTime(h.mtime)} ago`;
   const indexOf = (it: Item) => items.indexOf(it);
 </script>

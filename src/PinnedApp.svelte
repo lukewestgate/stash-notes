@@ -19,6 +19,7 @@
   import { applyAppearance } from "./lib/appearance";
   import Icon from "./components/Icon.svelte";
   import { liveConfig, propertiesHooks } from "./lib/live";
+  import { daily, noteName } from "./lib/daily.svelte";
   import { matches, matchesChordTail, parseChord, parseKey } from "./lib/keys";
   import { statusInfo } from "./lib/status";
   import { refAt, ticketRegex, timestamp, checkboxToggle } from "./lib/text";
@@ -63,6 +64,7 @@
     settings = s;
     applyTickets();
     liveConfig.enabled = s.liveFormatting;
+    daily.format = s.dailyDateFormat;
     applyAppearance(s);
     editorState.spellCheck = s.spellCheck;
     if (view) setSpellCheck(view, s.spellCheck);
@@ -447,7 +449,7 @@
     {#if meta && settings && meta.status}<StatusIcon status={meta.status} statuses={settings.statuses} />{/if}
     <span class="title" data-tauri-drag-region>
       {#if meta}
-        <b data-tauri-drag-region>{meta.title}</b>{#if meta.label}<span class="label" data-tauri-drag-region> {meta.label}</span>{/if}
+        <b data-tauri-drag-region>{noteName(meta)}</b>{#if meta.label}<span class="label" data-tauri-drag-region> {meta.label}</span>{/if}
       {/if}
     </span>
     <button class="links-btn" class:on={linksOpen} onclick={toggleLinks} title="This note's links" aria-label="Links ({noteLinks.length})" aria-pressed={linksOpen} disabled={!path}>
@@ -486,7 +488,7 @@
         compact
         scope="note"
         links={noteLinks}
-        noteTitle={meta?.title ?? null}
+        noteTitle={meta ? noteName(meta) : null}
         vaults={settings.vaults}
         keys={settings.keys}
         version={0}
