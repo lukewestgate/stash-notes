@@ -116,6 +116,44 @@ fn latest(today: NaiveDate, month: u32, day: u32) -> Option<NaiveDate> {
     }
 }
 
+/// `3`, `three`, `a`: a count of days or weeks.
+fn count_from(word: &str) -> Option<i64> {
+    const WORDS: [&str; 11] = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+    match word {
+        "a" | "an" => Some(1),
+        _ => word.parse().ok().filter(|n| *n <= 3660).or_else(|| WORDS.iter().position(|w| *w == word).map(|n| n as i64)),
+    }
+}
+
+/// Phrases relative to today: `day before yesterday`, `3 days ago`,
+/// `a week ago`, and a weekday with a week: `last tuesday` (the latest one
+/// before today), `next friday`, `tuesday last week`, `last week tue`,
+/// `this week fri`, `2 weeks ago monday`. Weeks start on Monday.
+fn parse_relative(words: &[&str], today: NaiveDate) -> Option<NaiveDate> {
+    let days = |n: i64| today.checked_sub_signed(Duration::days(n));
+    match words {
+        ["day", "before", "yesterday"] => return days(2),
+        ["day", "after", "tomorrow"] => return days(-2),
+        [n, unit, "ago"] if unit.starts_with("day") => return days(count_from(n)?),
+        [n, unit, "ago"] if unit.starts_with("week") => return days(7 * count_from(n)?),
+        _ => {}
+    }
+    // One weekday; the other words say which week it's in.
+    let (at, wd) = words.iter().enumerate().find_map(|(i, w)| weekday_from(w).map(|d| (i, d)))?;
+    let rest: Vec<&str> = words.iter().enumerate().filter(|(i, _)| *i != at).map(|(_, w)| *w).collect();
+    let (now, want) = (today.weekday().num_days_from_monday() as i64, wd.num_days_from_monday() as i64);
+    let in_week = |weeks: i64| days(now - want + 7 * weeks);
+    match rest.as_slice() {
+        ["last"] | ["previous"] => days((now - want + 6).rem_euclid(7) + 1),
+        ["next"] => days(-((want - now + 6).rem_euclid(7) + 1)),
+        ["this"] | ["this", "week"] => in_week(0),
+        ["last", "week"] | ["previous", "week"] => in_week(1),
+        ["next", "week"] => in_week(-1),
+        [n, unit, "ago"] if unit.starts_with("week") => in_week(count_from(n)?),
+        _ => None,
+    }
+}
+
 /// Interpret a query as a date relative to `today`. Month-day queries without
 /// a year pick the most recent such date that is not in the future.
 /// `day_first` reads `3/10` as 3 October rather than March 10.
@@ -131,6 +169,11 @@ pub fn parse_query(query: &str, today: NaiveDate, day_first: bool) -> Option<Nai
         return Some(d);
     }
     let words: Vec<&str> = q.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
+    if words.len() > 1 {
+        if let Some(d) = parse_relative(&words, today) {
+            return Some(d);
+        }
+    }
     if words.len() == 1 {
         if let Some(wd) = weekday_from(words[0]) {
             let back = (today.weekday().num_days_from_monday() + 7 - wd.num_days_from_monday()) % 7;
@@ -206,6 +249,40 @@ mod tests {
         assert_eq!(format(t, "EEE d MMM yyyy"), "Fri 2 Oct 2026");
         assert_eq!(format(t, "EEEE d MMMM yy, 100%"), "Friday 2 October 26, 100%");
         assert!(day_first("dd/MM/yyyy") && day_first("EEE d MMM") && !day_first(ISO_FORMAT) && !day_first("MM/dd/yyyy"));
+    }
+
+    #[test]
+    fn relative_phrases() {
+        // A Thursday.
+        let t = d("2026-10-22");
+        assert_eq!(parse_query("day before yesterday", t, false), Some(d("2026-10-20")));
+        assert_eq!(parse_query("3 days ago", t, false), Some(d("2026-10-19")));
+        assert_eq!(parse_query("one day ago", t, false), Some(d("2026-10-21")));
+        assert_eq!(parse_query("a week ago", t, false), Some(d("2026-10-15")));
+        assert_eq!(parse_query("2 weeks ago", t, false), Some(d("2026-10-08")));
+        // Latest before today, so `last thursday` on a Thursday is a week ago.
+        assert_eq!(parse_query("last tuesday", t, false), Some(d("2026-10-20")));
+        assert_eq!(parse_query("last thu", t, false), Some(d("2026-10-15")));
+        assert_eq!(parse_query("next mon", t, false), Some(d("2026-10-26")));
+        assert_eq!(parse_query("next thursday", t, false), Some(d("2026-10-29")));
+        // The week it's in, whichever order the words come in.
+        assert_eq!(parse_query("last week tuesday", t, false), Some(d("2026-10-13")));
+        assert_eq!(parse_query("Tuesday, last week", t, false), Some(d("2026-10-13")));
+        assert_eq!(parse_query("last week sun", t, false), Some(d("2026-10-18")));
+        assert_eq!(parse_query("this week friday", t, false), Some(d("2026-10-23")));
+        assert_eq!(parse_query("this mon", t, false), Some(d("2026-10-19")));
+        assert_eq!(parse_query("monday next week", t, false), Some(d("2026-10-26")));
+        assert_eq!(parse_query("2 weeks ago monday", t, false), Some(d("2026-10-05")));
+        // On a Monday, last week runs from the Monday before.
+        let mon = d("2026-10-26");
+        assert_eq!(parse_query("last week monday", mon, false), Some(d("2026-10-19")));
+        assert_eq!(parse_query("last monday", mon, false), Some(d("2026-10-19")));
+        assert_eq!(parse_query("monday", mon, false), Some(mon));
+        // Other words still aren't dates.
+        assert_eq!(parse_query("last week", t, false), None);
+        assert_eq!(parse_query("monday standup notes", t, false), None);
+        assert_eq!(parse_query("ten days ago", t, false), Some(d("2026-10-12")));
+        assert_eq!(parse_query("many days ago", t, false), None);
     }
 
     #[test]

@@ -23,6 +23,8 @@
     [keys.quickSwitcher, "Quick switcher: find, open or create a note", "with text selected: link it"],
     [keys.dailyNote, "Today's daily note"],
     [keys.carryTodos, "Bring open todos from the previous daily note"],
+    [keys.prevDaily, "Previous daily note", "skips days without one; from another note, the latest"],
+    [keys.nextDaily, "Next daily note"],
     [keys.notesView, "Notes view: browse, sort and filter every note"],
     [keys.switchVault, "Switch vault", "opening a note from another vault switches too"],
     [keys.toggleSidebar, "Expand / collapse the sidebar"],

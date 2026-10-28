@@ -21,6 +21,7 @@ import {
   keymap,
   ViewPlugin,
   type ViewUpdate,
+  WidgetType,
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { api, type SearchHit } from "./api";
@@ -51,7 +52,32 @@ export interface EditorHooks {
 export const decoConfig = {
   tickets: /\b(?:[A-Z][A-Z0-9]+-\d+)\b/g,
   archived: new Set<string>(),
+  /** Open todos carried from earlier daily notes, by item text (lower case). */
+  todoAges: new Map<string, { since: string; days: number }>(),
 };
+
+/** Todos carried along for this many days or more show how long. */
+const AGE_FROM = 2;
+
+/** `5d` after a todo carried from earlier daily notes. */
+class AgeWidget extends WidgetType {
+  constructor(
+    readonly days: number,
+    readonly since: string,
+  ) {
+    super();
+  }
+  eq(o: AgeWidget) {
+    return o.days === this.days && o.since === this.since;
+  }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-todo-age";
+    s.textContent = `${this.days}d`;
+    s.title = `Open since ${noteName({ kind: "daily", title: this.since })} (${this.days} days)`;
+    return s;
+  }
+}
 
 const refresh = StateEffect.define<null>();
 
@@ -116,6 +142,10 @@ function buildDecorations(view: EditorView): DecorationSet {
         out.push((box.done ? boxDone : box.moved ? boxMoved : boxOpen).range(line.from + box.at - 1, line.from + box.at + 2));
         if (box.done) out.push(doneLine.range(line.from));
         if (box.moved) out.push(movedLine.range(line.from));
+        const age = !box.done && !box.moved ? decoConfig.todoAges.get(text.slice(box.at + 2).trim().toLowerCase()) : undefined;
+        if (age && age.days >= AGE_FROM) {
+          out.push(Decoration.widget({ widget: new AgeWidget(age.days, age.since), side: 1 }).range(line.to));
+        }
       }
       if (line.to >= to || line.number >= doc.lines) break;
       line = doc.line(line.number + 1);

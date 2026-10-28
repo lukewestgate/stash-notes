@@ -300,6 +300,7 @@
     applyTickets();
     serverDirty = data.dirty;
     conflict = data.deleted ? { deleted: true } : null;
+    decoConfig.todoAges = new Map();
     view.setState(EditorState.create({ doc: data.text, extensions: [extensions, NoteSync.extension(data)] }));
     sync = new NoteSync(path, view, () => reopen());
     updateDirty();
@@ -311,6 +312,7 @@
       requestAnimationFrame(() => (view.scrollDOM.scrollTop = top));
     }
     refreshLinks(true);
+    refreshAges();
     updateNav();
     refreshBacklinks();
     refreshSidebar();
@@ -490,6 +492,40 @@
     }
   }
 
+  /** How long the open daily note's carried todos have been open (the `5d` badges). */
+  async function refreshAges() {
+    const path = currentPath;
+    if (!path || meta?.kind !== "daily") return;
+    const ages = await api.todoAges(path).catch(() => []);
+    if (path !== currentPath) return;
+    decoConfig.todoAges = new Map(ages.map((a) => [a.text, a]));
+    refreshDecorations(view);
+  }
+
+  /** The daily note before (or after) the open one; from another note, the latest one. */
+  async function stepDaily(forward: boolean) {
+    const from = screen === "editor" ? currentPath : null;
+    try {
+      const path = from ? await api.adjacentDaily(from, isoDate(), forward) : await api.dailyNote(isoDate(), currentVault);
+      if (path) navigate(path);
+      else toast(forward ? "No later daily note" : "No earlier daily note");
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** `+ text` in the switcher: a todo for today's daily note. */
+  async function addTodo(text: string, vault: string | null) {
+    closeOverlay();
+    try {
+      await flush();
+      done(await api.addTodo(text, isoDate(), vault ?? currentVault));
+      refreshAges();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
   /** Pull the previous daily note's open todos into the open daily note. */
   async function carryTodos() {
     if (screen !== "editor" || !currentPath || meta?.kind !== "daily") {
@@ -501,6 +537,7 @@
       const message = await api.carryTodos(currentPath);
       if (/^(Moved|Copied)/.test(message)) done(message);
       else toast(message);
+      refreshAges();
     } catch (e) {
       fail(e);
     }
@@ -1310,6 +1347,8 @@
     quickSwitcher: () => openSwitcher(),
     dailyNote: openDaily,
     carryTodos,
+    prevDaily: () => stepDaily(false),
+    nextDaily: () => stepDaily(true),
     followLink: followOrToggle,
     back,
     forward,
@@ -1793,6 +1832,7 @@
       onChoose={switcherChoose}
       onCreate={switcherCreate}
       onMenu={overlay.mode === "open" ? openNoteMenu : undefined}
+      onAddTodo={addTodo}
       onShowAll={(q) => {
         closeOverlay();
         openNotesView(q);

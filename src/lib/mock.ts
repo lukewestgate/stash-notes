@@ -81,6 +81,8 @@ const settings: Settings = {
     quickSwitcher: "Ctrl+K",
     dailyNote: "Ctrl+D",
     carryTodos: "Ctrl+Shift+D",
+    prevDaily: "Alt+PageUp",
+    nextDaily: "Alt+PageDown",
     followLink: "Ctrl+Enter",
     back: "Alt+Left",
     forward: "Alt+Right",
@@ -777,6 +779,19 @@ export function handle(cmd: string, a: A): unknown {
     }
     case "daily_note":
       return ensure(a.date, a.vault);
+    case "add_todo": {
+      const path = ensure(a.date, a.vault ?? current);
+      const text = notes.get(path)!;
+      const at = text.indexOf("- [ ] \n");
+      const line = `- [ ] ${String(a.text).trim()}\n`;
+      serverEdit(path, at < 0 ? `${text}${line}` : text.slice(0, at) + line + text.slice(at));
+      changed(path);
+      return `Added to ${a.date}`;
+    }
+    case "adjacent_daily":
+      return null;
+    case "todo_ages":
+      return [];
     case "carry_todos":
       // The real carrying is in Rust (stash_core::todos); the demo has one day.
       return "No earlier daily note to take todos from";
@@ -936,6 +951,7 @@ export function handle(cmd: string, a: A): unknown {
             .sort((x, y) => (recents.get(y) ?? mtimes.get(y)!) - (recents.get(x) ?? mtimes.get(x)!))
             .map((p) => hit(p)),
           exact: false,
+          date: null,
         };
       }
       const hits: SearchHit[] = [];
@@ -952,7 +968,10 @@ export function handle(cmd: string, a: A): unknown {
         }
       }
       hits.sort((x, y) => y.score - x.score);
-      return { hits, exact };
+      // The real date words are in Rust (stash_core::dates); the demo knows a few.
+      const back = { today: 0, yesterday: 1, "day before yesterday": 2 }[q];
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : back === undefined ? null : isoDate(new Date(Date.now() - back * 86_400_000));
+      return { hits, exact, date };
     }
     case "list_notes": {
       const q = String(a.query).trim().toLowerCase();

@@ -21,6 +21,7 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 
 ## Contents
 
+- [What's new in 0.10](#whats-new-in-010)
 - [What's new in 0.9](#whats-new-in-09)
 - [What's new in 0.8](#whats-new-in-08)
 - [What's new in 0.7](#whats-new-in-07)
@@ -56,6 +57,15 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 - [Design notes and decisions](#design-notes-and-decisions)
 
 ---
+
+## What's new in 0.10
+
+More for the daily note: getting around it, adding to it, and finding days by name.
+
+- **Add a todo from anywhere.** In the `Alt+J` pop-up (or `Ctrl+K`), type `+ chase Sam about the demo` and press `Enter`. It goes into today's Todo list without bringing up the app. See [Daily notes and todos](#daily-notes-and-todos).
+- **Step through daily notes.** `Alt+PgUp` and `Alt+PgDn` go to the previous and next daily note, skipping days without one.
+- **How long a todo has been open.** A carried todo shows a small `5d` badge after it once it's been open two days or more, counted from the daily note it was first written in. The file isn't changed.
+- **More date words in search:** `last tuesday`, `tuesday last week`, `this week fri`, `next monday`, `3 days ago`, `a week ago`, `2 weeks ago monday`, `day before yesterday`. The switcher shows which day it read, and offers to create that day's note if there isn't one. See [Quick switcher and search](#quick-switcher-and-search).
 
 ## What's new in 0.9
 
@@ -404,6 +414,7 @@ Every in-app shortcut can be changed in Settings → Shortcuts. In-app shortcuts
 | `Ctrl+K` | Quick switcher and search | Also creates notes. With text selected, links the selection |
 | `Ctrl+D` | Today's daily note | Creates it if missing, bringing the previous one's open todos |
 | `Ctrl+Shift+D` | Bring open todos from the previous daily note | In a daily note; skips ones it already has |
+| `Alt+PgUp` / `Alt+PgDn` | Previous / next daily note | Skips days without one. From another note, `Alt+PgUp` opens the latest |
 | `Ctrl+L` | Notes view | The current vault's notes |
 | `Ctrl+Shift+O` | Switch vault | Also from the sidebar and the tray |
 | `Ctrl+Enter` | Follow link under cursor | Note link, key or URL. A key without a note offers to create one. On a checkbox line with no link, toggles it |
@@ -461,8 +472,25 @@ What matches, from strongest to weakest:
 | Ticket key | `123`, `proj123`, `PROJ-123` | Highest |
 | Title and aliases | `rollout`, `rlt pln` (fuzzy) | High |
 | Filters | `@open`, `@active`, `#bug`, `in:work` | Narrow the results; combine freely |
-| Date | `2026-10-22`, `22/10`, `22/10/2026`, `oct 22`, `today`, `yesterday`, `monday` | High (matches the daily note). `22/10` is read day first or month first to match your daily note date format |
+| Date | `2026-10-22`, `22/10`, `22/10/2026`, `oct 22`, `today`, `yesterday`, `monday`, `last tuesday`, `tuesday last week`, `3 days ago` | High (matches the daily note). See [Date words](#date-words) |
 | Body text | Any word or words from a note, or a timestamp | Normal, with the matching line shown |
+
+#### Date words
+
+When the query reads as a day, the switcher shows that day under the search box, and the day's daily note comes first. If there isn't one, the **Create** row creates it. Weeks start on Monday. Taking Thursday 22 October 2026 as today:
+
+| You type | Day |
+|---|---|
+| `today`, `yesterday`, `tomorrow`, `day before yesterday` | 22, 21, 23, 20 October |
+| `monday`, `thu` | The latest one, today included: 19, 22 October |
+| `last monday`, `last thu` | The latest one before today: 19, 15 October |
+| `next mon` | The next one after today: 26 October |
+| `this week fri`, `friday this week`, `this fri` | Friday of this week: 23 October |
+| `last week tuesday`, `tuesday last week` | Tuesday of last week: 13 October |
+| `monday next week` | 26 October |
+| `3 days ago`, `a week ago`, `2 weeks ago` | 19, 15, 8 October |
+| `2 weeks ago monday` | Monday two weeks back: 5 October |
+| `oct 22`, `22 october`, `22/10`, `22/10/2026`, `2026-10-22` | 22 October (`22/10` follows your daily note date format's order) |
 
 Typing **only digits** (for example `123`) matches every ticket key ending in those digits. Notes opened in the last 7 days get a boost. There are no regexes, boolean operators or saved searches. For those, search the notes folder with Everything, ripgrep or your editor.
 
@@ -591,6 +619,7 @@ Press **`Alt+J`** from any app. A small search box appears near the top of the s
 - It's the same switcher as `Ctrl+K`: fuzzy search across every vault by ticket key, ticket name, title, date or text, with `@status`, `#tag` and `in:vault` filters, and your recent and active notes listed when it's empty. The vault you last used comes first, and `Tab` narrows to a vault.
 - **`Enter`** opens the selected note in the app.
 - When nothing matches, the **Create** row creates the note (in the vault you last used, or the one you narrowed to) and opens it. A pasted link, or `PROJ-1234 Do this thing`, offers [Create note from link](#creating-a-note-from-a-link) in the pop-up first.
+- **`+ text`** adds `- [ ] text` to today's daily note (in the vault you last used, or the one you narrowed to with `Tab`), creating the note if needed, and closes the pop-up. It works in `Ctrl+K` too.
 - **`Esc`** (or clicking anywhere else) closes the pop-up and returns you to what you were doing.
 - `Alt+J` again while it's open closes it. You can change the key in Settings → General.
 
@@ -623,6 +652,9 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 - An open todo nested under another open todo moves with its parent. One nested under a ticked or plain bullet moves on its own.
 - It happens once, when the note is created. Deleting a carried item from today's note doesn't bring it back.
 - **`Ctrl+Shift+D`** in a daily note brings the previous daily note's open todos in by hand, skipping any it already has (same text). Use it if you added todos to yesterday's note after today's was made.
+- **Adding a todo from anywhere:** `Alt+J`, then `+ chase Sam about the demo` and `Enter`. It goes into today's Todo list the same way carried todos do, above the empty checkbox.
+- **How long it's been open:** once a carried todo has been open two days or more, a muted badge after it says how long (`5d`), counted from the daily note it was first written in. Hover it to see that day. It's worked out from your earlier daily notes (following the item back while each day still has it, open or `[>]`), so the file isn't changed. Ticking it, or changing its text, drops the badge.
+- **`Alt+PgUp` / `Alt+PgDn`** go to the previous and next daily note in the vault, skipping days without one.
 - **Settings → Notes → Open todos in a new daily note:** *move* (the default), *copy* (the earlier note is left as it was), or *leave them*. `Ctrl+Shift+D` copies when the setting says copy, and moves otherwise.
 
 **Date format:** Settings → Notes → **Daily note date** picks how daily notes are named in the header, sidebar, switcher, Notes view, backlinks and pinned windows: `2026-10-22`, `22/10/2026`, `22 Oct 2026`, `Thu 22 Oct 2026`, `Thursday 22 October 2026` or `10/22/2026`. Files are always named `2026-10-22.md`, so a folder listing sorts them by date and `[[2026-10-22]]` links keep working. Search reads typed dates in the same order: with a day-first format, `3/10` is 3 October.

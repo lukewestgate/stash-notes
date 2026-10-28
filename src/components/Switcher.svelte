@@ -4,11 +4,11 @@
   import { api, type SearchHit, type StatusDef, type TagCount, type VaultDef } from "../lib/api";
   import VaultTag from "./VaultTag.svelte";
   import LinkCreate from "./LinkCreate.svelte";
-  import { completeTag, tagSuggestions, typingTag } from "../lib/text";
+  import { completeTag, tagSuggestions, typingTag, weekday } from "../lib/text";
   import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
-  import { noteName } from "../lib/daily.svelte";
+  import { noteName, showsWeekday } from "../lib/daily.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { onMount } from "svelte";
@@ -40,6 +40,8 @@
     onMenu?: (hit: SearchHit, anchor: Anchor) => void;
     /** Ctrl+Enter: show every result in the Notes view, with this query. */
     onShowAll?: (query: string) => void;
+    /** `+ text`: add a todo to today's daily note in `vault` (the scope; null for the default). */
+    onAddTodo?: (text: string, vault: string | null) => void;
   }
   let {
     mode,
@@ -58,6 +60,7 @@
     onSize,
     onMenu,
     onShowAll,
+    onAddTodo,
   }: Props = $props();
 
   /** Tab cycles the vaults searched: all, the current one, then each other one. */
@@ -84,6 +87,11 @@
   let query = $state("");
   let hits = $state<SearchHit[]>([]);
   let exact = $state(true);
+  /** The day the query names (`last week tue`), as Rust read it. */
+  let date = $state<string | null>(null);
+  /** `+ call Sam`: the todo to add to today's note, instead of searching. */
+  const todo = $derived(onAddTodo && mode === "open" && query.startsWith("+") ? query.slice(1).trim() : null);
+  const dateName = $derived(date ? `${noteName({ kind: "daily", title: date })}${showsWeekday() ? "" : `, ${weekday(date)}`}` : "");
   let sel = $state(0);
   let includeArchived = $state(false);
   let input: HTMLInputElement;
@@ -106,7 +114,7 @@
   /** Showing the form to create a note from the link in the query. */
   let linking = $state(false);
   const newTags = $derived(query.split(/\s+/).filter((w) => w.length > 1 && w.startsWith("#")).map((w) => w.slice(1).toLowerCase()));
-  const rowCount = $derived(hits.length + (showCreate ? 1 : 0));
+  const rowCount = $derived(todo !== null ? 1 : hits.length + (showCreate ? 1 : 0));
 
   async function run(q: string, archived: boolean) {
     const my = ++seq;
@@ -115,6 +123,7 @@
       if (my !== seq) return;
       hits = r.hits;
       exact = r.exact;
+      date = r.date;
       sel = 0;
     } catch {
       // keep previous results
@@ -122,6 +131,13 @@
   }
 
   $effect(() => {
+    if (todo !== null) {
+      seq++;
+      hits = [];
+      date = null;
+      sel = 0;
+      return;
+    }
     run(scope ? `${searched} in:${scope}` : searched, includeArchived);
   });
 
@@ -139,7 +155,11 @@
   }
 
   function choose(i: number, peek: boolean) {
-    if (i < hits.length) onChoose(hits[i], peek);
+    if (todo !== null) {
+      if (todo) onAddTodo?.(todo, scope);
+    } else if (i < hits.length) onChoose(hits[i], peek);
+    // A date without its daily note: create that one.
+    else if (showCreate && date) onCreate(date, scope);
     else if (showCreate && linkish) linking = true;
     else if (showCreate) onCreate(query.trim(), scope);
   }
@@ -235,7 +255,21 @@
         }}
       />
     {:else}
+    {#if date}
+      <div class="datehint"><Icon name="calendar" size={13} /> {dateName}</div>
+    {/if}
     <div class="results" bind:this={list}>
+      {#if todo !== null}
+        <button class="row create" class:selected={sel === 0} data-row={0} onmousemove={() => (sel = 0)} onclick={() => choose(0, false)}>
+          <span class="line">
+            <span class="kind new">todo</span>
+            <span class="sym new"><Icon name="square" size={14} /></span>
+            <span class="name">{todo ? `Add "${todo}"` : "Type a todo after the +"}</span>
+            <span class="label">to today's daily note</span>
+            {#if vaults.length > 1 && (scope ?? currentVault)}<span class="vtag"><VaultTag vault={(scope ?? currentVault)!} {vaults} /></span>{/if}
+          </span>
+        </button>
+      {/if}
       {#each hits as hit, i (hit.path)}
         <button
           class="row"
@@ -262,7 +296,7 @@
           {#if hit.snippet}<span class="snippet"><Highlight text={hit.snippet} {query} /></span>{/if}
         </button>
       {/each}
-      {#if showCreate}
+      {#if showCreate && todo === null}
         <button
           class="row create"
           class:selected={sel === hits.length}
@@ -273,7 +307,10 @@
           <span class="line">
             <span class="kind new">new</span>
             <span class="sym new"><Icon name="plus" size={14} /></span>
-            {#if linkish}
+            {#if date}
+              <span class="name">Create daily note for {dateName}</span>
+              <span class="label">daily</span>
+            {:else if linkish}
               {@const [link, ...name] = title.split(/\s+/)}
               <span class="name">Create note from {link}</span>
               <span class="label">{name.length ? `"${name.join(" ")}"` : "link"}</span>
@@ -286,7 +323,7 @@
           </span>
         </button>
       {/if}
-      {#if rowCount === 0}
+      {#if rowCount === 0 && todo === null}
         {#if query}
           <EmptyState icon="search-x" title="No matches" />
         {:else}
@@ -298,6 +335,7 @@
       <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
       <span><kbd>Enter</kbd> {mode === "link" ? "link" : "open"}</span>
       {#if mode === "open"}<span><kbd>Alt+Enter</kbd> peek</span>{/if}
+      {#if onAddTodo && mode === "open"}<span><kbd>+</kbd> add a todo</span>{/if}
       {#if onMenu && mode === "open"}<span><kbd>Shift+F10</kbd> note menu</span>{/if}
       <span><kbd>Alt+A</kbd> {includeArchived ? "hide" : "include"} closed</span>
       <span><kbd>Esc</kbd> close</span>
@@ -310,6 +348,14 @@
 </div>
 
 <style>
+  .datehint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px 2px;
+    font-size: 12px;
+    color: var(--fg-muted);
+  }
   .backdrop {
     position: fixed;
     inset: 0;

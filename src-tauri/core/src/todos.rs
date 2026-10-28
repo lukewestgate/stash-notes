@@ -2,8 +2,10 @@
 //! `- [ ] item` with some text; it travels with the lines nested under it.
 //! Moving marks the item `- [>] item` where it was, so it's only open in one place.
 
+use chrono::NaiveDate;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 /// What happens to a daily note's open todos when the next one is made.
@@ -185,6 +187,62 @@ pub fn carry(from: &str, to: &str, mode: CarryTodos) -> Option<Carry> {
     Some(Carry { to: insert_block(to, &block), from: moved, count: marks.len() })
 }
 
+/// Add `- [ ] item` to the note's todo list, where carried todos go.
+pub fn add_item(text: &str, item: &str) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    insert_block(text, &format!("- [ ] {}{nl}", item.trim()))
+}
+
+/// The item texts (lower case) of the task lines outside code blocks whose
+/// box is one of `marks`.
+fn keys_with(text: &str, marks: &[char]) -> Vec<String> {
+    let mut fenced = false;
+    let mut out = Vec::new();
+    for (_, line) in lines(text) {
+        if is_fence(line) {
+            fenced = !fenced;
+        } else if let Some(t) = task(line).filter(|t| !fenced && marks.contains(&t.mark) && !t.text.is_empty()) {
+            out.push(t.text.to_lowercase());
+        }
+    }
+    out
+}
+
+/// An open todo and the day it was first written.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TodoAge {
+    /// The item's text in lower case.
+    pub text: String,
+    pub since: NaiveDate,
+    /// Days from `since` to the note's own date.
+    pub days: i64,
+}
+
+/// When each open todo of the daily note `text` (for `date`) was first
+/// written: going back through `earlier` daily notes (newest first) for as
+/// long as each one has it, open or moved on. Only todos that came from an
+/// earlier note are listed.
+pub fn ages(text: &str, date: NaiveDate, earlier: &[(NaiveDate, &str)]) -> Vec<TodoAge> {
+    let mut seen: Vec<HashSet<String>> = Vec::new();
+    let mut out = Vec::new();
+    for key in keys_with(text, &[' ']) {
+        let mut since = None;
+        for (i, (day, note)) in earlier.iter().enumerate() {
+            if seen.len() == i {
+                seen.push(keys_with(note, &[' ', '>']).into_iter().collect());
+            }
+            if !seen[i].contains(&key) {
+                break;
+            }
+            since = Some(*day);
+        }
+        if let Some(since) = since.filter(|_| !out.iter().any(|a: &TodoAge| a.text == key)) {
+            out.push(TodoAge { days: (date - since).num_days(), text: key, since });
+        }
+    }
+    out
+}
+
 /// Put `block` (whole lines) in the note's todo list: before the empty
 /// `- [ ] ` a template leaves there, so the cursor still lands on it, else
 /// after the list's last line. The list is the one under a `## Todo` heading,
@@ -297,6 +355,34 @@ mod tests {
         let c = carry("- [ ] a\n", "# D\n\n## To do", CarryTodos::Copy).unwrap();
         assert_eq!(c.to, "# D\n\n## To do\n- [ ] a\n");
         assert_eq!(carry("- [ ] a\n", "", CarryTodos::Copy).unwrap().to, "- [ ] a\n");
+    }
+
+    #[test]
+    fn adds_an_item_to_the_list() {
+        assert_eq!(add_item(TODAY, " call Sam "), "# 2026-10-28\n\n## Todo\n\n- [ ] call Sam\n- [ ] \n\n## Notes\n\n");
+        assert_eq!(add_item("## Todo\r\n- [x] a\r\n", "b"), "## Todo\r\n- [x] a\r\n- [ ] b\r\n");
+    }
+
+    #[test]
+    fn ages_follow_the_chain_back() {
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let today = "- [ ] old one\n- [ ] Newer\n- [ ] brand new\n- [x] done\n";
+        let earlier = [
+            (d("2026-10-27"), "- [>] old one\n- [>] newer\n"),
+            // The weekend has no notes; the gap counts as days.
+            (d("2026-10-23"), "- [>] old one\n"),
+            (d("2026-10-22"), "- [ ] old one\n"),
+            (d("2026-10-21"), "- [x] newer\n"),
+        ];
+        let a = ages(today, d("2026-10-28"), &earlier);
+        assert_eq!(
+            a,
+            vec![
+                TodoAge { text: "old one".into(), since: d("2026-10-22"), days: 6 },
+                TodoAge { text: "newer".into(), since: d("2026-10-27"), days: 1 },
+            ]
+        );
+        assert!(ages(today, d("2026-10-28"), &[]).is_empty());
     }
 
     #[test]
