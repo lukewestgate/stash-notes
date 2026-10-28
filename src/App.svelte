@@ -34,6 +34,7 @@
     editorExtensions,
     editorState,
     refreshDecorations,
+    replaceLine,
     setEditorDark,
     setLiveFormatting,
     setSpellCheck,
@@ -509,6 +510,24 @@
       const path = from ? await api.adjacentDaily(from, isoDate(), forward) : await api.dailyNote(isoDate(), currentVault);
       if (path) navigate(path);
       else toast(forward ? "No later daily note" : "No earlier daily note");
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** Send the line at `from` to a daily note (see editor.ts): it becomes `text → [[day]]`. */
+  async function sendLine(from: number, text: string, now: boolean) {
+    const path = currentPath;
+    if (!path) return;
+    try {
+      await flush();
+      const sent = await api.sendTodo(path, text, isoDate(), now);
+      if (!sent) {
+        if (now) toast("Nothing to send on this line");
+        return;
+      }
+      if (path === currentPath) replaceLine(view, from, text, sent.line);
+      done(sent.message);
     } catch (e) {
       fail(e);
     }
@@ -1347,6 +1366,11 @@
     quickSwitcher: () => openSwitcher(),
     dailyNote: openDaily,
     carryTodos,
+    sendTodo: () => {
+      if (screen !== "editor") return;
+      const line = view.state.doc.lineAt(view.state.selection.main.head);
+      sendLine(line.from, line.text, true);
+    },
     prevDaily: () => stepDaily(false),
     nextDaily: () => stepDaily(true),
     followLink: followOrToggle,
@@ -1532,6 +1556,8 @@
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
       paste: smartPaste,
       imageError: (message) => toaster.show(message, "error"),
+      sendLine,
+      todoToggled: (line) => currentPath && api.syncTodo(currentPath, line).catch(fail),
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     darkQuery.addEventListener("change", applyDark);

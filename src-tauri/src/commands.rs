@@ -399,6 +399,10 @@ pub fn resolve_link(app: AppHandle, state: State<AppState>, target: String, from
     if let Some(p) = state.index.read().unwrap().resolve(&target, from_vault.as_deref().unwrap_or(&current)) {
         return Ok(p);
     }
+    // A day's note: made as Ctrl+D would, with the todos sent ahead to it.
+    if let Some(d) = dates::parse_iso(target.trim()) {
+        return ensure_daily(&app, &state, from_vault.as_deref().unwrap_or(&current), d);
+    }
     let note = ensure_note(&state, &target, &current)?;
     announce_creation(&app, &state, &note);
     Ok(note.path)
@@ -438,6 +442,9 @@ pub fn note_preview(state: State<AppState>, buffers: State<buffers::Buffers>, ta
 #[tauri::command]
 pub fn create_note(app: AppHandle, state: State<AppState>, title: String, vault: String) -> Res<String> {
     let q = stash_core::query::Query::parse(&title);
+    if let Some(d) = dates::parse_iso(q.text.trim()) {
+        return ensure_daily(&app, &state, &vault, d);
+    }
     let note = create_titled(&state, q.text.trim(), &vault)?;
     if note.created && !q.tags.is_empty() {
         let _ = edit_note(&app, &state, &note.path, |content, meta| {
@@ -485,8 +492,15 @@ fn ensure_daily(app: &AppHandle, state: &AppState, vault: &str, d: chrono::Naive
         (s.daily_date_format.clone(), s.carry_todos)
     };
     let content = v.daily_content(d, &format);
-    let carried = plan_carry(app, state, vault, d, &content, mode);
-    let content = carried.as_ref().map_or(content, |(_, c)| c.to.clone());
+    // Only today's note takes the open todos: one made ahead (or for a past
+    // day) leaves them where they are.
+    let carried = (d == chrono::Local::now().date_naive()).then(|| plan_carry(app, state, vault, d, &content, mode)).flatten();
+    let mut content = carried.as_ref().map_or(content, |(_, c)| c.to.clone());
+    // Todos sent ahead to this day from other notes (`→ [[day]]`).
+    let day = d.format("%Y-%m-%d").to_string();
+    for item in scheduled_into(state, vault, &day) {
+        content = todos::add_item(&content, &item);
+    }
     let note = create_file(state, vault, &Vault::daily_path(d), &content)?;
     if let (true, Some((from, c))) = (note.created, carried) {
         match rewrite_note(app, state, &from, &c.from) {
@@ -495,8 +509,113 @@ fn ensure_daily(app: &AppHandle, state: &AppState, vault: &str, d: chrono::Naive
             }
             Err(e) => state.warn(format!("couldn't mark the todos moved in {from}: {e}")),
         }
+        // Todos sent from other notes now live here: their `→` follows them.
+        let before = note::stem(&from).to_string();
+        for item in &c.items {
+            if let (text, Some(todos::Sent::Copy { source })) = todos::sent_parts(item) {
+                let _ = edit_text(app, state, &source, vault, |t| todos::retarget(t, text, &before, &day));
+            }
+        }
     }
     Ok(note.path)
+}
+
+/// `text · [[source]]` for each open todo sent ahead to `day` from the
+/// vault's notes.
+fn scheduled_into(state: &AppState, vault: &str, day: &str) -> Vec<String> {
+    let index = state.index.read().unwrap();
+    let mut out = Vec::new();
+    for (meta, body) in index.containing(vault, &format!("[[{day}]]")) {
+        out.extend(todos::scheduled(body, day).into_iter().map(|t| format!("{t} · [[{}]]", meta.title)));
+    }
+    out.sort();
+    out
+}
+
+/// Change the text of the note `target` names (resolved from `vault`) with
+/// `make`, through its buffer when it's open. Does nothing when `make`
+/// returns None or there's no such note.
+fn edit_text(app: &AppHandle, state: &AppState, target: &str, vault: &str, make: impl FnOnce(&str) -> Option<String>) -> Res<()> {
+    let Some(path) = state.index.read().unwrap().resolve(target, vault) else { return Ok(()) };
+    let text = match buffers::text(app, &path) {
+        Some(t) => t,
+        None => state.read_note(&path)?,
+    };
+    match make(&text) {
+        Some(next) => rewrite_note(app, state, &path, &next),
+        None => Ok(()),
+    }
+}
+
+#[derive(Serialize)]
+pub struct SentTodo {
+    /// What the line becomes: a todo with `→ [[day]]` after it.
+    line: String,
+    /// What happened, for a toast.
+    message: String,
+}
+
+/// Send a line of the note at `path` to a daily note: the day its trailing
+/// `@today` / `@fri` / `@next mon` names, or today when `now`. That day's
+/// note gets `- [ ] text · [[this note]]` (a day still ahead gets it when
+/// its note is made), and the line becomes `- [ ] text → [[day]]`. None when
+/// the line names no day or was sent already.
+#[tauri::command]
+pub fn send_todo(app: AppHandle, state: State<AppState>, path: String, line: String, today: String, now: bool) -> Res<Option<SentTodo>> {
+    let path = state.qualify(&path)?;
+    let today = dates::parse_iso(&today).ok_or_else(|| format!("bad date {today}"))?;
+    if todos::sent_task(&line).is_some() {
+        return Ok(None);
+    }
+    let day_first = dates::day_first(&state.settings.read().unwrap().daily_date_format);
+    let (text, d) = if now {
+        (line.as_str(), today)
+    } else {
+        let Some(at) = line.rfind(" @") else { return Ok(None) };
+        match dates::parse_query(&line[at + 2..], today, day_first) {
+            Some(d) => (line[..at].trim_end(), d),
+            None => return Ok(None),
+        }
+    };
+    let day = d.format("%Y-%m-%d").to_string();
+    let (new_line, item) = todos::sent_origin(&line, text, &day);
+    let meta = meta_for(&state, &path, &state.read_note(&path).unwrap_or_default());
+    if item.is_empty() || (meta.kind == stash_core::NoteKind::Daily && meta.date == Some(d)) {
+        return Ok(None);
+    }
+    let copy = format!("{item} · [[{}]]", meta.title);
+    let message = if d <= today {
+        let daily = ensure_daily(&app, &state, &meta.vault, d)?;
+        let current = match buffers::text(&app, &daily) {
+            Some(t) => t,
+            None => state.read_note(&daily)?,
+        };
+        let have = current.lines().any(|l| todos::sent_task(l).is_some_and(|(_, t, _)| t.eq_ignore_ascii_case(&item)));
+        if !have {
+            rewrite_note(&app, &state, &daily, &todos::add_item(&current, &copy))?;
+        }
+        format!("Added to {}", state.file_name(&daily))
+    } else {
+        format!("Scheduled for {}", state.file_name(&format!("{day}.md")))
+    };
+    Ok(Some(SentTodo { line: new_line, message }))
+}
+
+/// A sent todo's box changed in the note at `path` (`line` is the line
+/// now): give the other end the same box.
+#[tauri::command]
+pub fn sync_todo(app: AppHandle, state: State<AppState>, path: String, line: String) -> Res<()> {
+    let Some((mark, text, sent)) = todos::sent_task(&line) else { return Ok(()) };
+    if !matches!(mark, ' ' | 'x' | 'X') {
+        return Ok(());
+    }
+    let path = state.qualify(&path)?;
+    let vault = note::split_path(&path).0;
+    let (target, origin) = match sent {
+        todos::Sent::Copy { source } => (source, true),
+        todos::Sent::Origin { day } => (day, false),
+    };
+    edit_text(&app, &state, &target, vault, |t| todos::mark_sent(t, &text, origin, mark))
 }
 
 /// Add `- [ ] text` to the todo list of vault `vault`'s daily note for

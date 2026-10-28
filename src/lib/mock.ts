@@ -81,6 +81,7 @@ const settings: Settings = {
     quickSwitcher: "Ctrl+K",
     dailyNote: "Ctrl+D",
     carryTodos: "Ctrl+Shift+D",
+    sendTodo: "Ctrl+Shift+Enter",
     prevDaily: "Alt+PageUp",
     nextDaily: "Alt+PageDown",
     followLink: "Ctrl+Enter",
@@ -788,6 +789,24 @@ export function handle(cmd: string, a: A): unknown {
       changed(path);
       return `Added to ${a.date}`;
     }
+    case "send_todo": {
+      // The real one is in Rust (commands::send_todo); the demo knows @today.
+      const m = /^(.*?)\s+@today\s*$/i.exec(String(a.line));
+      const text = a.now ? String(a.line) : m?.[1];
+      if (!text || / → \[\[/.test(String(a.line))) return null;
+      const body = text.replace(/^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s+)?/, "");
+      const source = hit(a.path);
+      const day = a.today;
+      const path = ensure(day, vaultOf(a.path));
+      const note = notes.get(path)!;
+      const at = note.indexOf("- [ ] \n");
+      const line = `- [ ] ${body} · [[${source.key ?? source.title}]]\n`;
+      serverEdit(path, at < 0 ? `${note}${line}` : note.slice(0, at) + line + note.slice(at));
+      changed(path);
+      return { line: `- [ ] ${body} → [[${day}]]`, message: `Added to ${day}` };
+    }
+    case "sync_todo":
+      return;
     case "adjacent_daily":
       return null;
     case "todo_ages":

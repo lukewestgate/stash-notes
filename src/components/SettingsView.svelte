@@ -67,6 +67,7 @@
     ["quickSwitcher", "Quick switcher"],
     ["dailyNote", "Today's daily note"],
     ["carryTodos", "Bring open todos from the previous daily note"],
+    ["sendTodo", "Send the line's todo to today's daily note"],
     ["prevDaily", "Previous daily note"],
     ["nextDaily", "Next daily note"],
     ["notesView", "Notes view"],

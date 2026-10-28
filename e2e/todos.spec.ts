@@ -77,3 +77,53 @@ test("a half-typed date shows its day but still offers a plain note", async ({ p
   await expect(page.locator(".datehint")).toBeVisible();
   await expect(page.locator(".row.create .name")).toHaveText('Create "yest"');
 });
+
+async function openTicket(page: Page) {
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("PROJ-123");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".header .main")).toHaveText("PROJ-123");
+}
+
+async function typeAtEnd(page: Page, text: string) {
+  await page.evaluate(() => {
+    const view = (window as any).__view();
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    view.focus();
+  });
+  await page.keyboard.type(text);
+}
+
+test("@today and Enter sends a todo from a ticket to today's note", async ({ page }) => {
+  await openTicket(page);
+  await typeAtEnd(page, "\n- [ ] chase Sam @today");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".toast").last()).toContainText("Added to");
+  await expect.poll(() => page.evaluate(doc)).toMatch(/- \[ \] chase Sam → \[\[\d{4}-\d{2}-\d{2}\]\]\n/);
+  // Shown as a date, not the raw link, once the cursor is elsewhere.
+  await page.evaluate(() => (window as any).__view().dispatch({ selection: { anchor: 0 } }));
+  await expect(page.locator(".cm-datelink")).toHaveCount(1);
+  // Today's note has it, linking back.
+  await page.keyboard.press("Control+d");
+  await expect.poll(() => page.evaluate(doc)).toContain("- [ ] chase Sam · [[PROJ-123]]");
+});
+
+test("Ctrl+Shift+Enter sends the line without a date word", async ({ page }) => {
+  await openTicket(page);
+  await typeAtEnd(page, "\nbook the room");
+  await page.keyboard.press("Control+Shift+Enter");
+  await expect.poll(() => page.evaluate(doc)).toMatch(/- \[ \] book the room → \[\[\d{4}-\d{2}-\d{2}\]\]$/);
+});
+
+test("ticking a sent todo asks for the other end to match", async ({ page }) => {
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    (window as any).__synced = [];
+    api.syncTodo = async (_path: string, line: string) => (window as any).__synced.push(line);
+  });
+  await setDocument(page, "## Todo\n\n- [ ] chase Sam · [[PROJ-123]]\n- [ ] plain\n");
+  await page.locator(".cm-task").first().click();
+  await page.locator(".cm-task").nth(1).click();
+  expect(await page.evaluate(() => (window as any).__synced)).toEqual(["- [x] chase Sam · [[PROJ-123]]"]);
+});

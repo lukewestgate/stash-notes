@@ -65,6 +65,7 @@ More for the daily note: getting around it, adding to it, and finding days by na
 - **Add a todo from anywhere.** In the `Alt+J` pop-up (or `Ctrl+K`), type `+ chase Sam about the demo` and press `Enter`. It goes into today's Todo list without bringing up the app. See [Daily notes and todos](#daily-notes-and-todos).
 - **Step through daily notes.** `Alt+PgUp` and `Alt+PgDn` go to the previous and next daily note, skipping days without one.
 - **How long a todo has been open.** A carried todo shows a small `5d` badge after it once it's been open two days or more, counted from the daily note it was first written in. The file isn't changed.
+- **Send a todo to a daily note from any note (0.10.2).** In a ticket, write `- [ ] chase Sam @today` (or `@tomorrow`, `@fri`, `@next mon`) and press `Enter`, or press `Ctrl+Shift+Enter` on any line. It goes into that day's Todo list as `chase Sam · PROJ-123`, the ticket's line becomes `chase Sam → 28/10`, each links to the other, and ticking either ticks both. See [Sending todos from other notes](#sending-todos-from-other-notes).
 - **More date words in search:** `last tuesday`, `tuesday last week`, `this week fri`, `next monday`, `3 days ago`, `a week ago`, `2 weeks ago monday`, `day before yesterday`. The switcher shows which day it read, and offers to create that day's note if there isn't one. See [Quick switcher and search](#quick-switcher-and-search).
 
 ## What's new in 0.9
@@ -414,6 +415,7 @@ Every in-app shortcut can be changed in Settings → Shortcuts. In-app shortcuts
 | `Ctrl+K` | Quick switcher and search | Also creates notes. With text selected, links the selection |
 | `Ctrl+D` | Today's daily note | Creates it if missing, bringing the previous one's open todos |
 | `Ctrl+Shift+D` | Bring open todos from the previous daily note | In a daily note; skips ones it already has |
+| `Ctrl+Shift+Enter` | Send this line's todo to today's daily note | Or end the line with `@today`, `@fri`… and press `Enter`. See [Sending todos from other notes](#sending-todos-from-other-notes) |
 | `Alt+PgUp` / `Alt+PgDn` | Previous / next daily note | Skips days without one. From another note, `Alt+PgUp` opens the latest |
 | `Ctrl+L` | Notes view | The current vault's notes |
 | `Ctrl+Shift+O` | Switch vault | Also from the sidebar and the tray |
@@ -657,6 +659,18 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 - **Adding a todo from anywhere:** `Alt+J`, then `+ chase Sam about the demo` and `Enter`. It goes into today's Todo list the same way carried todos do, above the empty checkbox.
 - **How long it's been open:** once a carried todo has been open two days or more, a muted badge after it says how long (`5d`), counted from the daily note it was first written in. Hover it to see that day. It's worked out from your earlier daily notes (following the item back while each day still has it, open or `[>]`), so the file isn't changed. Ticking it, or changing its text, drops the badge.
 - **`Alt+PgUp` / `Alt+PgDn`** go to the previous and next daily note in the vault, skipping days without one.
+
+#### Sending todos from other notes
+
+Write a todo where it belongs (in a ticket, a meeting note, anywhere) and send it to a daily note, so it's on your list without copying it by hand.
+
+- **End the line with a day and press `Enter`:** `- [ ] chase Sam about the rollout date @today`. Any [date word](#date-words) works after the `@`: `@tomorrow`, `@fri`, `@next mon`, `@3/11`. A plain line or bullet (`chase Sam @today`) is made a todo.
+- **Or press `Ctrl+Shift+Enter`** on the line to send it to today, with no `@` needed.
+- That day's Todo list gets `- [ ] chase Sam about the rollout date · [[PROJ-123]]`, and the line you wrote becomes `- [ ] chase Sam about the rollout date → [[2026-10-28]]`, shown as `→ 28/10/2026` (in your daily note date format). Ctrl+click either link to jump to the other note, and each note's backlinks list the other.
+- **Ticking either one ticks the other** (and unticking unticks).
+- **A day still ahead** (`@fri`) gets the todo when its daily note is made (by `Ctrl+D` on the day, or following the `→` link), so it's waiting there that morning.
+- **It moves with you:** when a sent todo is carried to the next day, the `→` in the note it came from follows it. The line where it was written isn't carried itself; it stays where you wrote it.
+- `@` needs a space before it and a date after it, so `bob@example.com` and `@sam` are left alone.
 - **Settings → Notes → Open todos in a new daily note:** *move* (the default), *copy* (the earlier note is left as it was), or *leave them*. `Ctrl+Shift+D` copies when the setting says copy, and moves otherwise.
 
 **Date format:** Settings → Notes → **Daily note date** picks how daily notes are named in the header, sidebar, switcher, Notes view, backlinks and pinned windows: `2026-10-22`, `22/10/2026`, `22 Oct 2026`, `Thu 22 Oct 2026`, `Thursday 22 October 2026` or `10/22/2026`. Files are always named `2026-10-22.md`, so a folder listing sorts them by date and `[[2026-10-22]]` links keep working. Search reads typed dates in the same order: with a day-first format, `3/10` is 3 October.

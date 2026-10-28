@@ -15,7 +15,8 @@
   import { NoteSync } from "./lib/buffer";
   import { pickImages } from "./lib/images";
   import type { Anchor } from "./lib/popup";
-  import { decoConfig, editorExtensions, editorState, refreshDecorations, setEditorDark, setSpellCheck } from "./lib/editor";
+  import { decoConfig, editorExtensions, editorState, refreshDecorations, replaceLine, setEditorDark, setSpellCheck } from "./lib/editor";
+  import { isoDate } from "./lib/text";
   import { applyAppearance } from "./lib/appearance";
   import Icon from "./components/Icon.svelte";
   import { liveConfig, propertiesHooks } from "./lib/live";
@@ -377,6 +378,12 @@
       vaultName: (id) => settings?.vaults.find((v) => v.id === id)?.name ?? id,
       paste: smartPaste,
       imageError: say,
+      sendLine: async (from, text, now) => {
+        if (!path) return;
+        const sent = await api.sendTodo(path, text, isoDate(), now).catch((e) => (say(String(e)), null));
+        if (sent && replaceLine(view, from, text, sent.line)) say(sent.message);
+      },
+      todoToggled: (line) => path && api.syncTodo(path, line).catch((e) => say(String(e))),
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     propertiesHooks.current = {

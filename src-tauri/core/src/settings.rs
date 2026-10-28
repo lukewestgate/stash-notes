@@ -191,6 +191,8 @@ pub struct Keys {
     pub daily_note: String,
     /// Bring the open todos of the previous daily note into this one.
     pub carry_todos: String,
+    /// Send the todo on the cursor's line to today's daily note.
+    pub send_todo: String,
     /// The daily note before / after the open one.
     pub prev_daily: String,
     pub next_daily: String,
@@ -267,6 +269,7 @@ impl Default for Keys {
             quick_switcher: "Ctrl+K".into(),
             daily_note: "Ctrl+D".into(),
             carry_todos: "Ctrl+Shift+D".into(),
+            send_todo: "Ctrl+Shift+Enter".into(),
             prev_daily: "Alt+PageUp".into(),
             next_daily: "Alt+PageDown".into(),
             follow_link: "Ctrl+Enter".into(),

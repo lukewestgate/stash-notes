@@ -7,6 +7,7 @@ import { EditorSelection, EditorState, type Range, StateField } from "@codemirro
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type { MarkdownConfig } from "@lezer/markdown";
 import { checkboxToggle, normalizeTag, WIKI_RE } from "./text";
+import { noteName } from "./daily.svelte";
 import { iconElement } from "./icons";
 import { isPageLink } from "./page-links";
 import { anchorOf, type Anchor } from "./popup";
@@ -408,12 +409,32 @@ export function liveDecorations(view: EditorView): { decos: Range<Decoration>[];
 }
 
 /** Hide `[[` and `]]` (and `target|` when a label is given) of wiki links off the caret. */
+/** A `[[2026-10-28]]` link, shown as the date in the chosen format. */
+class DateLinkWidget extends WidgetType {
+  constructor(readonly label: string) {
+    super();
+  }
+  eq(o: DateLinkWidget) {
+    return o.label === this.label;
+  }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-wikilink cm-datelink";
+    s.textContent = this.label;
+    return s;
+  }
+}
+
 export function liveWikiLinks(state: EditorState, lineFrom: number, text: string, out: Range<Decoration>[]) {
   for (const m of text.matchAll(WIKI_RE)) {
     const a = lineFrom + m.index!;
     const b = a + m[0].length;
     if (!isPageLink(state, a + 2)) continue;
     if (touches(state, a, b)) continue;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(m[1].trim())) {
+      out.push(Decoration.replace({ widget: new DateLinkWidget(noteName({ kind: "daily", title: m[1].trim() })) }).range(a, b));
+      continue;
+    }
     const bar = m[1].indexOf("|");
     out.push(hide.range(a, bar >= 0 ? a + 2 + bar + 1 : a + 2));
     out.push(hide.range(b - 2, b));

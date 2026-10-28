@@ -169,6 +169,8 @@ pub fn run() {
             commands::add_todo,
             commands::adjacent_daily,
             commands::todo_ages,
+            commands::send_todo,
+            commands::sync_todo,
             commands::archive_note,
             commands::rename_note,
             commands::move_note,
