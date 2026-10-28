@@ -66,13 +66,18 @@ export function firstTicket(text: string, tickets: RegExp): string | null {
   return re.exec(text)?.[0] ?? null;
 }
 
-const CHECKBOX_RE = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\])/;
+const CHECKBOX_RE = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX>])(\])/;
 
-/** If `line` is a checkbox item, the offset of its mark and the replacement character. */
-export function checkboxToggle(line: string): { at: number; insert: string } | null {
+/**
+ * If `line` is a checkbox item, the offset of its mark, the replacement
+ * character and whether it's done. `[>]` marks a todo moved to a later
+ * daily note; toggling it reopens it.
+ */
+export function checkboxToggle(line: string): { at: number; insert: string; done: boolean; moved: boolean } | null {
   const m = CHECKBOX_RE.exec(line);
   if (!m) return null;
-  return { at: m[1].length, insert: m[2] === " " ? "x" : " " };
+  const open = m[2] === " ";
+  return { at: m[1].length, insert: open ? "x" : " ", done: !open && m[2] !== ">", moved: m[2] === ">" };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -101,6 +106,35 @@ export function timestamp(d = new Date(), format = "yyyy-MM-dd HH:mm"): string {
   return `${format.replace(/yyyy|yy|MM|dd|HH|hh|mm|ss|a/g, (t) => tokens[t])} `;
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * An ISO date (`2026-10-28`) in a format like `dd/MM/yyyy` or `EEE d MMM
+ * yyyy` (same tokens as Rust's `dates::format`): `yyyy` `yy`, `MMMM` `MMM`
+ * `MM` `M`, `EEEE` `EEE`, `dd` `d`. Anything that isn't an ISO date is
+ * returned as it is.
+ */
+export function formatDate(iso: string, format: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const day = DAYS[new Date(y, mo - 1, d).getDay()];
+  const tokens: Record<string, string> = {
+    yyyy: m[1],
+    yy: m[1].slice(2),
+    MMMM: MONTHS[mo - 1],
+    MMM: MONTHS[mo - 1].slice(0, 3),
+    MM: m[2],
+    M: String(mo),
+    EEEE: day,
+    EEE: day.slice(0, 3),
+    dd: m[3],
+    d: String(d),
+  };
+  return format.replace(/yyyy|yy|MMMM|MMM|MM|M|EEEE|EEE|dd|d/g, (t) => tokens[t]);
+}
+
 /** Offset at the end of the `## Todo` section's last non-blank line (or of the heading). */
 export function todoCursor(doc: string): number | null {
   const lines = doc.split("\n");
@@ -110,7 +144,7 @@ export function todoCursor(doc: string): number | null {
     offsets.push(acc);
     acc += l.length + 1;
   }
-  const start = lines.findIndex((l) => /^#{1,6}\s+todo\s*$/i.test(l.trimEnd()));
+  const start = lines.findIndex((l) => /^#{1,6}\s+to[- ]?dos?\s*$/i.test(l.trimEnd()));
   if (start < 0) return null;
   let last = start;
   for (let i = start + 1; i < lines.length; i++) {

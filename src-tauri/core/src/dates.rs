@@ -38,9 +38,88 @@ pub fn parse_iso(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
 }
 
+/// How daily notes are named by default: `2026-10-22`.
+pub const ISO_FORMAT: &str = "yyyy-MM-dd";
+
+/// The tokens of a date format, longest first so `MMMM` isn't read as `MM` twice.
+const TOKENS: [(&str, &str); 10] = [
+    ("yyyy", "%Y"),
+    ("yy", "%y"),
+    ("MMMM", "%B"),
+    ("MMM", "%b"),
+    ("MM", "%m"),
+    ("M", "%-m"),
+    ("EEEE", "%A"),
+    ("EEE", "%a"),
+    ("dd", "%d"),
+    ("d", "%-d"),
+];
+
+/// Format `date` with a pattern like `dd/MM/yyyy` or `EEE d MMM yyyy`:
+/// `yyyy` `yy` year, `MMMM` `MMM` `MM` `M` month, `EEEE` `EEE` weekday,
+/// `dd` `d` day. Anything else is kept as written.
+pub fn format(date: NaiveDate, pattern: &str) -> String {
+    let mut spec = String::new();
+    let mut rest = pattern;
+    'outer: while let Some(c) = rest.chars().next() {
+        for (token, s) in TOKENS {
+            if let Some(r) = rest.strip_prefix(token) {
+                spec.push_str(s);
+                rest = r;
+                continue 'outer;
+            }
+        }
+        if c == '%' {
+            spec.push('%');
+        }
+        spec.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    date.format(&spec).to_string()
+}
+
+/// Whether a format puts the day before the month (`dd/MM/yyyy`), so a
+/// typed `3/10` means 3 October.
+pub fn day_first(pattern: &str) -> bool {
+    match (pattern.find('d'), pattern.find('M')) {
+        (Some(d), Some(m)) => d < m,
+        _ => false,
+    }
+}
+
+/// `28/10`, `28/10/2026`, `28.10.2026` (or month first): numbers with `/`
+/// between them, or `.` with a year (so `1.5` stays a version number).
+fn parse_numeric(q: &str, day_first: bool, today: NaiveDate) -> Option<NaiveDate> {
+    let parts: Vec<&str> = q.split(['/', '.']).collect();
+    if !(2..=3).contains(&parts.len()) || (q.contains('.') && parts.len() < 3) || parts.iter().any(|p| p.is_empty() || p.len() > 4 || !p.chars().all(|c| c.is_ascii_digit())) {
+        return None;
+    }
+    let a: u32 = parts[0].parse().ok()?;
+    let b: u32 = parts[1].parse().ok()?;
+    let (day, month) = if day_first { (a, b) } else { (b, a) };
+    match parts.get(2) {
+        Some(y) => {
+            let year: i32 = y.parse().ok()?;
+            let year = if y.len() <= 2 { 2000 + year } else { year };
+            NaiveDate::from_ymd_opt(year, month, day)
+        }
+        None => latest(today, month, day),
+    }
+}
+
+/// The most recent `month`/`day` that isn't in the future.
+fn latest(today: NaiveDate, month: u32, day: u32) -> Option<NaiveDate> {
+    let this_year = NaiveDate::from_ymd_opt(today.year(), month, day);
+    match this_year {
+        Some(d) if d <= today => Some(d),
+        _ => NaiveDate::from_ymd_opt(today.year() - 1, month, day),
+    }
+}
+
 /// Interpret a query as a date relative to `today`. Month-day queries without
 /// a year pick the most recent such date that is not in the future.
-pub fn parse_query(query: &str, today: NaiveDate) -> Option<NaiveDate> {
+/// `day_first` reads `3/10` as 3 October rather than March 10.
+pub fn parse_query(query: &str, today: NaiveDate, day_first: bool) -> Option<NaiveDate> {
     let q = query.trim().to_lowercase();
     match q.as_str() {
         "today" => return Some(today),
@@ -48,7 +127,7 @@ pub fn parse_query(query: &str, today: NaiveDate) -> Option<NaiveDate> {
         "tomorrow" => return Some(today + Duration::days(1)),
         _ => {}
     }
-    if let Some(d) = parse_iso(&q) {
+    if let Some(d) = parse_iso(&q).or_else(|| parse_numeric(&q, day_first, today)) {
         return Some(d);
     }
     let words: Vec<&str> = q.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
@@ -74,12 +153,8 @@ pub fn parse_query(query: &str, today: NaiveDate) -> Option<NaiveDate> {
         let year: i32 = words[2].parse().ok()?;
         return NaiveDate::from_ymd_opt(year, month, day);
     }
-    let this_year = NaiveDate::from_ymd_opt(today.year(), month, day)?;
-    if this_year > today {
-        NaiveDate::from_ymd_opt(today.year() - 1, month, day)
-    } else {
-        Some(this_year)
-    }
+    NaiveDate::from_ymd_opt(today.year(), month, day)?;
+    latest(today, month, day)
 }
 
 #[cfg(test)]
@@ -93,29 +168,52 @@ mod tests {
     #[test]
     fn relative_words() {
         let t = d("2026-10-22");
-        assert_eq!(parse_query("today", t), Some(t));
-        assert_eq!(parse_query("Yesterday", t), Some(d("2026-10-21")));
-        assert_eq!(parse_query("mon", t), Some(d("2026-10-19")));
-        assert_eq!(parse_query("thursday", t), Some(t));
+        assert_eq!(parse_query("today", t, false), Some(t));
+        assert_eq!(parse_query("Yesterday", t, false), Some(d("2026-10-21")));
+        assert_eq!(parse_query("mon", t, false), Some(d("2026-10-19")));
+        assert_eq!(parse_query("thursday", t, false), Some(t));
     }
 
     #[test]
     fn month_day() {
         let t = d("2026-10-22");
-        assert_eq!(parse_query("oct 22", t), Some(t));
-        assert_eq!(parse_query("22 October", t), Some(t));
-        assert_eq!(parse_query("1st oct", t), Some(d("2026-10-01")));
-        assert_eq!(parse_query("dec 25", t), Some(d("2025-12-25")));
-        assert_eq!(parse_query("dec 25 2027", t), Some(d("2027-12-25")));
-        assert_eq!(parse_query("2026-10-22", t), Some(t));
+        assert_eq!(parse_query("oct 22", t, false), Some(t));
+        assert_eq!(parse_query("22 October", t, false), Some(t));
+        assert_eq!(parse_query("1st oct", t, false), Some(d("2026-10-01")));
+        assert_eq!(parse_query("dec 25", t, false), Some(d("2025-12-25")));
+        assert_eq!(parse_query("dec 25 2027", t, false), Some(d("2027-12-25")));
+        assert_eq!(parse_query("2026-10-22", t, false), Some(t));
+    }
+
+    #[test]
+    fn numeric() {
+        let t = d("2026-10-22");
+        assert_eq!(parse_query("3/10", t, true), Some(d("2026-10-03")));
+        assert_eq!(parse_query("3/10", t, false), Some(d("2026-03-10")));
+        assert_eq!(parse_query("22/10/2026", t, true), Some(t));
+        assert_eq!(parse_query("22.10.26", t, true), Some(t));
+        assert_eq!(parse_query("25/12", t, true), Some(d("2025-12-25")));
+        assert_eq!(parse_query("10/22", t, true), None);
+        assert_eq!(parse_query("1/2/3/4", t, true), None);
+        assert_eq!(parse_query("1.5", t, true), None);
+    }
+
+    #[test]
+    fn formats() {
+        let t = d("2026-10-02");
+        assert_eq!(format(t, ISO_FORMAT), "2026-10-02");
+        assert_eq!(format(t, "dd/MM/yyyy"), "02/10/2026");
+        assert_eq!(format(t, "EEE d MMM yyyy"), "Fri 2 Oct 2026");
+        assert_eq!(format(t, "EEEE d MMMM yy, 100%"), "Friday 2 October 26, 100%");
+        assert!(day_first("dd/MM/yyyy") && day_first("EEE d MMM") && !day_first(ISO_FORMAT) && !day_first("MM/dd/yyyy"));
     }
 
     #[test]
     fn non_dates() {
         let t = d("2026-10-22");
-        assert_eq!(parse_query("rollout plan", t), None);
-        assert_eq!(parse_query("ma", t), None);
-        assert_eq!(parse_query("123", t), None);
-        assert_eq!(parse_query("2026-13-01", t), None);
+        assert_eq!(parse_query("rollout plan", t, false), None);
+        assert_eq!(parse_query("ma", t, false), None);
+        assert_eq!(parse_query("123", t, false), None);
+        assert_eq!(parse_query("2026-13-01", t, false), None);
     }
 }

@@ -221,6 +221,16 @@ impl AppState {
         Ok(note::join_path(&id, &rel))
     }
 
+    /// A note's file name without `.md`, with a daily note's date in the
+    /// format the settings show it in.
+    pub fn file_name(&self, path: &str) -> String {
+        let stem = note::stem(path);
+        match stash_core::dates::parse_iso(stem) {
+            Some(d) => stash_core::dates::format(d, &self.settings.read().unwrap().daily_date_format),
+            None => stem.to_string(),
+        }
+    }
+
     /// Read the note at `vault:rel/path.md`.
     pub fn read_note(&self, path: &str) -> Result<String, String> {
         let (v, rel) = self.locate(path)?;

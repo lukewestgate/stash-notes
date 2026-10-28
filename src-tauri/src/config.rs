@@ -112,6 +112,7 @@ pub fn new_index(settings: &Settings) -> Index {
         index.set_tickets_for(&v.id, keys(&v.id));
     }
     index.set_rules(std::sync::Arc::new(rules));
+    index.set_day_first(stash_core::dates::day_first(&settings.daily_date_format));
     index
 }
 
@@ -289,6 +290,7 @@ pub fn apply_settings(app: &AppHandle, old: Option<&Settings>, new: &Settings) {
     if changed(&|s| s.autostart.to_string()) {
         sync_autostart(app, new.autostart);
     }
+    state.index.write().unwrap().set_day_first(stash_core::dates::day_first(&new.daily_date_format));
     // Folders or link rules changed: re-index everything. A renamed vault
     // only needs the index to know its new name (for `in:` searches).
     let folders = |s: &Settings| s.vaults.iter().map(|v| format!("{}={}", v.id, v.path)).collect::<Vec<_>>().join("\n");

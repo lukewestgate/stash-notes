@@ -8,6 +8,7 @@
   import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
+  import { noteName } from "../lib/daily.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
   import { onMount } from "svelte";
@@ -252,7 +253,7 @@
           <span class="line">
             <span class="kind {hit.kind}">{hit.kind}</span>
             <span class="sym"><StatusIcon status={hit.status} {statuses} /></span>
-            <span class="name"><Highlight text={hit.title} {query} /></span>
+            <span class="name"><Highlight text={noteName(hit)} {query} /></span>
             {#if hit.label}<span class="label"><Highlight text={hit.label} {query} /></span>{/if}
             {#each hit.tags as t}<TagChip tag={t} colors={tagColors} />{/each}
             {#if hit.archived}<span class="tag">archived</span>{/if}

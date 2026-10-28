@@ -266,13 +266,14 @@ impl Vault {
     }
 
     /// Daily note text: the vault's `daily.md` template if it has one, else
-    /// the built-in template. `{{date}}` and `{{weekday}}` are substituted.
-    pub fn daily_content(&self, date: NaiveDate) -> String {
+    /// the built-in template. `{{date}}` (in `date_format`, see
+    /// `dates::format`) and `{{weekday}}` are substituted.
+    pub fn daily_content(&self, date: NaiveDate, date_format: &str) -> String {
         let custom = self.read_template("daily.md");
         custom
             .as_deref()
             .unwrap_or(DEFAULT_DAILY_TEMPLATE)
-            .replace("{{date}}", &date.format("%Y-%m-%d").to_string())
+            .replace("{{date}}", &crate::dates::format(date, date_format))
             .replace("{{weekday}}", &date.format("%A").to_string())
     }
 
@@ -492,7 +493,7 @@ mod tests {
         assert_eq!(v.read("notes/a.md").unwrap(), "# A\n");
         // no temp files left behind
         assert_eq!(fs::read_dir(dir.path().join("notes")).unwrap().count(), 1);
-        assert_eq!(v.daily_content(crate::dates::parse_iso("2026-10-22").unwrap()), "T 2026-10-22");
+        assert_eq!(v.daily_content(crate::dates::parse_iso("2026-10-22").unwrap(), "dd/MM/yyyy"), "T 22/10/2026");
     }
 
     #[test]
@@ -502,14 +503,14 @@ mod tests {
         // A pre-0.8 template is still used...
         fs::create_dir_all(dir.path().join("templates")).unwrap();
         fs::write(dir.path().join("templates/daily.md"), "Old {{date}}").unwrap();
-        assert_eq!(v.daily_content(d), "Old 2026-10-22");
+        assert_eq!(v.daily_content(d, crate::dates::ISO_FORMAT), "Old 2026-10-22");
         // ...until one is saved, which moves it into .stash and tidies the old folder away.
         v.write_template("daily.md", Some("New {{weekday}}")).unwrap();
-        assert_eq!(v.daily_content(d), "New Thursday");
+        assert_eq!(v.daily_content(d, crate::dates::ISO_FORMAT), "New Thursday");
         assert!(dir.path().join(".stash/templates/daily.md").is_file());
         assert!(!dir.path().join("templates").exists());
         v.write_template("daily.md", None).unwrap();
-        assert_eq!(v.daily_content(d), DEFAULT_DAILY_TEMPLATE.replace("{{date}}", "2026-10-22"));
+        assert_eq!(v.daily_content(d, crate::dates::ISO_FORMAT), DEFAULT_DAILY_TEMPLATE.replace("{{date}}", "2026-10-22"));
         assert_eq!(Vault::trash_path("1-2", "notes/a.md"), ".stash/trash/1-2/notes/a.md");
         // The app's own folder is never indexed.
         v.write(".stash/trash/1-2/notes/a.md", "x").unwrap();

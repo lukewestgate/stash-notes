@@ -256,6 +256,8 @@ pub struct Index {
     vault_tickets: HashMap<String, TicketMatcher>,
     vaults: Vec<VaultInfo>,
     rules: Arc<Rules>,
+    /// Typed dates like `3/10` are day first (from the daily date format).
+    day_first: bool,
 }
 
 /// A link and the notes that reference it (the Links panel's All notes).
@@ -286,7 +288,12 @@ pub struct LinkFilter<'a> {
 
 impl Index {
     pub fn new(tickets: TicketMatcher) -> Self {
-        Index { notes: HashMap::new(), tickets, vault_tickets: HashMap::new(), vaults: Vec::new(), rules: Arc::new(Rules::default()) }
+        Index { notes: HashMap::new(), tickets, vault_tickets: HashMap::new(), vaults: Vec::new(), rules: Arc::new(Rules::default()), day_first: false }
+    }
+
+    /// Read typed dates like `3/10` day first.
+    pub fn set_day_first(&mut self, day_first: bool) {
+        self.day_first = day_first;
     }
 
     /// The link rules notes are read with (set before indexing).
@@ -529,6 +536,15 @@ impl Index {
             .map(|e| e.meta.path.clone())
     }
 
+    /// The vault's latest daily note from before `date`.
+    pub fn daily_before(&self, vault: &str, date: chrono::NaiveDate) -> Option<String> {
+        self.notes
+            .values()
+            .filter(|e| e.vault() == vault && e.meta.kind == NoteKind::Daily && e.meta.date.is_some_and(|d| d < date))
+            .max_by_key(|e| (e.meta.date, !e.meta.archived, e.mtime))
+            .map(|e| e.meta.path.clone())
+    }
+
     /// Notes that link to or mention `path`, most recently edited first.
     pub fn backlinks(&self, path: &str) -> Vec<SearchHit> {
         let Some(target) = self.notes.get(path) else {
@@ -610,7 +626,7 @@ impl Index {
         // `PROJ-1234 Do this thing`: the ticket is an exact match by its key.
         let lead_key = self.lead_key(q, opts.prefer);
         let digits_only = !q.is_empty() && q.chars().all(|c| c.is_ascii_digit());
-        let date = dates::parse_query(q, opts.today);
+        let date = dates::parse_query(q, opts.today, self.day_first);
         let words: Vec<String> = q_lower.split_whitespace().map(str::to_string).collect();
 
         let mut exact = false;
@@ -1025,6 +1041,31 @@ mod tests {
         assert_eq!(i.resolve("PROJ-5", "").as_deref(), Some("tickets/PROJ-5.md"));
         let d = dates::parse_iso("2026-10-22").unwrap();
         assert_eq!(i.daily("", d).as_deref(), Some("daily/2026-10-22.md"));
+    }
+
+    #[test]
+    fn daily_before_skips_gaps() {
+        let mut i = Index::new(TicketMatcher::default_pattern());
+        i.upsert("notes/2026-10-20.md", "", 50);
+        i.upsert("notes/2026-10-23.md", "", 10);
+        i.upsert("notes/2026-10-26.md", "", 10);
+        i.upsert("w:notes/2026-10-25.md", "", 10);
+        let d = |s| dates::parse_iso(s).unwrap();
+        assert_eq!(i.daily_before("", d("2026-10-26")).as_deref(), Some("notes/2026-10-23.md"));
+        assert_eq!(i.daily_before("", d("2026-10-28")).as_deref(), Some("notes/2026-10-26.md"));
+        assert_eq!(i.daily_before("", d("2026-10-20")), None);
+    }
+
+    #[test]
+    fn typed_dates_follow_the_day_order() {
+        let mut i = Index::new(TicketMatcher::default_pattern());
+        i.upsert("notes/2026-10-03.md", "# 2026-10-03\n", 1);
+        i.upsert("notes/2026-03-10.md", "# 2026-03-10\n", 1);
+        let recents = HashMap::new();
+        let first = |i: &Index| i.search("3/10", &opts(&recents)).hits.first().map(|h| h.path.clone());
+        assert_eq!(first(&i).as_deref(), Some("notes/2026-03-10.md"));
+        i.set_day_first(true);
+        assert_eq!(first(&i).as_deref(), Some("notes/2026-10-03.md"));
     }
 
     #[test]

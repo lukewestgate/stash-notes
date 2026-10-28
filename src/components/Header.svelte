@@ -6,6 +6,7 @@
   import Icon from "./Icon.svelte";
   import { formatKey } from "../lib/keys";
   import { weekday } from "../lib/text";
+  import { noteName, showsWeekday } from "../lib/daily.svelte";
   import { anchorOf, type Anchor } from "../lib/popup";
 
   interface Props {
@@ -53,10 +54,10 @@
   <nav class="title" aria-label="Breadcrumb">
     {#each crumbs as c}<span class="crumb">{c}</span><span class="slash" aria-hidden="true">/</span>{/each}
     {#if meta}
-      <span class="main" class:archived={meta.archived} aria-current="page">{meta.title}</span>
+      <span class="main" class:archived={meta.archived} aria-current="page">{noteName(meta)}</span>
       {#if meta.kind === "ticket" && meta.label}
         <span class="sub">{meta.label}</span>
-      {:else if meta.kind === "daily" && meta.date}
+      {:else if meta.kind === "daily" && meta.date && !showsWeekday()}
         <span class="sub">{weekday(meta.date)}</span>
       {/if}
       {#if meta.archived}<span class="tag">archived</span>{/if}

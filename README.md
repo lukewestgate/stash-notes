@@ -21,6 +21,7 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 
 ## Contents
 
+- [What's new in 0.9](#whats-new-in-09)
 - [What's new in 0.8](#whats-new-in-08)
 - [What's new in 0.7](#whats-new-in-07)
 - [What's new in 0.6](#whats-new-in-06)
@@ -55,6 +56,13 @@ Notes are plain markdown files in folders you own. There's no account, no sync a
 - [Design notes and decisions](#design-notes-and-decisions)
 
 ---
+
+## What's new in 0.9
+
+0.9 is about the daily note you use every day.
+
+- **Open todos move on to the next day.** When today's daily note is made, the unticked items from your last one (yesterday's, or Friday's on a Monday) come with it, with any lines nested under them. In the earlier note they become `- [>] item`, shown as a muted arrow box, so each todo is open in only one place. `Ctrl+Shift+D` pulls them in by hand. Settings → Notes can copy them instead, or turn it off. See [Daily notes and todos](#daily-notes-and-todos).
+- **Daily notes in your date format.** Choose how daily notes are named on screen, such as `28/10/2026` or `Wed 28 Oct 2026`, in Settings → Notes. Files stay `2026-10-28.md`, so they still sort by year, month and day. Search understands dates typed your way: `28/10` finds the 28th of October.
 
 ## What's new in 0.8
 
@@ -394,7 +402,8 @@ Every in-app shortcut can be changed in Settings → Shortcuts. In-app shortcuts
 | `Alt+J` (global) | Quick switcher pop-up | See [Quick switcher pop-up](#quick-switcher-pop-up) |
 | `Esc` | Close overlay / view, else hide window | Closes the switcher, pickers, Links panel, backlinks list, Notes view and Settings first |
 | `Ctrl+K` | Quick switcher and search | Also creates notes. With text selected, links the selection |
-| `Ctrl+D` | Today's daily note | Creates it if missing |
+| `Ctrl+D` | Today's daily note | Creates it if missing, bringing the previous one's open todos |
+| `Ctrl+Shift+D` | Bring open todos from the previous daily note | In a daily note; skips ones it already has |
 | `Ctrl+L` | Notes view | The current vault's notes |
 | `Ctrl+Shift+O` | Switch vault | Also from the sidebar and the tray |
 | `Ctrl+Enter` | Follow link under cursor | Note link, key or URL. A key without a note offers to create one. On a checkbox line with no link, toggles it |
@@ -452,7 +461,7 @@ What matches, from strongest to weakest:
 | Ticket key | `123`, `proj123`, `PROJ-123` | Highest |
 | Title and aliases | `rollout`, `rlt pln` (fuzzy) | High |
 | Filters | `@open`, `@active`, `#bug`, `in:work` | Narrow the results; combine freely |
-| Date | `2026-10-22`, `oct 22`, `today`, `yesterday`, `monday` | High (matches the daily note) |
+| Date | `2026-10-22`, `22/10`, `22/10/2026`, `oct 22`, `today`, `yesterday`, `monday` | High (matches the daily note). `22/10` is read day first or month first to match your daily note date format |
 | Body text | Any word or words from a note, or a timestamp | Normal, with the matching line shown |
 
 Typing **only digits** (for example `123`) matches every ticket key ending in those digits. Notes opened in the last 7 days get a boost. There are no regexes, boolean operators or saved searches. For those, search the notes folder with Everything, ripgrep or your editor.
@@ -604,10 +613,21 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 
 - `Enter` at the end of a `- [ ] item` continues the list with a new checkbox.
 - `Ctrl+Enter` on a checkbox line (or clicking the box) toggles it.
-- Unchecked items don't roll over to the next day.
 - If the last note you had open was a **previous** day's daily note, summoning opens today's instead.
 
-**Template:** edit it in Settings → Notes (pick the vault when you have several). It's saved as `.stash/templates/daily.md` in that vault's folder (a `templates/daily.md` from before 0.8 is used until you next save it). `{{date}}` and `{{weekday}}` are filled in.
+**Open todos carry forward.** When today's note is created, the open todos of the vault's most recent earlier daily note come with it. That's yesterday's, or the last day you wrote one, so weekends and holidays don't lose anything.
+
+- An open todo is an unticked `- [ ] item` with some text, anywhere in the note except code blocks. The lines nested under it (sub-bullets, ticked steps, notes) come with it.
+- They go into today's `## Todo` list (or `## To do`, `## Todos`), above the empty `- [ ] ` the template leaves, so the cursor still lands ready for a new item. A note without a todo heading gets them in its first list of todos, or under its title.
+- In the earlier note each one becomes `- [>] item`: a muted box with an arrow, meaning "moved on". Clicking it (or `Ctrl+Enter`) reopens it. Done items, `[>]` items and empty checkboxes stay where they are.
+- An open todo nested under another open todo moves with its parent. One nested under a ticked or plain bullet moves on its own.
+- It happens once, when the note is created. Deleting a carried item from today's note doesn't bring it back.
+- **`Ctrl+Shift+D`** in a daily note brings the previous daily note's open todos in by hand, skipping any it already has (same text). Use it if you added todos to yesterday's note after today's was made.
+- **Settings → Notes → Open todos in a new daily note:** *move* (the default), *copy* (the earlier note is left as it was), or *leave them*. `Ctrl+Shift+D` copies when the setting says copy, and moves otherwise.
+
+**Date format:** Settings → Notes → **Daily note date** picks how daily notes are named in the header, sidebar, switcher, Notes view, backlinks and pinned windows: `2026-10-22`, `22/10/2026`, `22 Oct 2026`, `Thu 22 Oct 2026`, `Thursday 22 October 2026` or `10/22/2026`. Files are always named `2026-10-22.md`, so a folder listing sorts them by date and `[[2026-10-22]]` links keep working. Search reads typed dates in the same order: with a day-first format, `3/10` is 3 October.
+
+**Template:** edit it in Settings → Notes (pick the vault when you have several). It's saved as `.stash/templates/daily.md` in that vault's folder (a `templates/daily.md` from before 0.8 is used until you next save it). `{{date}}` (in the daily note date format) and `{{weekday}}` are filled in.
 
 ### Archiving and renaming
 
@@ -640,7 +660,7 @@ Press **`Ctrl+,`** (or click the sidebar's gear, or use **Settings** in the tray
 | Links | Format pasted links · Link rules for every vault: preset, name, icon, on/off, link format with **Try it**, bare keys, paste format and label, note template, advanced match pattern · Reorder · Remove (with Undo) |
 | Window | Show in taskbar · Always on top · Sidebar expanded |
 | Editor | Live formatting · Comfortable line width · Font and size · Line height · Spell check · Timestamp format (`yyyy MM dd HH hh mm ss a`) |
-| Notes | Default status for new key notes (from a `[[KEY]]` link) · Daily note template (per vault) |
+| Notes | Default status for new key notes (from a `[[KEY]]` link) · Daily note date format · Open todos in a new daily note (move, copy or leave) · Daily note template (per vault) |
 | Notes view | Show daily notes · Show closed notes · Default sort · Group by (none, status, tag) |
 | Statuses | Icon, name, color and *active* flag of each status · Reorder · Add · Remove |
 | Tags | Every tag with its note count · Color · Rename or remove on every note (with Undo) |
@@ -661,6 +681,8 @@ Most categories have **Reset to defaults**. The footer opens `settings.json` and
 | `startHidden`, `autostart`, `restorePinned` | `true` |
 | `showInTaskbar`, `alwaysOnTop`, `hideAfterExternalLink` | `false` |
 | `defaultStatus` | `open` |
+| `dailyDateFormat` | `yyyy-MM-dd`. Tokens: `yyyy` `yy` year, `MMMM` `MMM` `MM` `M` month, `EEEE` `EEE` weekday, `dd` `d` day; anything else is kept. Any format works here, not only the ones Settings lists |
+| `carryTodos` | `move` (or `copy`, `off`) |
 | `tagColors` | `{}`, e.g. `{ "bug": "red" }` |
 | `statuses` | the five statuses above, each `{ "name", "icon", "color", "active" }`. `icon` is a [Lucide](https://lucide.dev/icons) name from the Settings grid, e.g. `circle-dot` |
 | `liveFormatting`, `smartPaste`, `readableWidth` | `true` |
@@ -687,7 +709,7 @@ Key and match patterns are regular expressions: escape backslashes in JSON (`"[A
 - **Crash-safe writes:** each save goes to a temporary file that's then renamed over the original. If another program holds the file open (for example a sync client), it retries briefly and then writes in place.
 - **External changes:** if a note changes on disk while it has no unsaved edits, it reloads silently in every window. If it has unsaved edits, your text is kept and a bar offers **Reload from disk** or **Keep mine**.
 - **Recoverable file actions.** Archiving and closing only mark a note. Renaming rewrites links and offers **Undo**. Deleting asks for confirmation, offers **Undo**, and keeps a recovery copy in the vault's hidden `.stash/trash/` folder. Tidying a vault into 0.8's layout previews first, never overwrites, and offers **Undo**.
-- **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten (looking at a note's links never changes it).
+- **Upgrades are safe.** The installer only replaces the app. Notes live in your vault folders and settings in `%APPDATA%`, and neither is touched. When a new version changes what a setting means, it first saves the old file as `settings.json.bak`. Front matter keys the app doesn't know are left alone, and notes you didn't edit are never rewritten (looking at a note's links never changes it). The one exception you choose: moving todos to a new daily note marks them `[>]` in the earlier one (Settings → Notes can copy them instead).
 - **Locked-down UI:** the web UI has no direct file system access. Every read and write goes through Rust commands that only accept paths inside a vault folder. Only `http`/`https` URLs can be opened.
 
 ---

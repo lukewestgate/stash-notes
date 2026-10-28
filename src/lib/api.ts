@@ -122,6 +122,8 @@ export interface Keys {
   hide: string;
   quickSwitcher: string;
   dailyNote: string;
+  /** Bring the previous daily note's open todos into this one. */
+  carryTodos: string;
   followLink: string;
   back: string;
   forward: string;
@@ -257,6 +259,10 @@ export interface Settings {
   /** Tag -> color name. */
   tagColors: Record<string, string>;
   defaultStatus: string;
+  /** How daily notes' dates are shown, e.g. `dd/MM/yyyy` (files stay `yyyy-MM-dd`). */
+  dailyDateFormat: string;
+  /** What a new daily note does with the previous one's open todos. */
+  carryTodos: "move" | "copy" | "off";
   keys: Keys;
 }
 
@@ -422,6 +428,8 @@ export const api = {
   readImage: (path: string, source: string) => call<ArrayBuffer>("read_image", { path, source }),
   createNote: (title: string, vault: string) => call<string>("create_note", { title, vault }),
   dailyNote: (date: string, vault: string) => call<string>("daily_note", { date, vault }),
+  /** Pull the previous daily note's open todos into this one; says what happened. */
+  carryTodos: (path: string) => call<string>("carry_todos", { path }),
   /** Archive or unarchive (`archived: true` in front matter); the note stays put unless it leaves a pre-0.8 archive/ folder. */
   archiveNote: (path: string) => call<StatusResult>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),

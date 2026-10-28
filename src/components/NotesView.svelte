@@ -18,6 +18,7 @@
   import TagChip from "./TagChip.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Highlight from "./Highlight.svelte";
+  import { noteName } from "../lib/daily.svelte";
   import Icon from "./Icon.svelte";
   import StatusIcon from "./StatusIcon.svelte";
 
@@ -257,7 +258,7 @@
   }
 
   function name(h: SearchHit) {
-    return h.kind === "ticket" && h.key ? h.key : h.title;
+    return h.kind === "ticket" && h.key ? h.key : noteName(h);
   }
 </script>
 

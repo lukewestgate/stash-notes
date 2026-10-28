@@ -39,6 +39,7 @@
     setSpellCheck,
   } from "./lib/editor";
   import { liveConfig, propertiesHooks } from "./lib/live";
+  import { daily, noteName } from "./lib/daily.svelte";
   import { isKey, isLinkInput, isUrl, keyRegex } from "./lib/links";
   import { statusInfo } from "./lib/status";
   import { History, type Entry } from "./lib/history";
@@ -194,6 +195,7 @@
     applyAppearance(s);
     liveConfig.enabled = s.liveFormatting;
     editorState.spellCheck = s.spellCheck;
+    daily.format = s.dailyDateFormat;
     applyDark();
     if (view) {
       setLiveFormatting(view, s.liveFormatting);
@@ -483,6 +485,22 @@
   async function openDaily() {
     try {
       navigate(await api.dailyNote(isoDate(), currentVault));
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** Pull the previous daily note's open todos into the open daily note. */
+  async function carryTodos() {
+    if (screen !== "editor" || !currentPath || meta?.kind !== "daily") {
+      toast("Open a daily note to bring todos into it");
+      return;
+    }
+    try {
+      await flush();
+      const message = await api.carryTodos(currentPath);
+      if (/^(Moved|Copied)/.test(message)) done(message);
+      else toast(message);
     } catch (e) {
       fail(e);
     }
@@ -921,7 +939,7 @@
     clearCreation();
     const creation = { target: { ...target }, toast: 0 };
     recentCreation = creation;
-    creation.toast = toaster.show(`Created ${target.title}`, "done", { label: "Delete", run: async () => {
+    creation.toast = toaster.show(`Created ${noteName(target)}`, "done", { label: "Delete", run: async () => {
       if (recentCreation !== creation) return;
       try { await deleteNote(creation.target); }
       catch (e) { fail(e); }
@@ -954,7 +972,7 @@
     const undoId = await api.deleteNote(target.path);
     deleted(target.path);
     closeOverlay();
-    done(`Deleted ${target.title}`, { label: "Undo", run: async () => {
+    done(`Deleted ${noteName(target)}`, { label: "Undo", run: async () => {
       try {
         const restored = await api.undoDelete(undoId);
         await navigate(restored);
@@ -1291,6 +1309,7 @@
     hide: () => {},
     quickSwitcher: () => openSwitcher(),
     dailyNote: openDaily,
+    carryTodos,
     followLink: followOrToggle,
     back,
     forward,
@@ -1525,6 +1544,7 @@
       on<string>("switch-vault", (id) => id !== currentVault && switchVault(id)),
       on<null>("quit-requested", quit),
       on<string>("toast", (t) => toast(t, undefined, "warn")),
+      on<string>("todos-carried", (t) => done(t)),
       on<Settings>("settings-changed", (s) => {
         const folders = (x: Settings) => x.vaults.map((v) => `${v.id}=${v.path}`).join("\n");
         if (settings && folders(s) !== folders(settings)) {
@@ -1727,7 +1747,7 @@
         bind:this={linksPanel}
         scope={linksScope}
         links={noteLinks}
-        noteTitle={currentPath && meta ? (meta.label ? `${meta.title} ${meta.label}` : meta.title) : null}
+        noteTitle={currentPath && meta ? (meta.label ? `${meta.title} ${meta.label}` : noteName(meta)) : null}
         vaults={settings.vaults}
         keys={settings.keys}
         version={listVersion}
@@ -1751,7 +1771,7 @@
     <Menu label={overlay.label} items={overlay.items} anchor={overlay.anchor} statuses={settings?.statuses ?? []} onClose={closeOverlay} />
   {:else if overlay?.type === "file"}
     {@const o = overlay}
-    <FileDialog title={o.target.title} archived={o.target.archived}
+    <FileDialog title={noteName(o.target)} archived={o.target.archived}
       onArchive={() => archiveInstead(o.target)} onDelete={() => deleteNote(o.target)} onClose={closeOverlay} />
   {:else if overlay?.type === "tidy"}
     {@const o = overlay}

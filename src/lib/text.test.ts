@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkboxToggle,
+  formatDate,
   firstTicket,
   normalizeTag,
   typingTag,
@@ -37,10 +38,13 @@ describe("refAt", () => {
 
 describe("checkboxes", () => {
   it("toggles both ways", () => {
-    expect(checkboxToggle("- [ ] a")).toEqual({ at: 3, insert: "x" });
-    expect(checkboxToggle("  * [x] a")).toEqual({ at: 5, insert: " " });
-    expect(checkboxToggle("1. [X] a")).toEqual({ at: 4, insert: " " });
+    expect(checkboxToggle("- [ ] a")).toEqual({ at: 3, insert: "x", done: false, moved: false });
+    expect(checkboxToggle("  * [x] a")).toEqual({ at: 5, insert: " ", done: true, moved: false });
+    expect(checkboxToggle("1. [X] a")).toEqual({ at: 4, insert: " ", done: true, moved: false });
     expect(checkboxToggle("- a")).toBeNull();
+  });
+  it("reopens a moved todo", () => {
+    expect(checkboxToggle("- [>] a")).toEqual({ at: 3, insert: " ", done: false, moved: true });
   });
 });
 
@@ -52,7 +56,16 @@ describe("todoCursor", () => {
   it("handles a missing section", () => {
     expect(todoCursor("# d\n")).toBeNull();
     expect(todoCursor("## Todo")).toBe(7);
+    expect(todoCursor("## To do\n- [ ] a")).toBe(16);
   });
+});
+
+it("formats daily dates", () => {
+  expect(formatDate("2026-10-02", "yyyy-MM-dd")).toBe("2026-10-02");
+  expect(formatDate("2026-10-02", "dd/MM/yyyy")).toBe("02/10/2026");
+  expect(formatDate("2026-10-02", "EEE d MMM yyyy")).toBe("Fri 2 Oct 2026");
+  expect(formatDate("2026-10-02", "EEEE d MMMM yy")).toBe("Friday 2 October 26");
+  expect(formatDate("rollout", "dd/MM/yyyy")).toBe("rollout");
 });
 
 it("formats timestamps", () => {

@@ -68,6 +68,12 @@ pub struct Settings {
     pub tag_colors: std::collections::BTreeMap<String, String>,
     /// Status given to new notes for a `[[KEY]]` link (empty for none).
     pub default_status: String,
+    /// How daily notes' dates are shown and written in the template's
+    /// `{{date}}` (`dd/MM/yyyy`; see `dates::format`). Files are always
+    /// named `yyyy-MM-dd`, so they sort by date.
+    pub daily_date_format: String,
+    /// What a new daily note does with the open todos of the one before it.
+    pub carry_todos: crate::todos::CarryTodos,
     /// In-app shortcuts.
     pub keys: Keys,
 }
@@ -183,6 +189,8 @@ pub struct Keys {
     pub hide: String,
     pub quick_switcher: String,
     pub daily_note: String,
+    /// Bring the open todos of the previous daily note into this one.
+    pub carry_todos: String,
     pub follow_link: String,
     pub back: String,
     pub forward: String,
@@ -242,6 +250,8 @@ impl Default for Settings {
             statuses: default_statuses(),
             tag_colors: Default::default(),
             default_status: "open".into(),
+            daily_date_format: crate::dates::ISO_FORMAT.into(),
+            carry_todos: Default::default(),
             keys: Keys::default(),
         }
     }
@@ -253,6 +263,7 @@ impl Default for Keys {
             hide: "Esc".into(),
             quick_switcher: "Ctrl+K".into(),
             daily_note: "Ctrl+D".into(),
+            carry_todos: "Ctrl+Shift+D".into(),
             follow_link: "Ctrl+Enter".into(),
             back: "Alt+Left".into(),
             forward: "Alt+Right".into(),
