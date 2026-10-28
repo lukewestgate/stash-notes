@@ -477,7 +477,9 @@ What matches, from strongest to weakest:
 
 #### Date words
 
-When the query reads as a day, the switcher shows that day under the search box, and the day's daily note comes first. If there isn't one, the **Create** row creates it. Weeks start on Monday. Taking Thursday 22 October 2026 as today:
+When the query reads as a day, the switcher shows that day under the search box, and the day's daily note comes first. If there isn't one, the **Create** row creates it. Weeks start on Monday.
+
+You don't have to finish the last word: `yest`, `last tu`, `tuesday last we` and `3 days` already show the day and put its note near the top. A whole word still wins, so a note titled "Yesteryear" comes first for `yesteryear`, and the **Create** row still makes a note with exactly what you typed until the phrase is complete. Taking Thursday 22 October 2026 as today:
 
 | You type | Day |
 |---|---|

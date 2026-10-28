@@ -89,6 +89,8 @@
   let exact = $state(true);
   /** The day the query names (`last week tue`), as Rust read it. */
   let date = $state<string | null>(null);
+  /** `date` is a guess from a phrase still being typed (`yest`). */
+  let partial = $state(false);
   /** `+ call Sam`: the todo to add to today's note, instead of searching. */
   const todo = $derived(onAddTodo && mode === "open" && query.startsWith("+") ? query.slice(1).trim() : null);
   const dateName = $derived(date ? `${noteName({ kind: "daily", title: date })}${showsWeekday() ? "" : `, ${weekday(date)}`}` : "");
@@ -124,6 +126,7 @@
       hits = r.hits;
       exact = r.exact;
       date = r.date;
+      partial = r.partial;
       sel = 0;
     } catch {
       // keep previous results
@@ -159,7 +162,7 @@
       if (todo) onAddTodo?.(todo, scope);
     } else if (i < hits.length) onChoose(hits[i], peek);
     // A date without its daily note: create that one.
-    else if (showCreate && date) onCreate(date, scope);
+    else if (showCreate && date && !partial) onCreate(date, scope);
     else if (showCreate && linkish) linking = true;
     else if (showCreate) onCreate(query.trim(), scope);
   }
@@ -307,7 +310,7 @@
           <span class="line">
             <span class="kind new">new</span>
             <span class="sym new"><Icon name="plus" size={14} /></span>
-            {#if date}
+            {#if date && !partial}
               <span class="name">Create daily note for {dateName}</span>
               <span class="label">daily</span>
             {:else if linkish}
