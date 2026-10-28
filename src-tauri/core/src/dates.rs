@@ -200,6 +200,46 @@ pub fn parse_query(query: &str, today: NaiveDate, day_first: bool) -> Option<Nai
     latest(today, month, day)
 }
 
+/// The words of date phrases, in the order a half-typed one is finished
+/// with: `to` is today before tomorrow, `th` this before thursday.
+const VOCAB: [&str; 21] = [
+    "today", "yesterday", "tomorrow", "last", "this", "next", "previous", "week", "weeks", "days", "day", "ago", "before",
+    "after", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+];
+
+/// A date phrase still being typed, so the day shows up before the last word
+/// is finished: `yest`, `last tu`, `tuesday last we`, `3 days`. The last word
+/// is finished from the words date phrases use (a lone word needs 3 letters,
+/// one after others any), or `ago`, `yesterday` or `tomorrow` is added after a
+/// whole one. None for a query that's already a date, or isn't on its way to one.
+pub fn parse_partial(query: &str, today: NaiveDate, day_first: bool) -> Option<NaiveDate> {
+    let q = query.trim_start().to_lowercase();
+    if q.trim().is_empty() || parse_query(&q, today, day_first).is_some() {
+        return None;
+    }
+    let parse = |candidate: &str| parse_query(candidate, today, day_first);
+    if q.ends_with(char::is_whitespace) || q.ends_with(',') {
+        return None;
+    }
+    let (head, last) = match q.rsplit_once(|c: char| c.is_whitespace() || c == ',') {
+        Some((h, l)) => (format!("{h} "), l),
+        None => (String::new(), q.as_str()),
+    };
+    let min = if head.is_empty() { 3 } else { 1 };
+    let mut candidates: Vec<String> = Vec::new();
+    if last.len() >= min && last.chars().all(|c| c.is_ascii_alphabetic()) {
+        candidates.extend(VOCAB.iter().filter(|w| w.starts_with(last) && **w != last).map(|w| format!("{head}{w}")));
+    }
+    // Or the last word is whole: `3 days`, `day before`.
+    candidates.push(q.clone());
+    // Each as it is, else with the word that would end it: `2 weeks` + `ago`.
+    let ended = |c: &String| {
+        let more = (!head.is_empty()).then(|| ["ago", "yesterday", "tomorrow"].iter().find_map(|w| parse(&format!("{c} {w}"))));
+        parse(c).or(more.flatten())
+    };
+    candidates.iter().filter(|c| **c != q || !head.is_empty()).find_map(ended)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +323,38 @@ mod tests {
         assert_eq!(parse_query("monday standup notes", t, false), None);
         assert_eq!(parse_query("ten days ago", t, false), Some(d("2026-10-12")));
         assert_eq!(parse_query("many days ago", t, false), None);
+    }
+
+    #[test]
+    fn half_typed_phrases() {
+        // A Thursday.
+        let t = d("2026-10-22");
+        let p = |q: &str| parse_partial(q, t, false);
+        assert_eq!(p("yest"), Some(d("2026-10-21")));
+        assert_eq!(p("Yesterda"), Some(d("2026-10-21")));
+        assert_eq!(p("tod"), Some(t));
+        assert_eq!(p("tom"), Some(d("2026-10-23")));
+        assert_eq!(p("last tu"), Some(d("2026-10-20")));
+        assert_eq!(p("last th"), Some(d("2026-10-15")));
+        assert_eq!(p("last week tu"), Some(d("2026-10-13")));
+        assert_eq!(p("tuesday last we"), Some(d("2026-10-13")));
+        assert_eq!(p("this fr"), Some(d("2026-10-23")));
+        assert_eq!(p("3 days"), Some(d("2026-10-19")));
+        assert_eq!(p("3 days a"), Some(d("2026-10-19")));
+        assert_eq!(p("2 we"), Some(d("2026-10-08")));
+        assert_eq!(p("day before"), Some(d("2026-10-20")));
+        assert_eq!(p("day before yes"), Some(d("2026-10-20")));
+        // Whole dates aren't partial, and nothing is guessed from too little.
+        assert_eq!(p("yesterday"), None);
+        assert_eq!(p("monday"), None);
+        assert_eq!(p("ye"), None);
+        assert_eq!(p("to"), None);
+        assert_eq!(p("last "), None);
+        assert_eq!(p("last"), None);
+        assert_eq!(p("last week"), None);
+        assert_eq!(p("rollout pl"), None);
+        assert_eq!(p("todo"), None);
+        assert_eq!(p(""), None);
     }
 
     #[test]

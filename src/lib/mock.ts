@@ -952,6 +952,7 @@ export function handle(cmd: string, a: A): unknown {
             .map((p) => hit(p)),
           exact: false,
           date: null,
+          partial: false,
         };
       }
       const hits: SearchHit[] = [];
@@ -970,8 +971,11 @@ export function handle(cmd: string, a: A): unknown {
       hits.sort((x, y) => y.score - x.score);
       // The real date words are in Rust (stash_core::dates); the demo knows a few.
       const back = { today: 0, yesterday: 1, "day before yesterday": 2 }[q];
-      const date = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : back === undefined ? null : isoDate(new Date(Date.now() - back * 86_400_000));
-      return { hits, exact, date };
+      const word = Object.keys({ today: 0, yesterday: 1 }).find((w) => q.length >= 3 && w.startsWith(q) && w !== q);
+      const partial = back === undefined && word !== undefined;
+      const days = partial ? { today: 0, yesterday: 1 }[word!]! : back;
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : days === undefined ? null : isoDate(new Date(Date.now() - days * 86_400_000));
+      return { hits, exact, date, partial };
     }
     case "list_notes": {
       const q = String(a.query).trim().toLowerCase();

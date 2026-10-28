@@ -70,3 +70,10 @@ test("Alt+PageUp steps to the previous daily note", async ({ page }) => {
   await page.keyboard.press("Alt+PageUp");
   await expect(page.locator(".toast").last()).toContainText("No earlier daily note");
 });
+
+test("a half-typed date shows its day but still offers a plain note", async ({ page }) => {
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("yest");
+  await expect(page.locator(".datehint")).toBeVisible();
+  await expect(page.locator(".row.create .name")).toHaveText('Create "yest"');
+});

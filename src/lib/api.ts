@@ -118,6 +118,8 @@ export interface SearchResults {
   exact: boolean;
   /** The day the query names (`last week tue`), as `yyyy-MM-dd`. */
   date: string | null;
+  /** `date` is a guess from a phrase still being typed (`yest`). */
+  partial: boolean;
 }
 
 /** An open todo carried from earlier daily notes. */

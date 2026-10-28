@@ -191,6 +191,9 @@ pub struct SearchResults {
     pub exact: bool,
     /// The day the query names (`last week tue`), if it reads as a date.
     pub date: Option<NaiveDate>,
+    /// `date` is a guess from a phrase still being typed (`yest`), so the
+    /// query may yet be something else.
+    pub partial: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -237,6 +240,8 @@ const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const KEY_EXACT: i64 = 100_000;
 const KEY_DIGITS: i64 = 90_000;
 const DATE_EXACT: i64 = 75_000;
+/// The day a half-typed date phrase is on its way to (`yest`).
+const DATE_PARTIAL: i64 = 65_000;
 const TITLE_EXACT: i64 = 70_000;
 const KEY_PREFIX: i64 = 60_000;
 const KEY_FUZZY: i64 = 12_000;
@@ -492,7 +497,7 @@ impl Index {
             SortBy::Title => all.sort_by_key(|e| sort_name(e)),
         }
         let hits = all.into_iter().take(opts.limit).map(|e| e.summary(e.first_line(), 0)).collect();
-        SearchResults { hits, exact: false, date: None }
+        SearchResults { hits, exact: false, date: None, partial: false }
     }
 
     /// The sidebar: notes with an active status (open, then blocked, then the
@@ -631,12 +636,12 @@ impl Index {
         let q = parsed.text.trim();
         if q.is_empty() {
             if !parsed.has_filters() || (parsed.statuses.is_empty() && parsed.tags.is_empty()) {
-                return SearchResults { hits: self.recent(opts, &in_scope), exact: false, date: None };
+                return SearchResults { hits: self.recent(opts, &in_scope), exact: false, date: None, partial: false };
             }
             let mut all: Vec<&NoteEntry> = self.notes.values().filter(|e| visible(e)).collect();
             all.sort_by(|a, b| b.mtime.cmp(&a.mtime));
             let hits = all.into_iter().take(opts.limit).map(|e| e.summary(None, 0)).collect();
-            return SearchResults { hits, exact: false, date: None };
+            return SearchResults { hits, exact: false, date: None, partial: false };
         }
         let mut matcher = Matcher::new(Config::DEFAULT);
         let pattern = Pattern::new(q, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy);
@@ -651,6 +656,8 @@ impl Index {
         let lead_key = self.lead_key(q, opts.prefer);
         let digits_only = !q.is_empty() && q.chars().all(|c| c.is_ascii_digit());
         let date = dates::parse_query(q, opts.today, self.day_first);
+        // `yest`: the day it's on its way to, ranked high but not an exact match.
+        let partial = date.is_none().then(|| dates::parse_partial(q, opts.today, self.day_first)).flatten();
         let words: Vec<String> = q_lower.split_whitespace().map(str::to_string).collect();
 
         let mut exact = false;
@@ -704,6 +711,9 @@ impl Index {
                     best = best.max(MODIFIED_ON_DATE);
                 }
             }
+            if partial.is_some() && e.meta.kind == NoteKind::Daily && e.meta.date == partial {
+                best = best.max(DATE_PARTIAL);
+            }
 
             let mut body_only = false;
             if best < TITLE_FUZZY && e.body_contains_all(&words) {
@@ -735,7 +745,7 @@ impl Index {
             .into_iter()
             .map(|(score, e, body_only)| e.summary(if body_only { e.matching_line(&words) } else { None }, score))
             .collect();
-        SearchResults { hits, exact, date }
+        SearchResults { hits, exact, date: date.or(partial), partial: date.is_none() && partial.is_some() }
     }
 
     /// `PROJ-1234 Do this thing`: the key, if the query starts with a ticket
@@ -1096,6 +1106,23 @@ mod tests {
         assert_eq!(i.search("rollout", &opts(&recents)).date, None);
         i.set_day_first(true);
         assert_eq!(first(&i).as_deref(), Some("notes/2026-10-03.md"));
+    }
+
+    #[test]
+    fn half_typed_dates_find_the_day_but_arent_exact() {
+        let mut i = Index::new(TicketMatcher::default_pattern());
+        i.upsert("notes/2026-10-21.md", "# 2026-10-21\n", 1);
+        i.upsert("notes/yesteryear.md", "# Yesteryear\n", 1);
+        let recents = HashMap::new();
+        let r = i.search("yest", &opts(&recents));
+        assert_eq!(r.hits[0].path, "notes/2026-10-21.md");
+        assert_eq!((r.date, r.partial, r.exact), (dates::parse_iso("2026-10-21"), true, false));
+        // A title it matches exactly still comes first.
+        let r = i.search("yesteryear", &opts(&recents));
+        assert_eq!(r.hits[0].path, "notes/yesteryear.md");
+        assert_eq!(r.date, None);
+        let r = i.search("yesterday", &opts(&recents));
+        assert_eq!((r.partial, r.exact), (false, true));
     }
 
     #[test]
