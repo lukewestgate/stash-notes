@@ -1558,6 +1558,8 @@
       imageError: (message) => toaster.show(message, "error"),
       sendLine,
       todoToggled: (line) => currentPath && api.syncTodo(currentPath, line).catch(fail),
+      dateSuggestions: (typed) => api.dateSuggestions(typed, isoDate()).catch(() => []),
+      todoEdited: (path, old, now) => api.renameTodo(path, old, now).catch(fail),
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     darkQuery.addEventListener("change", applyDark);

@@ -65,6 +65,7 @@ More for the daily note: getting around it, adding to it, and finding days by na
 - **Add a todo from anywhere.** In the `Alt+J` pop-up (or `Ctrl+K`), type `+ chase Sam about the demo` and press `Enter`. It goes into today's Todo list without bringing up the app. See [Daily notes and todos](#daily-notes-and-todos).
 - **Step through daily notes.** `Alt+PgUp` and `Alt+PgDn` go to the previous and next daily note, skipping days without one.
 - **How long a todo has been open.** A carried todo shows a small `5d` badge after it once it's been open two days or more, counted from the daily note it was first written in. The file isn't changed.
+- **`@` suggests days, and edits stay in step (0.10.3).** Typing ` @` at the end of a todo lists the coming days with their dates; picking one sends it. Editing a sent todo's text changes the other end too. `@fri` now means the coming Friday (0.10.2 sent it to the last one).
 - **Send a todo to a daily note from any note (0.10.2).** In a ticket, write `- [ ] chase Sam @today` (or `@tomorrow`, `@fri`, `@next mon`) and press `Enter`, or press `Ctrl+Shift+Enter` on any line. It goes into that day's Todo list as `chase Sam · PROJ-123`, the ticket's line becomes `chase Sam → 28/10`, each links to the other, and ticking either ticks both. See [Sending todos from other notes](#sending-todos-from-other-notes).
 - **More date words in search:** `last tuesday`, `tuesday last week`, `this week fri`, `next monday`, `3 days ago`, `a week ago`, `2 weeks ago monday`, `day before yesterday`. The switcher shows which day it read, and offers to create that day's note if there isn't one. See [Quick switcher and search](#quick-switcher-and-search).
 
@@ -665,9 +666,12 @@ Press **`Ctrl+E` then `P`** to pop the current note out into a small always-on-t
 Write a todo where it belongs (in a ticket, a meeting note, anywhere) and send it to a daily note, so it's on your list without copying it by hand.
 
 - **End the line with a day and press `Enter`:** `- [ ] chase Sam about the rollout date @today`. Any [date word](#date-words) works after the `@`: `@tomorrow`, `@fri`, `@next mon`, `@3/11`. A plain line or bullet (`chase Sam @today`) is made a todo.
+- **Suggestions as you type:** after ` @`, a list offers today, tomorrow and the coming weekdays (then `next …`), each with its date, narrowing as you type (`@fr` → friday). Anything else that names a day (`@3/11`) is offered too. Pick one with `Enter` (or a click) and the todo is sent there and then.
+- **Days look ahead:** `@fri` is the coming Friday (today, if it's Friday), and `@3/11` the next 3 November. Words that say otherwise still do: `@last fri`, `@yesterday`.
 - **Or press `Ctrl+Shift+Enter`** on the line to send it to today, with no `@` needed.
 - That day's Todo list gets `- [ ] chase Sam about the rollout date · [[PROJ-123]]`, and the line you wrote becomes `- [ ] chase Sam about the rollout date → [[2026-10-28]]`, shown as `→ 28/10/2026` (in your daily note date format). Ctrl+click either link to jump to the other note, and each note's backlinks list the other.
 - **Ticking either one ticks the other** (and unticking unticks).
+- **Editing the text of either one edits the other**, a second after you stop typing. The box and the link stay as they are.
 - **A day still ahead** (`@fri`) gets the todo when its daily note is made (by `Ctrl+D` on the day, or following the `→` link), so it's waiting there that morning.
 - **It moves with you:** when a sent todo is carried to the next day, the `→` in the note it came from follows it. The line where it was written isn't carried itself; it stays where you wrote it.
 - `@` needs a space before it and a date after it, so `bob@example.com` and `@sam` are left alone.

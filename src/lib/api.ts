@@ -458,6 +458,10 @@ export const api = {
     call<{ line: string; message: string } | null>("send_todo", { path, line, today, now }),
   /** A sent todo was ticked or unticked: tick the other end to match. */
   syncTodo: (path: string, line: string) => call<void>("sync_todo", { path, line }),
+  /** The days to offer after `@` in a todo, for the words typed so far. */
+  dateSuggestions: (typed: string, today: string) => call<{ words: string; date: string }[]>("date_suggestions", { typed, today }),
+  /** A sent todo's text was edited (`old` -> `now` lines): edit the other end to match. */
+  renameTodo: (path: string, old: string, now: string) => call<void>("rename_todo", { path, old, new: now }),
   /** Archive or unarchive (`archived: true` in front matter); the note stays put unless it leaves a pre-0.8 archive/ folder. */
   archiveNote: (path: string) => call<StatusResult>("archive_note", { path }),
   renameNote: (path: string, title: string) => call<RenameResult>("rename_note", { path, title }),
