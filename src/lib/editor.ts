@@ -5,6 +5,7 @@
 import {
   autocompletion,
   completionKeymap,
+  completionStatus,
   type Completion,
   type CompletionContext,
   type CompletionResult,
@@ -27,8 +28,8 @@ import { tags as t } from "@lezer/highlight";
 import { api, type SearchHit } from "./api";
 import { frontMatterField, frontMatterSyntax, liveConfig, liveDecorations, liveWikiLinks, previewText, toggleWrap } from "./live";
 import { isPageLink, pageEmbeds, pageLinkSyntax } from "./page-links";
-import { checkboxToggle, refAt, URL_RE, WIKI_RE, wikiTarget } from "./text";
-import { noteName } from "./daily.svelte";
+import { checkboxToggle, refAt, URL_RE, weekday, WIKI_RE, wikiTarget } from "./text";
+import { noteName, showsWeekday } from "./daily.svelte";
 import "./page-links.css";
 import { imageEmbeds, imageInput } from "./images";
 
@@ -53,6 +54,60 @@ export interface EditorHooks {
   sendLine?(from: number, text: string, now: boolean): void;
   /** A todo sent to or from a daily note was ticked or unticked (`text` is its line now). */
   todoToggled?(text: string): void;
+  /** The days to offer after `@` at the end of a todo, for the words typed so far. */
+  dateSuggestions?(typed: string): Promise<{ words: string; date: string }[]>;
+  /** The text of a sent todo in the note at `path` was edited: its line `old` is now `now`. */
+  todoEdited?(path: string, old: string, now: string): void;
+}
+
+/** A sent todo's line: indent, list mark and box; the box; its text; `·` or `→`; the link. */
+const SENT_RE = /^(\s*(?:[-*+]|\d+[.)])\s+\[(.)\]\s+)(.*?)\s+(·|→)\s+\[\[([^\[\]\n]+)\]\]\s*$/;
+
+/** `old` -> `now` is an edit inside a sent todo's text (its box and link stay). */
+function sentTextEdit(old: string, now: string): boolean {
+  const [a, b] = [SENT_RE.exec(old), SENT_RE.exec(now)];
+  return !!a && !!b && a[2] === b[2] && a[4] === b[4] && a[5] === b[5];
+}
+
+/** A sent todo's text, for telling whether an edit changed it. */
+const sentText = (line: string) => SENT_RE.exec(line)?.[3].trim() ?? "";
+
+/** "Fri 30/10/2026", or "30/10/2026, Friday" when the format leaves out the day. */
+function dayLabel(iso: string): string {
+  const name = noteName({ kind: "daily", title: iso });
+  return showsWeekday() ? name : `${name}, ${weekday(iso)}`;
+}
+
+/**
+ * After ` @` at the end of a line: the days it could mean. Choosing one
+ * sends the line to that day's daily note, as Enter would.
+ */
+function dateCompletions(hooks: EditorHooks) {
+  return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
+    if (!hooks.dateSuggestions || !hooks.sendLine) return null;
+    const line = ctx.state.doc.lineAt(ctx.pos);
+    if (ctx.pos !== line.to) return null;
+    const m = /\S\s+@([^@]*)$/.exec(line.text);
+    if (!m) return null;
+    const typed = m[1];
+    const list = await hooks.dateSuggestions(typed);
+    if (ctx.aborted || !list.length) return null;
+    return {
+      from: ctx.pos - typed.length,
+      filter: false,
+      options: list.map((s, i) => ({
+        label: s.words,
+        detail: dayLabel(s.date),
+        type: "date",
+        boost: -i,
+        apply: (view: EditorView, _c: Completion, from: number, to: number) => {
+          view.dispatch({ changes: { from, to, insert: s.words } });
+          const l = view.state.doc.lineAt(from);
+          hooks.sendLine?.(l.from, l.text, false);
+        },
+      })),
+    };
+  };
 }
 
 /** A line ending in `@` and a word or two: maybe a day to send it to. */
@@ -349,6 +404,32 @@ function embeddedPages(path: () => string | null, open: (path: string) => void, 
 }
 
 export function editorExtensions(hooks: EditorHooks): Extension[] {
+  // Edits to a sent todo's text, passed on once typing pauses (or another
+  // line is edited), so the other end isn't rewritten on every key.
+  let pending: { path: string; old: string; now: string } | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flushEdit = () => {
+    clearTimeout(timer);
+    if (pending && sentText(pending.now) && sentText(pending.old) !== sentText(pending.now)) hooks.todoEdited?.(pending.path, pending.old, pending.now);
+    pending = null;
+  };
+  const trackTextEdits = (u: ViewUpdate) => {
+    u.changes.iterChanges((fromA, _toA, fromB, toB) => {
+      const after = u.state.doc.lineAt(fromB);
+      if (toB > after.to) return;
+      const before = u.startState.doc.lineAt(fromA).text;
+      if (pending && pending.now === before && SENT_RE.exec(after.text)) {
+        pending.now = after.text;
+      } else if (sentTextEdit(before, after.text)) {
+        const path = hooks.path();
+        if (!path) return;
+        flushEdit();
+        pending = { path, old: before, now: after.text };
+      } else return;
+      clearTimeout(timer);
+      timer = setTimeout(flushEdit, 1000);
+    });
+  };
   return [
     layout,
     colors.of(colorTheme(editorState.dark)),
@@ -363,7 +444,7 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
     imageInput(hooks),
     frontMatterField,
     autocompletion({
-      override: [linkCompletions(hooks)],
+      override: [linkCompletions(hooks), dateCompletions(hooks)],
       icons: false,
       activateOnTyping: true,
       maxRenderedOptions: 30,
@@ -377,6 +458,8 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
           run: (view) => {
             const sel = view.state.selection.main;
             const line = view.state.doc.lineAt(sel.head);
+            // With suggestions open, Enter picks one (and that sends the line).
+            if (completionStatus(view.state) === "active") return false;
             if (hooks.sendLine && sel.empty && sel.head === line.to && SEND_RE.test(line.text)) hooks.sendLine(line.from, line.text, false);
             return false;
           },
@@ -395,6 +478,7 @@ export function editorExtensions(hooks: EditorHooks): Extension[] {
       if (!u.docChanged) return;
       hooks.onChange();
       if (hooks.todoToggled) for (const line of toggledLines(u)) if (/ (·|→) \[\[[^\]]+\]\]\s*$/.test(line)) hooks.todoToggled(line);
+      if (hooks.todoEdited) trackTextEdits(u);
     }),
     EditorView.domEventHandlers({
       paste(e) {

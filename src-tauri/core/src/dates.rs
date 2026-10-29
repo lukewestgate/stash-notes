@@ -200,6 +200,57 @@ pub fn parse_query(query: &str, today: NaiveDate, day_first: bool) -> Option<Nai
     latest(today, month, day)
 }
 
+/// A day to send a todo to (`@fri`): like `parse_query`, but looking ahead.
+/// A lone weekday is the next one (today included), and a day of the year
+/// without a year (`3/11`, `nov 3`) the next time it comes round. Phrases
+/// that say which way to look (`last fri`, `yesterday`) mean what they say.
+pub fn parse_ahead(query: &str, today: NaiveDate, day_first: bool) -> Option<NaiveDate> {
+    let q = query.trim().to_lowercase();
+    let words: Vec<&str> = q.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
+    if let [w] = words.as_slice() {
+        if let Some(wd) = weekday_from(w) {
+            let ahead = (wd.num_days_from_monday() as i64 - today.weekday().num_days_from_monday() as i64).rem_euclid(7);
+            return Some(today + Duration::days(ahead));
+        }
+    }
+    let d = parse_query(&q, today, day_first)?;
+    let two_numbers = words.len() == 1 && q.split('/').count() == 2;
+    let month_day = words.len() == 2 && words.iter().any(|w| month_from(w).is_some());
+    if d < today && (two_numbers || month_day) {
+        return NaiveDate::from_ymd_opt(d.year() + 1, d.month(), d.day()).or(Some(d));
+    }
+    Some(d)
+}
+
+/// What to offer after `@` in a todo, for `typed` so far: (words, day).
+/// Today, tomorrow and the coming weekdays (then `next …`), whichever start
+/// with what's typed, and what's typed itself when it already names a day
+/// (`3/11`, `in 2 weeks`… anything `parse_ahead` reads).
+pub fn suggest(typed: &str, today: NaiveDate, day_first: bool) -> Vec<(String, NaiveDate)> {
+    const DAYS: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    let typed = typed.trim_start().to_lowercase();
+    let now = today.weekday().num_days_from_monday() as usize;
+    // The coming weekdays (today's and tomorrow's only once something's
+    // typed, as `today` and `tomorrow` already are them), then the `next` ones.
+    let first = if typed.is_empty() { 2 } else { 0 };
+    let mut phrases: Vec<String> = vec!["today".into(), "tomorrow".into()];
+    phrases.extend((first..7).map(|i| DAYS[(now + i) % 7].to_string()));
+    phrases.extend(DAYS.iter().map(|d| format!("next {d}")));
+    let mut out: Vec<(String, NaiveDate)> = Vec::new();
+    if let Some(d) = parse_ahead(&typed, today, day_first).filter(|_| !typed.trim().is_empty()) {
+        if !phrases.iter().any(|p| *p == typed.trim()) {
+            out.push((typed.trim().to_string(), d));
+        }
+    }
+    for p in phrases.iter().filter(|p| p.starts_with(typed.as_str())) {
+        if let Some(d) = parse_ahead(p, today, day_first) {
+            out.push((p.clone(), d));
+        }
+    }
+    out.truncate(8);
+    out
+}
+
 /// The words of date phrases, in the order a half-typed one is finished
 /// with: `to` is today before tomorrow, `th` this before thursday.
 const VOCAB: [&str; 21] = [
@@ -355,6 +406,39 @@ mod tests {
         assert_eq!(p("rollout pl"), None);
         assert_eq!(p("todo"), None);
         assert_eq!(p(""), None);
+    }
+
+    #[test]
+    fn looking_ahead() {
+        // A Thursday.
+        let t = d("2026-10-22");
+        let a = |q: &str| parse_ahead(q, t, true);
+        assert_eq!(a("fri"), Some(d("2026-10-23")));
+        assert_eq!(a("thursday"), Some(t));
+        assert_eq!(a("wed"), Some(d("2026-10-28")));
+        assert_eq!(a("3/11"), Some(d("2026-11-03")));
+        assert_eq!(a("1/10"), Some(d("2027-10-01")));
+        assert_eq!(a("oct 1"), Some(d("2027-10-01")));
+        assert_eq!(a("1/10/2026"), Some(d("2026-10-01")));
+        // Phrases that say which way still do.
+        assert_eq!(a("last fri"), Some(d("2026-10-16")));
+        assert_eq!(a("yesterday"), Some(d("2026-10-21")));
+        assert_eq!(a("next mon"), Some(d("2026-10-26")));
+        assert_eq!(a("sam"), None);
+    }
+
+    #[test]
+    fn suggestions() {
+        let t = d("2026-10-22");
+        let labels = |q: &str| suggest(q, t, true).into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+        assert_eq!(labels(""), ["today", "tomorrow", "saturday", "sunday", "monday", "tuesday", "wednesday", "next monday"]);
+        assert_eq!(labels("t"), ["today", "tomorrow", "thursday", "tuesday"]);
+        assert_eq!(labels("fr"), ["friday"]);
+        assert_eq!(labels("th"), ["thursday"]);
+        assert_eq!(labels("ne"), ["next monday", "next tuesday", "next wednesday", "next thursday", "next friday", "next saturday", "next sunday"]);
+        assert_eq!(suggest("3/11", t, true), vec![("3/11".to_string(), d("2026-11-03"))]);
+        assert_eq!(suggest("fri", t, true)[0], ("fri".to_string(), d("2026-10-23")));
+        assert!(suggest("sam", t, true).is_empty());
     }
 
     #[test]

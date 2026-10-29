@@ -127,3 +127,37 @@ test("ticking a sent todo asks for the other end to match", async ({ page }) => 
   await page.locator(".cm-task").nth(1).click();
   expect(await page.evaluate(() => (window as any).__synced)).toEqual(["- [x] chase Sam · [[PROJ-123]]"]);
 });
+
+test("@ suggests days, and choosing one sends the todo", async ({ page }) => {
+  await openTicket(page);
+  await typeAtEnd(page, "\n- [ ] book the room @to");
+  const options = page.locator(".cm-tooltip-autocomplete li");
+  await expect(options).toHaveCount(2);
+  await expect(options.first()).toContainText("today");
+  await expect(options.first().locator(".cm-completionDetail")).not.toBeEmpty();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".toast").last()).toContainText("Added to");
+  await expect.poll(() => page.evaluate(doc)).toMatch(/- \[ \] book the room → \[\[\d{4}-\d{2}-\d{2}\]\]/);
+  // Enter picked the day; it didn't also start a new list item.
+  expect(await page.evaluate(doc)).not.toMatch(/→ \[\[\d{4}-\d{2}-\d{2}\]\]\n- \[ \] $/);
+});
+
+test("editing a sent todo's text passes the edit on once typing pauses", async ({ page }) => {
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite development module.
+    const { api } = await import("/src/lib/api.ts");
+    (window as any).__renamed = [];
+    api.renameTodo = async (_path: string, old: string, now: string) => (window as any).__renamed.push([old, now]);
+  });
+  await setDocument(page, "## Todo\n\n- [ ] chase Sam · [[PROJ-123]]\n");
+  await page.evaluate(() => {
+    const view = (window as any).__view();
+    const at = view.state.doc.toString().indexOf("Sam") + 3;
+    view.dispatch({ selection: { anchor: at } });
+    view.focus();
+  });
+  await page.keyboard.type(" about the date");
+  await expect.poll(() => page.evaluate(() => (window as any).__renamed), { timeout: 4000 }).toEqual([
+    ["- [ ] chase Sam · [[PROJ-123]]", "- [ ] chase Sam about the date · [[PROJ-123]]"],
+  ]);
+});

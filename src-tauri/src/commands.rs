@@ -572,7 +572,7 @@ pub fn send_todo(app: AppHandle, state: State<AppState>, path: String, line: Str
         (line.as_str(), today)
     } else {
         let Some(at) = line.rfind(" @") else { return Ok(None) };
-        match dates::parse_query(&line[at + 2..], today, day_first) {
+        match dates::parse_ahead(&line[at + 2..], today, day_first) {
             Some(d) => (line[..at].trim_end(), d),
             None => return Ok(None),
         }
@@ -599,6 +599,39 @@ pub fn send_todo(app: AppHandle, state: State<AppState>, path: String, line: Str
         format!("Scheduled for {}", state.file_name(&format!("{day}.md")))
     };
     Ok(Some(SentTodo { line: new_line, message }))
+}
+
+#[derive(Serialize)]
+pub struct DateSuggestion {
+    /// The words after `@`.
+    words: String,
+    /// The day they name (`yyyy-MM-dd`).
+    date: chrono::NaiveDate,
+}
+
+/// What to offer after `@` at the end of a todo, for the words typed so far.
+#[tauri::command]
+pub fn date_suggestions(state: State<AppState>, typed: String, today: String) -> Res<Vec<DateSuggestion>> {
+    let today = dates::parse_iso(&today).ok_or_else(|| format!("bad date {today}"))?;
+    let day_first = dates::day_first(&state.settings.read().unwrap().daily_date_format);
+    Ok(dates::suggest(&typed, today, day_first).into_iter().map(|(words, date)| DateSuggestion { words, date }).collect())
+}
+
+/// The text of a sent todo was edited in the note at `path` (`old` and
+/// `new` are its line before and after): give the other end the new text.
+#[tauri::command]
+pub fn rename_todo(app: AppHandle, state: State<AppState>, path: String, old: String, new: String) -> Res<()> {
+    let (Some((_, before, sent)), Some((_, after, still))) = (todos::sent_task(&old), todos::sent_task(&new)) else { return Ok(()) };
+    if sent != still || before == after {
+        return Ok(());
+    }
+    let path = state.qualify(&path)?;
+    let vault = note::split_path(&path).0;
+    let (target, origin) = match sent {
+        todos::Sent::Copy { source } => (source, true),
+        todos::Sent::Origin { day } => (day, false),
+    };
+    edit_text(&app, &state, &target, vault, |t| todos::rename_sent(t, &before, &after, origin))
 }
 
 /// A sent todo's box changed in the note at `path` (`line` is the line

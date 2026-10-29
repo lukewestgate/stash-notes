@@ -384,6 +384,8 @@
         if (sent && replaceLine(view, from, text, sent.line)) say(sent.message);
       },
       todoToggled: (line) => path && api.syncTodo(path, line).catch((e) => say(String(e))),
+      dateSuggestions: (typed) => api.dateSuggestions(typed, isoDate()).catch(() => []),
+      todoEdited: (p, old, now) => api.renameTodo(p, old, now).catch((e) => say(String(e))),
     });
     view = new EditorView({ parent: editorEl, state: EditorState.create({ doc: "", extensions }) });
     propertiesHooks.current = {

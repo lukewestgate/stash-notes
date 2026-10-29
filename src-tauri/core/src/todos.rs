@@ -267,6 +267,30 @@ pub fn mark_sent(note: &str, text: &str, origin: bool, mark: char) -> Option<Str
     None
 }
 
+/// Change the text of the sent todo in `note` that reads `old` (any case),
+/// at the end `origin` says, to `new`, keeping its box and its link. None
+/// when there's no such line.
+pub fn rename_sent(note: &str, old: &str, new: &str, origin: bool) -> Option<String> {
+    let (want, new) = (old.to_lowercase(), new.trim());
+    if new.is_empty() {
+        return None;
+    }
+    for (at, line) in lines(note) {
+        let Some((m, t, sent)) = sent_task(line) else { continue };
+        if t.to_lowercase() != want || matches!(sent, Sent::Origin { .. }) != origin || m == '>' {
+            continue;
+        }
+        let task = task(line)?;
+        let after_box = &line[task.mark_at + 2..];
+        let body_at = task.mark_at + 2 + after_box.len() - after_box.trim_start().len();
+        let text_len = sent_regex().captures(task.text)?.get(1)?.as_str().trim_end().len();
+        let mut out = note.to_string();
+        out.replace_range(at + body_at..at + body_at + text_len, new);
+        return Some(out);
+    }
+    None
+}
+
 /// Point the origin of a sent todo at the day it lives on now
 /// (`→ [[from]]` to `→ [[to]]`), after it was carried. None if not found.
 pub fn retarget(note: &str, text: &str, from: &str, to: &str) -> Option<String> {
@@ -514,6 +538,17 @@ mod tests {
         assert_eq!(mark_sent(ticket, "chase sam", false, 'x'), None);
         let daily = "- [>] chase Sam · [[PROJ-1]]\n- [ ] chase Sam · [[PROJ-1]]\n";
         assert_eq!(mark_sent(daily, "chase sam", false, 'x').unwrap(), "- [>] chase Sam · [[PROJ-1]]\n- [x] chase Sam · [[PROJ-1]]\n");
+    }
+
+    #[test]
+    fn renaming_either_end() {
+        let ticket = "- [ ] chase Sam → [[2026-10-28]]\n";
+        assert_eq!(rename_sent(ticket, "Chase sam", "chase Sam about the date", true).unwrap(), "- [ ] chase Sam about the date → [[2026-10-28]]\n");
+        assert_eq!(rename_sent(ticket, "chase sam", "x", false), None);
+        assert_eq!(rename_sent(ticket, "chase sam", "  ", true), None);
+        assert_eq!(rename_sent("- [ ] a → [[2026-10-28]]  \n", "a", "b", true).unwrap(), "- [ ] b → [[2026-10-28]]  \n");
+        let daily = "- [>] old · [[PROJ-1]]\r\n- [x] old · [[PROJ-1]]\r\n";
+        assert_eq!(rename_sent(daily, "old", "new", false).unwrap(), "- [>] old · [[PROJ-1]]\r\n- [x] new · [[PROJ-1]]\r\n");
     }
 
     #[test]

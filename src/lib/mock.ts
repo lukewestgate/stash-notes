@@ -806,7 +806,17 @@ export function handle(cmd: string, a: A): unknown {
       return { line: `- [ ] ${body} → [[${day}]]`, message: `Added to ${day}` };
     }
     case "sync_todo":
+    case "rename_todo":
       return;
+    case "date_suggestions": {
+      // The real list is in Rust (dates::suggest); the demo offers two days.
+      const day = (n: number) => isoDate(new Date(Date.now() + n * 86_400_000));
+      const typed = String(a.typed).trim().toLowerCase();
+      return [
+        { words: "today", date: day(0) },
+        { words: "tomorrow", date: day(1) },
+      ].filter((s) => s.words.startsWith(typed));
+    }
     case "adjacent_daily":
       return null;
     case "todo_ages":
